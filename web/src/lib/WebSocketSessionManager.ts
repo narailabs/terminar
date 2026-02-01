@@ -275,6 +275,15 @@ export class WebSocketSessionManager extends EventEmitter {
             case 'SessionClosed':
                 this.emit('sessionClosed', parsed.session_id);
                 break;
+            case 'SessionActivity':
+                this.emit('sessionActivity', parsed.session_id, parsed.activity_type);
+                break;
+            case 'SessionExited':
+                this.emit('sessionExited', parsed.session_id, parsed.exit_code);
+                break;
+            case 'ForegroundChanged':
+                this.emit('foregroundChanged', parsed.session_id, parsed.process_name);
+                break;
             case 'Shutdown':
                 console.log('[WS] Server shutting down:', parsed.reason);
                 this.emit('shutdown', parsed.reason);

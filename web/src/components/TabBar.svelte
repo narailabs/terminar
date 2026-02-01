@@ -4,6 +4,26 @@
 
   export let tabs: Tab[] = [];
   export let activeTabId: TabId | null = null;
+  /** Map of tabId -> activity type (for background tab activity badges) */
+  export let tabActivities: Map<string, string> = new Map();
+  /** Map of tabId -> { exited: boolean, exitCode: number | null } */
+  export let tabExitStates: Map<string, { exited: boolean; exitCode: number | null }> = new Map();
+  /** Map of tabId -> { icon: string, color: string, displayName: string } */
+  export let tabAgents: Map<string, { icon: string; color: string; displayName: string }> = new Map();
+
+  function getActivityIcon(activityType: string): string {
+    switch (activityType) {
+      case 'bell': return '\u{1F514}'; // 🔔
+      case 'silence': return '\u{1F4A4}'; // 💤
+      default: return '\u{25CF}'; // ● dot
+    }
+  }
+
+  function getExitLabel(exitState: { exited: boolean; exitCode: number | null }): string {
+    if (!exitState.exited) return '';
+    if (exitState.exitCode !== null) return `[exited: ${exitState.exitCode}]`;
+    return '[exited]';
+  }
 
   const dispatch = createEventDispatcher<{
     select: { tabId: TabId };
@@ -114,6 +134,10 @@
         aria-selected={tab.id === activeTabId}
         tabindex="0"
       >
+        {#if tabAgents.has(tab.id)}
+          {@const agent = tabAgents.get(tab.id)}
+          <span class="agent-icon" data-testid="agent-icon" style="color: {agent.color}" title={agent.displayName}>{agent.icon}</span>
+        {/if}
         {#if editingTabId === tab.id}
           <input
             type="text"
@@ -125,6 +149,12 @@
           />
         {:else}
           <span class="tab-name">{tab.name}</span>
+        {/if}
+        {#if tabActivities.has(tab.id) && tab.id !== activeTabId}
+          <span class="activity-badge" data-testid="activity-badge">{getActivityIcon(tabActivities.get(tab.id))}</span>
+        {/if}
+        {#if tabExitStates.has(tab.id) && tabExitStates.get(tab.id).exited}
+          <span class="exit-badge" data-testid="exit-badge">{getExitLabel(tabExitStates.get(tab.id))}</span>
         {/if}
         <button
           class="tab-close"
@@ -221,6 +251,26 @@
 
   .tab.active .tab-name {
     color: var(--ui-text-primary, #fff);
+  }
+
+  .agent-icon {
+    font-size: 10px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+
+  .activity-badge {
+    font-size: 10px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+
+  .exit-badge {
+    font-size: 10px;
+    line-height: 1;
+    color: var(--ui-text-muted, #888);
+    flex-shrink: 0;
+    white-space: nowrap;
   }
 
   .tab-rename-input {

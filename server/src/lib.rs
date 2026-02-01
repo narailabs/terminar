@@ -17,6 +17,7 @@ pub mod jwt;
 pub mod logging;
 pub mod messages;
 pub mod persistence;
+pub mod process;
 pub mod pty;
 pub mod session;
 pub mod settings;
@@ -65,6 +66,90 @@ use serde::{Deserialize, Serialize};
 
 // Re-export PTY_READ_BUFFER_SIZE for backward compatibility
 pub use constants::PTY_READ_BUFFER_SIZE;
+
+/// Polls all active sessions for foreground process changes.
+///
+/// For each running session with a valid PTY fd, calls `get_foreground_process()`
+/// and compares with the current value. If changed, updates the session and
+/// broadcasts a `ForegroundChanged` notification to attached clients.
+///
+/// Sessions in Closed, Error, or Exited state are skipped.
+fn poll_foreground_processes(sessions: &SessionMap) {
+    let mut guard = sessions.lock();
+    for session in guard.values_mut() {
+        // Skip sessions that aren't running
+        match session.state {
+            session::SessionState::Running => {}
+            _ => continue,
+        }
+
+        // Skip sessions without a PTY fd (e.g., mock PTYs)
+        let pty_fd = match session.pty_fd {
+            Some(fd) => fd,
+            None => continue,
+        };
+
+        let new_process = process::get_foreground_process(pty_fd);
+
+        // Only broadcast if the process name actually changed
+        if new_process != session.foreground_process {
+            let old = session.foreground_process.clone();
+            session.foreground_process = new_process.clone();
+            tracing::debug!(
+                session_id = %session.id,
+                old_process = ?old,
+                new_process = ?new_process,
+                "Foreground process changed"
+            );
+
+            // Broadcast ForegroundChanged to attached clients
+            // Use the output_tx broadcast channel - clients listening for session
+            // events will receive this notification
+            let _ = session.output_tx.send(session::SessionEvent::ForegroundChanged(new_process.clone()));
+        }
+    }
+}
+
+/// Check for silence in active sessions and send silence notifications.
+/// Runs periodically (every 5 seconds) and checks if `last_output_at` is older
+/// than the session's silence threshold. If so, sends a Silence event.
+fn check_silence(sessions: &SessionMap) {
+    let guard = sessions.lock();
+    for session in guard.values() {
+        // Only check running sessions
+        match session.state {
+            session::SessionState::Running => {}
+            _ => continue,
+        }
+
+        // Skip if already notified about silence
+        if session.silence_notified.load(std::sync::atomic::Ordering::Relaxed) {
+            continue;
+        }
+
+        // Skip if no output has ever been received
+        let last_output = match *session.last_output_at.lock() {
+            Some(t) => t,
+            None => continue,
+        };
+
+        // Check if silence threshold has been exceeded
+        let elapsed = last_output.elapsed();
+        if elapsed >= Duration::from_secs(session.silence_threshold_secs) {
+            session.silence_notified.store(true, std::sync::atomic::Ordering::Relaxed);
+            tracing::debug!(
+                session_id = %session.id,
+                elapsed_secs = elapsed.as_secs(),
+                threshold_secs = session.silence_threshold_secs,
+                "Silence detected"
+            );
+            // Only send if there are subscribers (attached clients)
+            if session.output_tx.receiver_count() > 0 {
+                let _ = session.output_tx.send(session::SessionEvent::Silence);
+            }
+        }
+    }
+}
 
 /// Creates a CORS layer based on CLI configuration
 fn create_cors_layer(origins: &[String]) -> CorsLayer {
@@ -486,7 +571,43 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
         }
     });
 
-    // 3. Wait for shutdown signal (SIGTERM or SIGINT)
+    // 3. Start foreground process polling task
+    let fg_sessions = sessions.clone();
+    let mut fg_shutdown_rx = shutdown_tx.subscribe();
+    let _fg_poll_task = tokio::spawn(async move {
+        let poll_interval = Duration::from_secs(2);
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(poll_interval) => {
+                    poll_foreground_processes(&fg_sessions);
+                }
+                _ = fg_shutdown_rx.recv() => {
+                    info!("Foreground process polling task received shutdown signal");
+                    break;
+                }
+            }
+        }
+    });
+
+    // 4. Start silence checker task (Activity Monitoring - F3a)
+    let silence_sessions = sessions.clone();
+    let mut silence_shutdown_rx = shutdown_tx.subscribe();
+    let _silence_task = tokio::spawn(async move {
+        let check_interval = Duration::from_secs(5);
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(check_interval) => {
+                    check_silence(&silence_sessions);
+                }
+                _ = silence_shutdown_rx.recv() => {
+                    info!("Silence checker task received shutdown signal");
+                    break;
+                }
+            }
+        }
+    });
+
+    // 5. Wait for shutdown signal (SIGTERM or SIGINT)
     let shutdown_signal = async {
         #[cfg(unix)]
         {
@@ -1097,6 +1218,17 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
         info!("WebSocket client authenticated successfully");
     }
 
+    // Determine client_id for workspace persistence.
+    // Local/no-auth connections use "local" (stable identifier for the single local user).
+    // Remote authenticated connections would ideally use a hash of the auth identity.
+    let client_id = if is_local || state.no_auth {
+        "local".to_string()
+    } else {
+        // For remote authenticated connections, use a UUID per connection.
+        // Future enhancement: derive from authenticated user identity (username, token hash).
+        Uuid::new_v4().to_string()
+    };
+
     // Phase 2: Normal message processing with ping/pong health monitoring
     let (tx_out, mut rx_out) = mpsc::channel::<ServerMessage>(32);
     let sessions = state.sessions.clone();
@@ -1171,7 +1303,7 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
                             ) {
                                 continue;
                             }
-                            if let Err(e) = process_message(&client_msg, &tx_out, &sessions, &state, &mut attach_tasks).await {
+                            if let Err(e) = process_message(&client_msg, &tx_out, &sessions, &state, &mut attach_tasks, &client_id).await {
                                 error!("Process error: {}", e);
                             }
                         }
@@ -1228,6 +1360,9 @@ where S: AsyncRead + AsyncWrite + Unpin + Send + 'static {
         }
     });
 
+    // Unix socket connections are always local - use "local" as client_id for workspace persistence
+    let client_id = "local";
+
     // Reader: read length-prefixed frames
     let mut attach_tasks = handlers::io::AttachTasks::new();
     loop {
@@ -1257,7 +1392,7 @@ where S: AsyncRead + AsyncWrite + Unpin + Send + 'static {
             Ok(json) if !json.trim().is_empty() => {
                 match serde_json::from_str::<ClientMessage>(&json) {
                     Ok(msg) => {
-                        if let Err(e) = process_message(&msg, &tx_out, &sessions, &state, &mut attach_tasks).await {
+                        if let Err(e) = process_message(&msg, &tx_out, &sessions, &state, &mut attach_tasks, client_id).await {
                             error!("Process error: {}", e);
                         }
                     }
@@ -1280,11 +1415,12 @@ async fn process_message(
     sessions: &SessionMap,
     state: &AppState,
     attach_tasks: &mut handlers::io::AttachTasks,
+    client_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let process_start = Instant::now();
     state.messages_processed_total.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     info!(message_type = %format!("{:?}", std::mem::discriminant(msg)), "Received message: {:?}", msg);
-    let result = process_message_inner(msg, tx_out, sessions, state, attach_tasks).await;
+    let result = process_message_inner(msg, tx_out, sessions, state, attach_tasks, client_id).await;
     let elapsed = process_start.elapsed();
     info!(
         message_latency_ms = elapsed.as_secs_f64() * 1000.0,
@@ -1300,6 +1436,7 @@ async fn process_message_inner(
     sessions: &SessionMap,
     state: &AppState,
     attach_tasks: &mut handlers::io::AttachTasks,
+    client_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match msg {
         ClientMessage::PairRequest => {
@@ -1327,6 +1464,12 @@ async fn process_message_inner(
         }
         ClientMessage::Resize { session_id, cols, rows } => {
             handlers::io::handle_resize(session_id, *cols, *rows, tx_out, sessions).await?;
+        }
+        ClientMessage::SaveWorkspace { workspace } => {
+            handlers::workspace::handle_save_workspace(client_id, workspace, tx_out).await?;
+        }
+        ClientMessage::LoadWorkspace => {
+            handlers::workspace::handle_load_workspace(client_id, tx_out).await?;
         }
         _ => {}
     }
@@ -1381,12 +1524,10 @@ mod tests {
     async fn test_pair_request() {
         let (state, _) = create_test_state();
         let (tx, mut rx) = mpsc::channel(32);
-        
         let mut attach_tasks = handlers::io::AttachTasks::new();
-        
+
         let msg = ClientMessage::PairRequest;
-        let mut attach_tasks = handlers::io::AttachTasks::new();
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
 
         if let Some(ServerMessage::PairResponse { code, expiry_secs }) = rx.recv().await {
             assert_eq!(code.len(), 8);
@@ -1415,7 +1556,7 @@ mod tests {
             rows: 24,
         };
 
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
 
         if let Some(ServerMessage::SessionList { sessions }) = rx.recv().await {
             assert_eq!(sessions.len(), 1);
@@ -1444,7 +1585,7 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
         let sessions = match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => sessions,
             _ => panic!("Expected SessionList"),
@@ -1456,7 +1597,7 @@ mod tests {
             session_id: id.clone(),
             new_name: "Production".to_string(),
         };
-        process_message(&rename_msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&rename_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
 
         match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => {
@@ -1481,7 +1622,7 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
         let sessions = match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => sessions,
             _ => panic!("Expected SessionList"),
@@ -1490,7 +1631,7 @@ mod tests {
 
         // Kill
         let kill_msg = ClientMessage::KillSession { session_id: id.clone() };
-        process_message(&kill_msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&kill_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
 
         // Should receive SessionClosed
         match rx.recv().await.unwrap() {
@@ -1512,7 +1653,7 @@ mod tests {
 
         let mut attach_tasks = handlers::io::AttachTasks::new();
 
-        process_message(&ClientMessage::ListSessions, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&ClientMessage::ListSessions, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
         
         match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => assert_eq!(sessions.len(), 0),
@@ -1535,7 +1676,7 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
         let sessions = match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => sessions,
             _ => panic!("Expected SessionList"),
@@ -1547,7 +1688,7 @@ mod tests {
             session_id: id.clone(),
             mode: "mirror".to_string(),
         };
-        process_message(&attach_msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&attach_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
         
         // Initial Output (history - empty)
         match rx.recv().await.unwrap() {
@@ -1563,7 +1704,7 @@ mod tests {
             session_id: id.clone(),
             data: "hello".to_string(),
         };
-        process_message(&input_msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&input_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
 
         // Should receive echo
         match rx.recv().await.unwrap() {
@@ -1590,7 +1731,7 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
         let sessions = match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => sessions,
             _ => panic!("Expected SessionList"),
@@ -1602,7 +1743,7 @@ mod tests {
             session_id: id.clone(),
             data: "HistoryTest".to_string(),
         };
-        process_message(&input_msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&input_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
 
         // Give thread time to read and update history
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -1612,7 +1753,7 @@ mod tests {
             session_id: id.clone(),
             mode: "mirror".to_string(),
         };
-        process_message(&attach_msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&attach_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
 
         match rx.recv().await.unwrap() {
             ServerMessage::Output { session_id, data } => {
@@ -1637,7 +1778,7 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
         let sessions = match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => sessions,
             _ => panic!("Expected SessionList"),
@@ -1649,12 +1790,12 @@ mod tests {
             session_id: id.clone(),
             mode: "mirror".to_string(),
         };
-        process_message(&attach_msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&attach_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
         // Drain history output
         rx.recv().await.unwrap();
 
         // Second attach (should cancel the first forwarder)
-        process_message(&attach_msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&attach_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
         // Drain history output
         rx.recv().await.unwrap();
 
@@ -1663,7 +1804,7 @@ mod tests {
             session_id: id.clone(),
             data: "test".to_string(),
         };
-        process_message(&input_msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&input_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
 
         // Should receive exactly one output
         match rx.recv().await.unwrap() {
@@ -1794,7 +1935,7 @@ mod tests {
         // Input to unknown - should get error
         process_message(
             &ClientMessage::Input { session_id: "bad".into(), data: "x".into() },
-            &tx, &state.sessions, &state, &mut attach_tasks
+            &tx, &state.sessions, &state, &mut attach_tasks, "test"
         ).await.unwrap();
         match rx.recv().await.unwrap() {
             ServerMessage::Error { message } => {
@@ -1806,7 +1947,7 @@ mod tests {
         // Resize unknown - should get error
         process_message(
             &ClientMessage::Resize { session_id: "bad".into(), cols: 10, rows: 10 },
-            &tx, &state.sessions, &state, &mut attach_tasks
+            &tx, &state.sessions, &state, &mut attach_tasks, "test"
         ).await.unwrap();
         match rx.recv().await.unwrap() {
             ServerMessage::Error { message } => {
@@ -1818,7 +1959,7 @@ mod tests {
         // Attach unknown - silent (no data to send)
         process_message(
             &ClientMessage::Attach { session_id: "bad".into(), mode: "rw".into() },
-            &tx, &state.sessions, &state, &mut attach_tasks
+            &tx, &state.sessions, &state, &mut attach_tasks, "test"
         ).await.unwrap();
         assert!(rx.try_recv().is_err());
     }
@@ -1835,7 +1976,7 @@ mod tests {
         // Input to a session that doesn't exist
         process_message(
             &ClientMessage::Input { session_id: "nonexistent".into(), data: "hello".into() },
-            &tx, &state.sessions, &state, &mut attach_tasks
+            &tx, &state.sessions, &state, &mut attach_tasks, "test"
         ).await.unwrap();
 
         // Should receive an Error message about session not found
@@ -1863,7 +2004,7 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
         let sessions_list = match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => sessions,
             _ => panic!("Expected SessionList"),
@@ -1881,7 +2022,7 @@ mod tests {
         // Try to send input to errored session
         process_message(
             &ClientMessage::Input { session_id: id.clone(), data: "hello".into() },
-            &tx, &state.sessions, &state, &mut attach_tasks
+            &tx, &state.sessions, &state, &mut attach_tasks, "test"
         ).await.unwrap();
 
         // Should receive an Error message about session state
@@ -1904,7 +2045,7 @@ mod tests {
         // Resize a session that doesn't exist
         process_message(
             &ClientMessage::Resize { session_id: "nonexistent".into(), cols: 80, rows: 24 },
-            &tx, &state.sessions, &state, &mut attach_tasks
+            &tx, &state.sessions, &state, &mut attach_tasks, "test"
         ).await.unwrap();
 
         // Should receive an Error message
@@ -1934,7 +2075,7 @@ mod tests {
             rows: 24,
         };
 
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
 
         // Should receive SessionList (success), not Error
         match rx.recv().await.unwrap() {
@@ -1962,7 +2103,7 @@ mod tests {
             rows: 24,
         };
 
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
 
         // Should receive SessionList (success), not Error
         match rx.recv().await.unwrap() {
@@ -1990,7 +2131,7 @@ mod tests {
             rows: 24,
         };
 
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
 
         // Should receive Error, not SessionList
         match rx.recv().await.unwrap() {
@@ -2018,7 +2159,7 @@ mod tests {
             rows: 24,
         };
 
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
 
         // Should receive Error - path traversal attempts must be rejected
         match rx.recv().await.unwrap() {
@@ -2046,7 +2187,7 @@ mod tests {
             rows: 24,
         };
 
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
 
         // Should receive Error - relative paths without full path are not allowed
         match rx.recv().await.unwrap() {
@@ -2417,7 +2558,7 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
 
         // Get session ID
         let session_id = match rx.recv().await.unwrap() {
@@ -2451,12 +2592,10 @@ mod tests {
     async fn test_pairing_code_is_8_digits() {
         let (state, _) = create_test_state();
         let (tx, mut rx) = mpsc::channel(32);
-
         let mut attach_tasks = handlers::io::AttachTasks::new();
 
         let msg = ClientMessage::PairRequest;
-        let mut attach_tasks = handlers::io::AttachTasks::new();
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
 
         if let Some(ServerMessage::PairResponse { code, expiry_secs }) = rx.recv().await {
             assert_eq!(code.len(), 8, "Pairing code should be 8 digits, got: {}", code);
@@ -2626,7 +2765,7 @@ mod tests {
             rows: 24,
         };
 
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
 
         match rx.recv().await.unwrap() {
             ServerMessage::Error { message } => {
@@ -2652,7 +2791,7 @@ mod tests {
             rows: 24,
         };
 
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
 
         match rx.recv().await.unwrap() {
             ServerMessage::Error { message } => {
@@ -2678,7 +2817,7 @@ mod tests {
             rows: 24,
         };
 
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
 
         match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => {
@@ -2736,7 +2875,7 @@ mod tests {
         );
 
         // Process a message
-        process_message(&ClientMessage::ListSessions, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&ClientMessage::ListSessions, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
         let _ = rx.recv().await; // consume response
 
         assert_eq!(
@@ -2746,7 +2885,7 @@ mod tests {
         );
 
         // Process another message
-        process_message(&ClientMessage::ListSessions, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&ClientMessage::ListSessions, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
         let _ = rx.recv().await;
 
         assert_eq!(
@@ -2776,7 +2915,7 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
         let _ = rx.recv().await;
 
         assert_eq!(
@@ -2804,7 +2943,7 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
         let sessions = match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => sessions,
             _ => panic!("Expected SessionList"),
@@ -2815,7 +2954,7 @@ mod tests {
 
         // Kill the session
         let kill_msg = ClientMessage::KillSession { session_id: id };
-        process_message(&kill_msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&kill_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
         let _ = rx.recv().await; // SessionClosed
         let _ = rx.recv().await; // SessionList
 
@@ -2837,7 +2976,7 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
         let sessions = match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => sessions,
             _ => panic!("Expected SessionList"),
@@ -2857,7 +2996,7 @@ mod tests {
             session_id: id.clone(),
             data: "test data".to_string(),
         };
-        process_message(&input_msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&input_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
 
         // Give time for echo to be processed by reader thread
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -2878,7 +3017,7 @@ mod tests {
         // Process a message to increment counter
         let (tx, mut rx) = mpsc::channel(32);
         let mut attach_tasks = handlers::io::AttachTasks::new();
-        process_message(&ClientMessage::ListSessions, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&ClientMessage::ListSessions, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
         let _ = rx.recv().await;
 
         // Call metrics handler
@@ -2915,7 +3054,7 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks).await.unwrap();
+        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
         let _ = rx.recv().await;
 
         // Call metrics handler
@@ -3014,5 +3153,424 @@ mod tests {
 
         let response = app.oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    // ==================== F5a: Exited Session State Integration Tests ====================
+
+    #[tokio::test]
+    async fn test_input_to_exited_session_returns_error() {
+        let (state, _) = create_test_state();
+        let (tx, mut rx) = mpsc::channel(32);
+        let mut attach_tasks = handlers::io::AttachTasks::new();
+
+        // Create session
+        let create_msg = ClientMessage::CreateSession {
+            cwd: "/".to_string(),
+            shell: "/bin/bash".to_string(),
+            env: HashMap::new(),
+            cols: 80,
+            rows: 24,
+        };
+        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        let sessions_list = match rx.recv().await.unwrap() {
+            ServerMessage::SessionList { sessions } => sessions,
+            _ => panic!("Expected SessionList"),
+        };
+        let id = sessions_list[0].id.clone();
+
+        // Transition session to Exited state
+        {
+            let mut guard = state.sessions.lock();
+            if let Some(session) = guard.get_mut(&id) {
+                session.transition_to(SessionState::Exited).unwrap();
+            }
+        }
+
+        // Try to send input to exited session
+        process_message(
+            &ClientMessage::Input { session_id: id.clone(), data: "hello".into() },
+            &tx, &state.sessions, &state, &mut attach_tasks, "test"
+        ).await.unwrap();
+
+        // Should receive an Error message
+        match rx.recv().await.unwrap() {
+            ServerMessage::Error { message } => {
+                assert!(message.contains("not accepting"),
+                    "Error should indicate session not accepting input, got: {}", message);
+            },
+            other => panic!("Expected Error message for exited session, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_exited_session_allows_attach() {
+        let (state, _) = create_test_state();
+        let (tx, mut rx) = mpsc::channel(32);
+        let mut attach_tasks = handlers::io::AttachTasks::new();
+
+        // Create session
+        let create_msg = ClientMessage::CreateSession {
+            cwd: "/".to_string(),
+            shell: "/bin/bash".to_string(),
+            env: HashMap::new(),
+            cols: 80,
+            rows: 24,
+        };
+        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        let sessions_list = match rx.recv().await.unwrap() {
+            ServerMessage::SessionList { sessions } => sessions,
+            _ => panic!("Expected SessionList"),
+        };
+        let id = sessions_list[0].id.clone();
+
+        // Send some input (MockPty echoes)
+        let input_msg = ClientMessage::Input {
+            session_id: id.clone(),
+            data: "test_data".to_string(),
+        };
+        process_message(&input_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Transition session to Exited state
+        {
+            let mut guard = state.sessions.lock();
+            if let Some(session) = guard.get_mut(&id) {
+                session.transition_to(SessionState::Exited).unwrap();
+            }
+        }
+
+        // Attach to exited session - should succeed and get history
+        let attach_msg = ClientMessage::Attach {
+            session_id: id.clone(),
+            mode: "mirror".to_string(),
+        };
+        process_message(&attach_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+
+        // Should receive Output with history (not an error)
+        match rx.recv().await.unwrap() {
+            ServerMessage::Output { session_id, data } => {
+                assert_eq!(session_id, id);
+                assert!(data.contains("test_data"), "Should contain history data");
+            },
+            other => panic!("Expected Output with history for exited session, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_kill_exited_session_transitions_to_closed() {
+        let (state, _) = create_test_state();
+        let (tx, mut rx) = mpsc::channel(32);
+        let mut attach_tasks = handlers::io::AttachTasks::new();
+
+        // Create session
+        let create_msg = ClientMessage::CreateSession {
+            cwd: "/".to_string(),
+            shell: "/bin/bash".to_string(),
+            env: HashMap::new(),
+            cols: 80,
+            rows: 24,
+        };
+        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        let sessions_list = match rx.recv().await.unwrap() {
+            ServerMessage::SessionList { sessions } => sessions,
+            _ => panic!("Expected SessionList"),
+        };
+        let id = sessions_list[0].id.clone();
+
+        // Transition to Exited
+        {
+            let mut guard = state.sessions.lock();
+            if let Some(session) = guard.get_mut(&id) {
+                session.transition_to(SessionState::Exited).unwrap();
+            }
+        }
+
+        // Kill the exited session
+        let kill_msg = ClientMessage::KillSession { session_id: id.clone() };
+        process_message(&kill_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+
+        // Should receive SessionClosed
+        match rx.recv().await.unwrap() {
+            ServerMessage::SessionClosed { session_id } => assert_eq!(session_id, id),
+            other => panic!("Expected SessionClosed, got {:?}", other),
+        }
+
+        // Session should be removed
+        let guard = state.sessions.lock();
+        assert!(!guard.contains_key(&id), "Exited session should be removed after kill");
+    }
+
+    #[tokio::test]
+    async fn test_session_info_shows_exited_state() {
+        let (state, _) = create_test_state();
+        let (tx, mut rx) = mpsc::channel(32);
+        let mut attach_tasks = handlers::io::AttachTasks::new();
+
+        // Create session
+        let create_msg = ClientMessage::CreateSession {
+            cwd: "/".to_string(),
+            shell: "/bin/bash".to_string(),
+            env: HashMap::new(),
+            cols: 80,
+            rows: 24,
+        };
+        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        let sessions_list = match rx.recv().await.unwrap() {
+            ServerMessage::SessionList { sessions } => sessions,
+            _ => panic!("Expected SessionList"),
+        };
+        let id = sessions_list[0].id.clone();
+
+        // Transition to Exited and set exit_code
+        {
+            let mut guard = state.sessions.lock();
+            if let Some(session) = guard.get_mut(&id) {
+                session.transition_to(SessionState::Exited).unwrap();
+                session.exit_code = Some(0);
+            }
+        }
+
+        // List sessions - should show exited state
+        process_message(&ClientMessage::ListSessions, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        match rx.recv().await.unwrap() {
+            ServerMessage::SessionList { sessions } => {
+                assert_eq!(sessions.len(), 1);
+                assert_eq!(sessions[0].state, Some("exited".to_string()));
+                assert_eq!(sessions[0].exit_code, Some(0));
+            },
+            other => panic!("Expected SessionList, got {:?}", other),
+        }
+    }
+
+    // ==================== F3a: Activity Tracking Integration Tests ====================
+
+    #[tokio::test]
+    async fn test_activity_tracking_updates_last_output_at() {
+        let (state, _) = create_test_state();
+        let (tx, mut rx) = mpsc::channel(32);
+        let mut attach_tasks = handlers::io::AttachTasks::new();
+
+        // Create session
+        let create_msg = ClientMessage::CreateSession {
+            cwd: "/".to_string(),
+            shell: "/bin/bash".to_string(),
+            env: HashMap::new(),
+            cols: 80,
+            rows: 24,
+        };
+        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        let sessions_list = match rx.recv().await.unwrap() {
+            ServerMessage::SessionList { sessions } => sessions,
+            _ => panic!("Expected SessionList"),
+        };
+        let id = sessions_list[0].id.clone();
+
+        // Initially last_output_at should be None
+        {
+            let guard = state.sessions.lock();
+            let session = guard.get(&id).unwrap();
+            assert!(session.last_output_at.lock().is_none(), "last_output_at should be None before any output");
+        }
+
+        // Send input (MockPty echoes, which triggers output and activity tracking)
+        let input_msg = ClientMessage::Input {
+            session_id: id.clone(),
+            data: "hello".to_string(),
+        };
+        process_message(&input_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+
+        // Wait for echo to be processed by the reader task
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        // last_output_at should now be set
+        {
+            let guard = state.sessions.lock();
+            let session = guard.get(&id).unwrap();
+            assert!(session.last_output_at.lock().is_some(), "last_output_at should be set after output");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_bell_detection_updates_last_bell_at() {
+        let (state, _) = create_test_state();
+        let (tx, mut rx) = mpsc::channel(32);
+        let mut attach_tasks = handlers::io::AttachTasks::new();
+
+        // Create session
+        let create_msg = ClientMessage::CreateSession {
+            cwd: "/".to_string(),
+            shell: "/bin/bash".to_string(),
+            env: HashMap::new(),
+            cols: 80,
+            rows: 24,
+        };
+        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        let sessions_list = match rx.recv().await.unwrap() {
+            ServerMessage::SessionList { sessions } => sessions,
+            _ => panic!("Expected SessionList"),
+        };
+        let id = sessions_list[0].id.clone();
+
+        // Send input containing bell character (MockPty echoes)
+        let input_msg = ClientMessage::Input {
+            session_id: id.clone(),
+            data: "hello\x07world".to_string(),
+        };
+        process_message(&input_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+
+        // Wait for echo to be processed
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        // last_bell_at should be set
+        {
+            let guard = state.sessions.lock();
+            let session = guard.get(&id).unwrap();
+            assert!(session.last_bell_at.lock().is_some(), "last_bell_at should be set after bell character");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_bell_notification_sent_to_attached_client() {
+        let (state, _) = create_test_state();
+        let (tx, mut rx) = mpsc::channel(32);
+        let mut attach_tasks = handlers::io::AttachTasks::new();
+
+        // Create session
+        let create_msg = ClientMessage::CreateSession {
+            cwd: "/".to_string(),
+            shell: "/bin/bash".to_string(),
+            env: HashMap::new(),
+            cols: 80,
+            rows: 24,
+        };
+        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        let sessions_list = match rx.recv().await.unwrap() {
+            ServerMessage::SessionList { sessions } => sessions,
+            _ => panic!("Expected SessionList"),
+        };
+        let id = sessions_list[0].id.clone();
+
+        // Attach
+        let attach_msg = ClientMessage::Attach {
+            session_id: id.clone(),
+            mode: "mirror".to_string(),
+        };
+        process_message(&attach_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        // Drain history
+        rx.recv().await.unwrap();
+
+        // Send input with bell character
+        let input_msg = ClientMessage::Input {
+            session_id: id.clone(),
+            data: "\x07".to_string(),
+        };
+        process_message(&input_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+
+        // Should receive bell notification and output
+        let mut saw_bell = false;
+        let mut saw_output = false;
+        for _ in 0..5 {
+            match tokio::time::timeout(Duration::from_millis(500), rx.recv()).await {
+                Ok(Some(ServerMessage::SessionActivity { activity_type, .. })) if activity_type == "bell" => {
+                    saw_bell = true;
+                },
+                Ok(Some(ServerMessage::Output { .. })) => {
+                    saw_output = true;
+                },
+                _ => break,
+            }
+            if saw_bell && saw_output {
+                break;
+            }
+        }
+        assert!(saw_bell, "Should have received bell notification");
+    }
+
+    #[tokio::test]
+    async fn test_silence_notified_resets_on_output() {
+        let (state, _) = create_test_state();
+        let (tx, mut rx) = mpsc::channel(32);
+        let mut attach_tasks = handlers::io::AttachTasks::new();
+
+        // Create session
+        let create_msg = ClientMessage::CreateSession {
+            cwd: "/".to_string(),
+            shell: "/bin/bash".to_string(),
+            env: HashMap::new(),
+            cols: 80,
+            rows: 24,
+        };
+        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        let sessions_list = match rx.recv().await.unwrap() {
+            ServerMessage::SessionList { sessions } => sessions,
+            _ => panic!("Expected SessionList"),
+        };
+        let id = sessions_list[0].id.clone();
+
+        // Manually set silence_notified to true
+        {
+            let mut guard = state.sessions.lock();
+            if let Some(session) = guard.get_mut(&id) {
+                session.silence_notified.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+
+        // Send input (triggers output)
+        let input_msg = ClientMessage::Input {
+            session_id: id.clone(),
+            data: "test".to_string(),
+        };
+        process_message(&input_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+
+        // Wait for output processing
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        // silence_notified should be reset to false
+        {
+            let guard = state.sessions.lock();
+            let session = guard.get(&id).unwrap();
+            assert!(!session.silence_notified.load(std::sync::atomic::Ordering::Relaxed), "silence_notified should be reset after output");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_session_info_includes_last_activity_at() {
+        let (state, _) = create_test_state();
+        let (tx, mut rx) = mpsc::channel(32);
+        let mut attach_tasks = handlers::io::AttachTasks::new();
+
+        // Create session
+        let create_msg = ClientMessage::CreateSession {
+            cwd: "/".to_string(),
+            shell: "/bin/bash".to_string(),
+            env: HashMap::new(),
+            cols: 80,
+            rows: 24,
+        };
+        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        let sessions_list = match rx.recv().await.unwrap() {
+            ServerMessage::SessionList { sessions } => sessions,
+            _ => panic!("Expected SessionList"),
+        };
+        let id = sessions_list[0].id.clone();
+
+        // Send input to trigger output
+        let input_msg = ClientMessage::Input {
+            session_id: id.clone(),
+            data: "test".to_string(),
+        };
+        process_message(&input_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        // List sessions - should include last_activity_at
+        process_message(&ClientMessage::ListSessions, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        match rx.recv().await.unwrap() {
+            ServerMessage::SessionList { sessions } => {
+                assert_eq!(sessions.len(), 1);
+                assert!(sessions[0].last_activity_at.is_some(),
+                    "last_activity_at should be present after output");
+            },
+            other => panic!("Expected SessionList, got {:?}", other),
+        }
     }
 }

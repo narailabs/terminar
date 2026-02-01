@@ -8,9 +8,15 @@
   import { BUILT_IN_TERMINAL_THEMES } from '../lib/themeTypes';
   import type { SessionManager } from '../lib/SessionManager';
   import type { TabId, PaneId, SessionId, DropZone, SplitDirection } from '../lib/workspaceTypes';
+  import { createEventDispatcher } from 'svelte';
 
   export let manager: SessionManager | null = null;
   export let availableSessions: { id: string; name?: string }[] = [];
+
+  const dispatch = createEventDispatcher<{
+    'action:session.new': void;
+    'action:sidebar.toggle': void;
+  }>();
 
   let activePaneId: PaneId | null = null;
   let contextMenu: { x: number; y: number; paneId: string } | null = null;
@@ -73,6 +79,27 @@
       manager.killSession(sessionId);
     }
     workspaceStore.closePane(paneId);
+  }
+
+  // Handle keybinding action events from panes (via SplitContainer)
+  function handleActionSessionNew() {
+    dispatch('action:session.new');
+  }
+
+  function handleActionSidebarToggle() {
+    dispatch('action:sidebar.toggle');
+  }
+
+  function handleActionPaneClose(event: CustomEvent<{ paneId: string }>) {
+    workspaceStore.closePane(event.detail.paneId);
+  }
+
+  function handleActionSplitHorizontal(event: CustomEvent<{ paneId: string }>) {
+    workspaceStore.splitPane(event.detail.paneId, 'horizontal');
+  }
+
+  function handleActionSplitVertical(event: CustomEvent<{ paneId: string }>) {
+    workspaceStore.splitPane(event.detail.paneId, 'vertical');
   }
 
   // Context menu actions
@@ -252,6 +279,11 @@
         on:resize={handleResize}
         on:detach={handleDetach}
         on:kill={handleKill}
+        on:action:session.new={handleActionSessionNew}
+        on:action:sidebar.toggle={handleActionSidebarToggle}
+        on:action:pane.close={handleActionPaneClose}
+        on:action:split.horizontal={handleActionSplitHorizontal}
+        on:action:split.vertical={handleActionSplitVertical}
       />
     {:else}
       <div class="no-tab">

@@ -31,6 +31,7 @@ const { TerminalMock, FitAddonMock } = vi.hoisted(() => {
     options = {};
     buffer = { normal: { length: 0 }, active: { length: 0 } };
     unicode = { activeVersion: '6' };
+    attachCustomKeyEventHandler = vi.fn();
   }
 
   class FitAddonMockImpl {

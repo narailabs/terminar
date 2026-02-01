@@ -134,7 +134,38 @@ pub(crate) async fn handle_attach(
                             session_id: session_id_clone.clone()
                         }).await;
                         break;
-                    }
+                    },
+                    SessionEvent::Exited(exit_code) => {
+                        let _ = tx_out_clone.send(ServerMessage::SessionExited {
+                            session_id: session_id_clone.clone(),
+                            exit_code,
+                        }).await;
+                        break;
+                    },
+                    SessionEvent::Bell => {
+                        let _ = tx_out_clone.send(ServerMessage::SessionActivity {
+                            session_id: session_id_clone.clone(),
+                            activity_type: "bell".to_string(),
+                        }).await;
+                    },
+                    SessionEvent::Activity => {
+                        let _ = tx_out_clone.send(ServerMessage::SessionActivity {
+                            session_id: session_id_clone.clone(),
+                            activity_type: "activity".to_string(),
+                        }).await;
+                    },
+                    SessionEvent::Silence => {
+                        let _ = tx_out_clone.send(ServerMessage::SessionActivity {
+                            session_id: session_id_clone.clone(),
+                            activity_type: "silence".to_string(),
+                        }).await;
+                    },
+                    SessionEvent::ForegroundChanged(process_name) => {
+                        let _ = tx_out_clone.send(ServerMessage::ForegroundChanged {
+                            session_id: session_id_clone.clone(),
+                            process_name,
+                        }).await;
+                    },
                 }
             }
         });

@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import WorkspaceView from './components/WorkspaceView.svelte';
   import ConnectionStatus from './components/ConnectionStatus.svelte';
+  import StatusBar from './components/StatusBar.svelte';
   import LoginPage from './components/LoginPage.svelte';
   import Sidebar from './components/Sidebar.svelte';
   import SettingsPanel from './components/SettingsPanel.svelte';
@@ -14,6 +15,12 @@
   import { applyUIThemeCSS, themeState } from './lib/themeStore';
   import type { Workspace } from './lib/workspaceTypes';
   import { saveToken, loadToken, clearToken } from './lib/tokenStore';
+  import BroadcastBar from './components/BroadcastBar.svelte';
+  import { broadcastEnabled, clearTargets, setSessionManager } from './lib/broadcastStore';
+  import { getEffectiveEnv } from './lib/envStore';
+  import { activityStore } from './lib/activityStore';
+  import { markExited, removeExited } from './lib/exitedSessionsStore';
+  import { foregroundStore } from './lib/foregroundStore';
 
   // Check for local-echo mode via URL parameter or localStorage (for e2e tests)
   const isLocalEchoMode = typeof window !== 'undefined' && (
@@ -50,6 +57,27 @@
 
   // Settings panel state
   let showSettingsPanel = false;
+
+  // Broadcast bar state
+  let showBroadcastBar = false;
+
+  function toggleBroadcast() {
+    if ($broadcastEnabled) {
+      // Disabling broadcast mode: close bar and clear targets
+      showBroadcastBar = false;
+      broadcastEnabled.set(false);
+      clearTargets();
+    } else {
+      // Enabling broadcast mode: open bar
+      broadcastEnabled.set(true);
+      showBroadcastBar = true;
+    }
+  }
+
+  function closeBroadcastBar() {
+    showBroadcastBar = false;
+    // Keep broadcast mode enabled and targets intact
+  }
 
   // Shortcuts popup state
   let showShortcutsPopup = false;
@@ -282,6 +310,10 @@
       const isFirstSessionList = previousSessionIds.size === 0;
       sessions = newSessions;
 
+      // Clean up stores for sessions that no longer exist
+      const currentIds = new Set(newSessions.map((s: SessionInfo) => s.id));
+      // (activity and foreground cleanup happens naturally when sessions are closed)
+
       // Helper to find first empty pane
       function findEmptyPane(node: any): string | null {
         if (node.type === 'pane') {
@@ -323,6 +355,18 @@
         }
         pendingNewTerminal = false;
       }
+    });
+
+    manager.on('sessionActivity', (sessionId: string, activityType: string) => {
+      activityStore.setActivity(sessionId, activityType as any);
+    });
+
+    manager.on('sessionExited', (sessionId: string, exitCode: number) => {
+      markExited(sessionId, exitCode);
+    });
+
+    manager.on('foregroundChanged', (sessionId: string, processName: string | null) => {
+      foregroundStore.setForeground(sessionId, processName);
     });
 
     manager.on('shutdown', (reason: string) => {
@@ -726,7 +770,8 @@
     // default monospace fonts. The terminal will send precise resize after attach.
     const estimatedCols = Math.max(40, Math.floor((window.innerWidth * 0.75) / 8));
     const estimatedRows = Math.max(10, Math.floor((window.innerHeight * 0.85) / 17));
-    manager?.createSession('', '', {}, estimatedCols, estimatedRows);
+    const envVars = getEffectiveEnv({});
+    manager?.createSession('', '', envVars, estimatedCols, estimatedRows);
   }
 
   function closeTerminal(sessionId: string) {
@@ -788,8 +833,32 @@
     openSettings();
   }
 
+  // Keep broadcast store's session manager in sync
+  $: setSessionManager(manager);
+
   // Convert sessions to format expected by WorkspaceView
   $: availableSessions = sessions.map(s => ({ id: s.id, name: s.name }));
+
+  // Derive active session info for the status bar
+  $: activeSessionInfo = (() => {
+    const ws = $workspaceStore;
+    const tab = ws.tabs.find(t => t.id === ws.activeTabId);
+    if (!tab) return null;
+
+    // Find the first pane's sessionId (simple approach)
+    function findFirstPaneSession(node: any): string | null {
+      if (node.type === 'pane') return node.sessionId || null;
+      for (const child of node.children) {
+        const found = findFirstPaneSession(child);
+        if (found) return found;
+      }
+      return null;
+    }
+
+    const sessionId = findFirstPaneSession(tab.root);
+    if (!sessionId) return null;
+    return sessions.find(s => s.id === sessionId) || null;
+  })();
 </script>
 
 <main>
@@ -837,16 +906,29 @@
               {#if showShortcutsPopup}
                 <div class="shortcuts-popup">
                   <div class="shortcuts-title">Keyboard Shortcuts</div>
+                  <div class="shortcut-row"><kbd>Ctrl/Cmd+F</kbd> <span>Search in terminal</span></div>
+                  <div class="shortcut-row"><kbd>Escape</kbd> <span>Close search</span></div>
                   <div class="shortcut-row"><kbd>Cmd+B</kbd> <span>Toggle sidebar</span></div>
                   <div class="shortcut-row"><kbd>Cmd+Shift+N</kbd> <span>New terminal</span></div>
                   <div class="shortcut-row"><kbd>Cmd+T</kbd> <span>New tab</span></div>
                   <div class="shortcut-row"><kbd>Cmd+W</kbd> <span>Close pane</span></div>
-                  <div class="shortcut-row"><kbd>Cmd+Shift+E</kbd> <span>Split right</span></div>
-                  <div class="shortcut-row"><kbd>Cmd+Shift+O</kbd> <span>Split down</span></div>
+                  <div class="shortcut-row"><kbd>Ctrl+Shift+H</kbd> <span>Split horizontal</span></div>
+                  <div class="shortcut-row"><kbd>Ctrl+Shift+V</kbd> <span>Split vertical</span></div>
                   <div class="shortcut-row"><kbd>Cmd+1-9</kbd> <span>Switch tab</span></div>
                 </div>
               {/if}
             </div>
+            <button
+              class="broadcast-btn"
+              class:active={$broadcastEnabled}
+              on:click={toggleBroadcast}
+              title="Broadcast Mode"
+              aria-label="Toggle broadcast mode"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 1a.5.5 0 0 1 .5.5v1.527A6.5 6.5 0 0 1 14.5 9.5a.5.5 0 0 1-1 0 5.5 5.5 0 0 0-5-5.478V5.5a.5.5 0 0 1-1 0V4.022A5.5 5.5 0 0 0 2.5 9.5a.5.5 0 0 1-1 0A6.5 6.5 0 0 1 7.5 3.027V1.5A.5.5 0 0 1 8 1zM5.5 9.5a2.5 2.5 0 1 1 5 0 2.5 2.5 0 0 1-5 0zm1 0a1.5 1.5 0 1 0 3 0 1.5 1.5 0 0 0-3 0zM4 9.5a4 4 0 0 1 4-4 .5.5 0 0 1 0 1 3 3 0 0 0-3 3 .5.5 0 0 1-1 0zm7 0a3 3 0 0 0-3-3 .5.5 0 0 1 0-1 4 4 0 0 1 4 4 .5.5 0 0 1-1 0z"/>
+              </svg>
+            </button>
             {#if !isLocal}
               <button
                 class="logout-btn"
@@ -868,13 +950,30 @@
           </div>
         </div>
         <div class="workspace-area">
-          <WorkspaceView {manager} {availableSessions} />
+          <WorkspaceView
+            {manager}
+            {availableSessions}
+            on:action:session.new={createNewTerminal}
+            on:action:sidebar.toggle={handleSidebarToggle}
+          />
         </div>
+        {#if showBroadcastBar}
+          <BroadcastBar onClose={closeBroadcastBar} />
+        {/if}
+        <StatusBar
+          sessionName={activeSessionInfo?.name || ''}
+          shellType={activeSessionInfo?.shell || ''}
+          {connectionState}
+          sessionCount={sessions.length}
+          cwd={activeSessionInfo?.cwd || ''}
+          startedAt={activeSessionInfo?.started_at || ''}
+        />
       </div>
       <Sidebar
         {sessions}
         activeSessionId={null}
         isOpen={sidebarOpen}
+        broadcastMode={$broadcastEnabled}
         on:toggle={handleSidebarToggle}
         on:select={handleSidebarSelect}
         on:close={handleSidebarClose}
@@ -1027,6 +1126,31 @@
     background: var(--ui-bg-tertiary, #3c3c3c);
     color: var(--ui-destructive, #ff6b6b);
     border-color: var(--ui-destructive, #ff6b6b);
+  }
+
+  .broadcast-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: var(--ui-text-muted, #888);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .broadcast-btn:hover {
+    background: var(--ui-bg-tertiary, #3c3c3c);
+    color: var(--ui-text-primary, #cccccc);
+  }
+
+  .broadcast-btn.active {
+    color: var(--ui-accent, #0e639c);
+    background: rgba(14, 99, 156, 0.15);
   }
 
   .settings-btn {

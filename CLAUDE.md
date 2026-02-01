@@ -1,5 +1,9 @@
 # CLAUDE.md - termiNar (VS Code Extension + Rust Server)
 
+## No Mocking Policy (MANDATORY)
+
+**NEVER use mock PTY, mock data, or any mock/stub options unless the user explicitly asks for it.** Always use `pnpm dev` (real PTY), never `pnpm dev:mock`. Always use `cargo run -- --no-auth`, never `--mock-pty`. If a real dependency is unavailable, fail explicitly rather than silently using fakes.
+
 ## Overview
 
 Persistent terminal sessions that survive VS Code crashes and restarts. A Rust server manages PTY sessions, with a VS Code extension and web frontend as clients. Think of it as a built-in tmux for VS Code.
@@ -75,8 +79,8 @@ cargo build                  # Debug build
 cargo build --release        # Release build
 cargo test                   # Run tests
 cargo clippy                 # Lint
-cargo run -- --no-auth       # Dev mode (no auth required)
-cargo run -- --no-auth --mock-pty  # Dev mode with mock PTY
+cargo run -- --no-auth       # Dev mode (USE THIS BY DEFAULT)
+cargo run -- --no-auth --mock-pty  # ONLY when user explicitly requests mock
 ```
 
 ### VS Code Extension
@@ -112,8 +116,8 @@ pnpm typecheck               # Type checking only
 ### Root-level shortcuts
 
 ```bash
-pnpm dev                     # Start server + web concurrently
-pnpm dev:mock                # Start server (mock PTY) + web
+pnpm dev                     # Start server + web (USE THIS BY DEFAULT)
+pnpm dev:mock                # ONLY when user explicitly requests mock
 pnpm build                   # Build server (release) + web
 pnpm test                    # Test server + web
 pnpm test:server             # Test server only

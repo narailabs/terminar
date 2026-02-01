@@ -4,7 +4,13 @@ export const SessionInfoSchema = z.object({
   id: z.string(),
   name: z.string(),
   shell: z.string(),
+  cwd: z.string(),
   started_at: z.string(),
+  // New optional fields for enhanced session tracking
+  state: z.string().optional(),                    // "running", "exited", "closed", "error"
+  foreground_process: z.string().optional(),       // e.g., "claude", "vim", "zsh"
+  last_activity_at: z.string().optional(),         // ISO timestamp
+  exit_code: z.number().optional(),                // set when state="exited"
 });
 
 export type SessionInfo = z.infer<typeof SessionInfoSchema>;
@@ -29,6 +35,9 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('auth_pubkey_init'), username: z.string(), pubkey: z.string() }),
   z.object({ type: z.literal('auth_pubkey_verify'), signature: z.string(), algorithm: z.string() }),
   z.object({ type: z.literal('auth_token'), token: z.string() }),
+  // New workspace management messages
+  z.object({ type: z.literal('save_workspace'), workspace: z.record(z.string(), z.unknown()) }),
+  z.object({ type: z.literal('load_workspace') }),
 ]);
 
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
@@ -42,6 +51,11 @@ export const ServerMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('Error'), message: z.string() }),
   z.object({ type: z.literal('PairResponse'), code: z.string(), expiry_secs: z.number() }),
   z.object({ type: z.literal('Shutdown'), reason: z.string() }),
+  // New session tracking messages
+  z.object({ type: z.literal('ForegroundChanged'), session_id: z.string(), process_name: z.string().nullable() }),
+  z.object({ type: z.literal('SessionActivity'), session_id: z.string(), activity_type: z.enum(['activity', 'bell', 'silence']) }),
+  z.object({ type: z.literal('SessionExited'), session_id: z.string(), exit_code: z.number().nullable() }),
+  z.object({ type: z.literal('WorkspaceData'), workspace: z.record(z.string(), z.unknown()).nullable() }),
 ]);
 
 export type ServerMessage = z.infer<typeof ServerMessageSchema>;
