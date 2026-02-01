@@ -1,0 +1,251 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { get } from 'svelte/store';
+
+// Mock localStorage
+const localStorageMock = (() => {
+  let store: Record<string, string> = {};
+  return {
+    getItem: vi.fn((key: string) => store[key] ?? null),
+    setItem: vi.fn((key: string, value: string) => { store[key] = value; }),
+    removeItem: vi.fn((key: string) => { delete store[key]; }),
+    clear: vi.fn(() => { store = {}; }),
+  };
+})();
+Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock });
+
+// We need to dynamically import after mocking localStorage
+let themeStore: typeof import('./themeStore');
+
+describe('themeStore', () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    localStorageMock.clear();
+    // Clean up any CSS variables from previous tests
+    const root = document.documentElement;
+    Array.from(root.style).forEach((prop) => {
+      if (prop.startsWith('--ui-') || prop.startsWith('--term-')) {
+        root.style.removeProperty(prop);
+      }
+    });
+    themeStore = await import('./themeStore');
+  });
+
+  // ── Default state ────────────────────────────────────────────────────────
+
+  it('should initialize with dark theme as default', () => {
+    const state = get(themeStore.themeState);
+    expect(state.activeUIThemeId).toBe('dark');
+    expect(state.activeTerminalThemeId).toBe('dark');
+  });
+
+  it('should have empty custom themes and overrides by default', () => {
+    const state = get(themeStore.themeState);
+    expect(state.customUIThemes).toEqual([]);
+    expect(state.customTerminalThemes).toEqual([]);
+    expect(state.terminalOverrides).toEqual({});
+  });
+
+  // ── Setting active themes ────────────────────────────────────────────────
+
+  it('should set active UI theme', () => {
+    themeStore.setActiveUITheme('light');
+    expect(get(themeStore.themeState).activeUIThemeId).toBe('light');
+  });
+
+  it('should set active terminal theme', () => {
+    themeStore.setActiveTerminalTheme('dark-green');
+    expect(get(themeStore.themeState).activeTerminalThemeId).toBe('dark-green');
+  });
+
+  // ── Per-pane terminal overrides ──────────────────────────────────────────
+
+  it('should set a per-pane terminal override', () => {
+    themeStore.setTerminalOverride('pane-1', 'light');
+    expect(get(themeStore.themeState).terminalOverrides['pane-1']).toBe('light');
+  });
+
+  it('should clear a per-pane terminal override', () => {
+    themeStore.setTerminalOverride('pane-1', 'light');
+    themeStore.clearTerminalOverride('pane-1');
+    expect(get(themeStore.themeState).terminalOverrides['pane-1']).toBeUndefined();
+  });
+
+  // ── getTerminalTheme helper ──────────────────────────────────────────────
+
+  it('getTerminalTheme should return global theme when no override', () => {
+    themeStore.setActiveTerminalTheme('dark');
+    const theme = themeStore.getTerminalTheme('pane-1');
+    expect(theme.id).toBe('dark');
+  });
+
+  it('getTerminalTheme should return override theme when set', () => {
+    themeStore.setActiveTerminalTheme('dark');
+    themeStore.setTerminalOverride('pane-1', 'light');
+    const theme = themeStore.getTerminalTheme('pane-1');
+    expect(theme.id).toBe('light');
+  });
+
+  it('getTerminalTheme should fall back to global if override id is invalid', () => {
+    themeStore.setActiveTerminalTheme('dark');
+    themeStore.setTerminalOverride('pane-1', 'nonexistent');
+    const theme = themeStore.getTerminalTheme('pane-1');
+    expect(theme.id).toBe('dark');
+  });
+
+  // ── CSS variable application ─────────────────────────────────────────────
+
+  it('should apply CSS variables to document.documentElement on UI theme change', () => {
+    themeStore.setActiveUITheme('light');
+    // Force the derived store to evaluate
+    themeStore.applyUIThemeCSS();
+    const root = document.documentElement;
+    expect(root.style.getPropertyValue('--ui-bg-primary')).toBe('#ffffff');
+    expect(root.style.getPropertyValue('--ui-text-primary')).toBe('#333333');
+  });
+
+  it('should update CSS variables when switching themes', () => {
+    themeStore.setActiveUITheme('dark');
+    themeStore.applyUIThemeCSS();
+    expect(document.documentElement.style.getPropertyValue('--ui-bg-primary')).toBe('#1e1e1e');
+
+    themeStore.setActiveUITheme('light');
+    themeStore.applyUIThemeCSS();
+    expect(document.documentElement.style.getPropertyValue('--ui-bg-primary')).toBe('#ffffff');
+  });
+
+  // ── Resolved theme helpers ───────────────────────────────────────────────
+
+  it('getActiveUITheme should return the resolved UITheme object', () => {
+    themeStore.setActiveUITheme('dark-green');
+    const theme = themeStore.getActiveUITheme();
+    expect(theme.id).toBe('dark-green');
+    expect(theme.name).toBe('Dark Green');
+  });
+
+  it('getActiveTerminalTheme should return the resolved TerminalTheme object', () => {
+    themeStore.setActiveTerminalTheme('light');
+    const theme = themeStore.getActiveTerminalTheme();
+    expect(theme.id).toBe('light');
+    expect(theme.name).toBe('Light');
+  });
+
+  // ── Custom themes ────────────────────────────────────────────────────────
+
+  it('should add a custom UI theme', () => {
+    const custom = {
+      id: 'my-ui',
+      name: 'My Theme',
+      bgPrimary: '#111',
+      bgSecondary: '#222',
+      bgTertiary: '#333',
+      bgHover: '#444',
+      bgActive: '#555',
+      textPrimary: '#eee',
+      textSecondary: '#ccc',
+      textMuted: '#999',
+      border: '#444',
+      accent: '#0ff',
+      accentHover: '#0ee',
+      destructive: '#f00',
+      destructiveHover: '#e00',
+    };
+    themeStore.addCustomUITheme(custom);
+    expect(get(themeStore.themeState).customUIThemes).toHaveLength(1);
+    expect(get(themeStore.themeState).customUIThemes[0].id).toBe('my-ui');
+  });
+
+  it('should add a custom terminal theme', () => {
+    const custom = {
+      id: 'my-term',
+      name: 'My Terminal',
+      foreground: '#0f0',
+      background: '#000',
+      cursor: '#0f0',
+      cursorAccent: '#000',
+      selectionBackground: '#030',
+      selectionForeground: '#0f0',
+      selectionInactiveBackground: '#020',
+      ansi: {
+        black: '#000', red: '#f00', green: '#0f0', yellow: '#ff0',
+        blue: '#00f', magenta: '#f0f', cyan: '#0ff', white: '#fff',
+        brightBlack: '#555', brightRed: '#f55', brightGreen: '#5f5', brightYellow: '#ff5',
+        brightBlue: '#55f', brightMagenta: '#f5f', brightCyan: '#5ff', brightWhite: '#fff',
+      },
+    };
+    themeStore.addCustomTerminalTheme(custom);
+    expect(get(themeStore.themeState).customTerminalThemes).toHaveLength(1);
+  });
+
+  it('should delete a custom UI theme and fall back if active', () => {
+    const custom = {
+      id: 'to-delete',
+      name: 'Delete Me',
+      bgPrimary: '#111', bgSecondary: '#222', bgTertiary: '#333',
+      bgHover: '#444', bgActive: '#555',
+      textPrimary: '#eee', textSecondary: '#ccc', textMuted: '#999',
+      border: '#444', accent: '#0ff', accentHover: '#0ee',
+      destructive: '#f00', destructiveHover: '#e00',
+    };
+    themeStore.addCustomUITheme(custom);
+    themeStore.setActiveUITheme('to-delete');
+    expect(get(themeStore.themeState).activeUIThemeId).toBe('to-delete');
+
+    themeStore.deleteCustomUITheme('to-delete');
+    expect(get(themeStore.themeState).customUIThemes).toHaveLength(0);
+    expect(get(themeStore.themeState).activeUIThemeId).toBe('dark');
+  });
+
+  it('should delete a custom terminal theme and clear overrides using it', () => {
+    const custom = {
+      id: 'to-delete-term',
+      name: 'Delete Me',
+      foreground: '#0f0', background: '#000', cursor: '#0f0', cursorAccent: '#000',
+      selectionBackground: '#030', selectionForeground: '#0f0', selectionInactiveBackground: '#020',
+      ansi: {
+        black: '#000', red: '#f00', green: '#0f0', yellow: '#ff0',
+        blue: '#00f', magenta: '#f0f', cyan: '#0ff', white: '#fff',
+        brightBlack: '#555', brightRed: '#f55', brightGreen: '#5f5', brightYellow: '#ff5',
+        brightBlue: '#55f', brightMagenta: '#f5f', brightCyan: '#5ff', brightWhite: '#fff',
+      },
+    };
+    themeStore.addCustomTerminalTheme(custom);
+    themeStore.setTerminalOverride('pane-1', 'to-delete-term');
+
+    themeStore.deleteCustomTerminalTheme('to-delete-term');
+    expect(get(themeStore.themeState).customTerminalThemes).toHaveLength(0);
+    expect(get(themeStore.themeState).terminalOverrides['pane-1']).toBeUndefined();
+  });
+
+  // ── Persistence ──────────────────────────────────────────────────────────
+
+  it('should persist state to localStorage on changes', () => {
+    localStorageMock.setItem.mockClear();
+    themeStore.setActiveUITheme('light');
+    expect(localStorageMock.setItem).toHaveBeenCalled();
+    // Get the last call to setItem with the theme-state key
+    const calls = localStorageMock.setItem.mock.calls.filter(
+      (c: string[]) => c[0] === 'theme-state'
+    );
+    expect(calls.length).toBeGreaterThan(0);
+    const parsed = JSON.parse(calls[calls.length - 1][1]);
+    expect(parsed.activeUIThemeId).toBe('light');
+  });
+
+  it('should restore state from localStorage on init', async () => {
+    const saved = {
+      activeUIThemeId: 'light',
+      activeTerminalThemeId: 'dark-green',
+      terminalOverrides: { 'p1': 'dark' },
+      customUIThemes: [],
+      customTerminalThemes: [],
+    };
+    localStorageMock.setItem('theme-state', JSON.stringify(saved));
+
+    vi.resetModules();
+    const freshStore = await import('./themeStore');
+    const state = get(freshStore.themeState);
+    expect(state.activeUIThemeId).toBe('light');
+    expect(state.activeTerminalThemeId).toBe('dark-green');
+    expect(state.terminalOverrides['p1']).toBe('dark');
+  });
+});

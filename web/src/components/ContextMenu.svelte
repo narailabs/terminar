@@ -1,0 +1,151 @@
+<script lang="ts">
+  import { onMount, onDestroy, createEventDispatcher } from 'svelte';
+
+  type MenuItem =
+    | { type: 'separator' }
+    | { label: string; action: string | (() => void); shortcut?: string; separator?: boolean };
+
+  export let x: number = 0;
+  export let y: number = 0;
+  export let items: MenuItem[] = [];
+
+  const dispatch = createEventDispatcher();
+
+  let menuElement: HTMLDivElement;
+
+  function handleClick(item: MenuItem) {
+    if ('type' in item && item.type === 'separator') return;
+
+    const menuItem = item as { label: string; action: string | (() => void) };
+    if (typeof menuItem.action === 'function') {
+      menuItem.action();
+      dispatch('close');
+    } else {
+      dispatch('select', menuItem.action);
+    }
+  }
+
+  function handleClickOutside(event: MouseEvent) {
+    if (menuElement && !menuElement.contains(event.target as Node)) {
+      dispatch('close');
+    }
+  }
+
+  function handleKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape') {
+      dispatch('close');
+    }
+  }
+
+  // Adjust position if menu would go off screen
+  function adjustPosition(el: HTMLDivElement) {
+    const rect = el.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    if (rect.right > viewportWidth) {
+      el.style.left = `${viewportWidth - rect.width - 8}px`;
+    }
+    if (rect.bottom > viewportHeight) {
+      el.style.top = `${viewportHeight - rect.height - 8}px`;
+    }
+  }
+
+  onMount(() => {
+    document.addEventListener('click', handleClickOutside);
+    document.addEventListener('keydown', handleKeydown);
+    if (menuElement) {
+      adjustPosition(menuElement);
+    }
+  });
+
+  onDestroy(() => {
+    document.removeEventListener('click', handleClickOutside);
+    document.removeEventListener('keydown', handleKeydown);
+  });
+
+  function isSeparator(item: MenuItem): item is { type: 'separator' } {
+    return ('type' in item && item.type === 'separator') || ('separator' in item && (item as any).separator === true);
+  }
+
+  // Type guard to get menu item with label
+  function asMenuItem(item: MenuItem): { label: string; action: string | (() => void); shortcut?: string } | null {
+    if (isSeparator(item)) return null;
+    return item as { label: string; action: string | (() => void); shortcut?: string };
+  }
+</script>
+
+<div
+  class="context-menu"
+  bind:this={menuElement}
+  style="left: {x}px; top: {y}px;"
+>
+  {#each items as item}
+    {#if isSeparator(item)}
+      <div class="separator"></div>
+    {:else}
+      {@const menuItem = asMenuItem(item)}
+      {#if menuItem}
+        <button class="menu-item" on:click={() => handleClick(item)}>
+          <span class="menu-label">{menuItem.label}</span>
+          {#if menuItem.shortcut}
+            <span class="menu-shortcut">{menuItem.shortcut}</span>
+          {/if}
+        </button>
+      {/if}
+    {/if}
+  {/each}
+</div>
+
+<style>
+  .context-menu {
+    position: fixed;
+    background: var(--ui-bg-secondary, #2d2d2d);
+    border: 1px solid var(--ui-border, #454545);
+    border-radius: 4px;
+    padding: 4px 0;
+    min-width: 180px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    z-index: 1000;
+  }
+
+  .menu-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 8px 16px;
+    background: none;
+    border: none;
+    color: var(--ui-text-primary, #cccccc);
+    text-align: left;
+    cursor: pointer;
+    font-size: 13px;
+    gap: 16px;
+  }
+
+  .menu-item:hover {
+    background: var(--ui-bg-hover, #094771);
+    color: white;
+  }
+
+  .menu-label {
+    flex: 1;
+  }
+
+  .menu-shortcut {
+    font-size: 11px;
+    color: var(--ui-text-muted, #888);
+    white-space: nowrap;
+  }
+
+  .menu-item:hover .menu-shortcut {
+    color: var(--ui-text-secondary, #bbb);
+  }
+
+  .separator {
+    height: 1px;
+    background: var(--ui-border, #454545);
+    margin: 4px 0;
+  }
+</style>

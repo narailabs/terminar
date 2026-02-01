@@ -1,0 +1,53 @@
+{
+  "name": "terminar-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "visual-test": "tsx scripts/visual-test.ts",
+    "tui-test": "tsx scripts/tui-test.ts",
+    "typing-test": "tsx scripts/typing-test.ts",
+    "wide-test": "tsx scripts/wide-terminal-test.ts",
+    "width-threshold": "tsx scripts/width-threshold-test.ts",
+    "config-test": "tsx scripts/config-arrow-test.ts",
+    "duplicate-test": "tsx scripts/duplicate-input-test.ts",
+    "refresh-test": "tsx scripts/refresh-duplicate-test.ts",
+    "dup-test": "tsx scripts/duplicate-typing-test.ts",
+    "same-session-test": "tsx scripts/refresh-same-session-test.ts",
+    "local-pty": "tsx scripts/local-pty-server.ts",
+    "test:e2e:visual": "playwright test visual-testing.spec.ts"
+  },
+  "dependencies": {
+    "@xterm/addon-webgl": "^0.19.0",
+    "events": "^3.3.0",
+    "svelte": "^5.0.0",
+    "xterm": "^5.3.0",
+    "xterm-addon-fit": "^0.8.0",
+    "xterm-addon-unicode11": "^0.6.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.57.0",
+    "@sveltejs/vite-plugin-svelte": "^4.0.0",
+    "@testing-library/svelte": "^5.3.1",
+    "@tsconfig/svelte": "^5.0.0",
+    "@types/ws": "^8.5.10",
+    "@vitest/coverage-v8": "^4.0.17",
+    "jsdom": "^24.1.3",
+    "mock-socket": "^9.3.1",
+    "node-pty": "^1.0.0",
+    "playwright": "^1.57.0",
+    "svelte-check": "^4.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.2",
+    "vite": "^5.2.0",
+    "vitest": "^4.0.17",
+    "ws": "^8.18.0"
+  }
+}

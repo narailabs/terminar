@@ -1,0 +1,28 @@
+{
+  "name": "terminar",
+  "version": "0.0.1",
+  "private": true,
+  "description": "termiNar - Persistent terminal sessions with web, electron, and VS Code extension frontends",
+  "scripts": {
+    "server:build": "cd server && ~/.cargo/bin/cargo build --release",
+    "server:dev": "cd server && ~/.cargo/bin/cargo run -- --no-auth",
+    "server:dev:mock": "cd server && ~/.cargo/bin/cargo run -- --no-auth --mock-pty",
+    "web:dev": "cd web && pnpm dev",
+    "electron:dev": "cd electron && pnpm dev",
+    "dev": "concurrently -k -n server,web -c blue,green \"pnpm server:dev\" \"pnpm wait-then:web\"",
+    "dev:mock": "concurrently -k -n server,web -c blue,green \"pnpm server:dev:mock\" \"pnpm wait-then:web\"",
+    "dev:electron": "concurrently -k -n server,electron -c blue,yellow \"pnpm server:dev\" \"pnpm wait-then:electron\"",
+    "dev:all": "concurrently -k -n server,web,electron -c blue,green,yellow \"pnpm server:dev\" \"pnpm wait-then:web\" \"pnpm wait-then:electron\"",
+    "wait-then:web": "wait-on tcp:3000 && pnpm web:dev",
+    "wait-then:electron": "wait-on tcp:3000 && pnpm electron:dev",
+    "build": "pnpm server:build && cd web && pnpm build",
+    "test": "cd server && ~/.cargo/bin/cargo test && cd ../web && pnpm test",
+    "test:server": "cd server && ~/.cargo/bin/cargo test",
+    "test:web": "cd web && pnpm test",
+    "test:extension": "cd extension && pnpm test"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "wait-on": "^7.2.0"
+  }
+}
