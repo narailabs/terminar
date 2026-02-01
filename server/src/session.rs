@@ -1,5 +1,7 @@
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::io::Write;
+use std::time::Instant;
 use parking_lot::Mutex;  // Non-poisoning mutex - matches lib.rs
 use std::collections::HashMap;
 use tokio::sync::broadcast;
@@ -22,6 +24,8 @@ pub enum SessionState {
     Closing,
     /// Session has been closed
     Closed,
+    /// Shell process exited but session stays viewable
+    Exited,
     /// Session encountered an error
     Error,
 }
@@ -33,15 +37,18 @@ impl SessionState {
     /// - Creating -> Running (successful creation)
     /// - Creating -> Error (creation failed)
     /// - Running -> Closing (graceful shutdown initiated)
+    /// - Running -> Exited (shell process exits)
     /// - Running -> Error (runtime error)
     /// - Closing -> Closed (shutdown complete)
     /// - Closing -> Error (shutdown failed)
+    /// - Exited -> Closed (user manually closes / cleanup)
     ///
     /// Invalid transitions (terminal states cannot transition out):
     /// - Closed -> any
     /// - Error -> any
     /// - Any state -> Creating (cannot go back to initial state)
     /// - Closing -> Running (cannot resume from closing)
+    /// - Exited -> Running (cannot restart exited shell)
     pub fn can_transition_to(&self, target: &SessionState) -> bool {
         // Cannot transition to same state
         if self == target {
@@ -53,13 +60,17 @@ impl SessionState {
             (SessionState::Creating, SessionState::Running) => true,
             (SessionState::Creating, SessionState::Error) => true,
 
-            // Running can transition to Closing or Error
+            // Running can transition to Closing, Exited, or Error
             (SessionState::Running, SessionState::Closing) => true,
+            (SessionState::Running, SessionState::Exited) => true,
             (SessionState::Running, SessionState::Error) => true,
 
             // Closing can transition to Closed or Error
             (SessionState::Closing, SessionState::Closed) => true,
             (SessionState::Closing, SessionState::Error) => true,
+
+            // Exited can transition to Closed (user manually closes)
+            (SessionState::Exited, SessionState::Closed) => true,
 
             // All other transitions are invalid
             _ => false,
@@ -77,12 +88,40 @@ impl SessionState {
     pub fn allows_resize(&self) -> bool {
         matches!(self, SessionState::Running)
     }
+
+    /// Check if attach operations are allowed in this state.
+    /// Running and Exited states allow attach (Exited is read-only).
+    pub fn allows_attach(&self) -> bool {
+        matches!(self, SessionState::Running | SessionState::Exited)
+    }
+
+    /// Return the lowercase display name of the state.
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            SessionState::Creating => "creating",
+            SessionState::Running => "running",
+            SessionState::Closing => "closing",
+            SessionState::Closed => "closed",
+            SessionState::Exited => "exited",
+            SessionState::Error => "error",
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
 pub enum SessionEvent {
     Output(String),
     Closed,
+    /// Shell process exited with an optional exit code
+    Exited(Option<i32>),
+    /// Bell character detected in output
+    Bell,
+    /// Activity notification (first output after silence)
+    Activity,
+    /// Silence notification (no output for N seconds)
+    Silence,
+    /// Foreground process changed (e.g., user started vim, claude, etc.)
+    ForegroundChanged(Option<String>),
 }
 
 /// Type alias for synchronized PTY master access.
@@ -140,6 +179,23 @@ pub struct Session {
     pub history: Arc<Mutex<CircularBuffer>>,
     /// Handle to the reader thread, used for cleanup
     pub reader_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Raw file descriptor of the PTY master, used for `tcgetpgrp()` calls.
+    /// `None` for mock PTYs that don't have a real fd.
+    pub pty_fd: Option<std::os::unix::io::RawFd>,
+    /// Name of the foreground process (e.g., "vim", "claude")
+    pub foreground_process: Option<String>,
+    /// Timestamp of last output from the PTY (shared with reader task)
+    pub last_output_at: Arc<Mutex<Option<Instant>>>,
+    /// Timestamp of last bell character received (shared with reader task)
+    pub last_bell_at: Arc<Mutex<Option<Instant>>>,
+    /// Child process ID (PID of the shell)
+    pub child_pid: Option<u32>,
+    /// Exit code from the shell process
+    pub exit_code: Option<i32>,
+    /// Whether silence notification has been sent (shared with reader task)
+    pub silence_notified: Arc<AtomicBool>,
+    /// Silence threshold in seconds (default: 30)
+    pub silence_threshold_secs: u64,
 }
 
 pub type SessionMap = Arc<Mutex<HashMap<String, Session>>>;
@@ -166,6 +222,8 @@ impl Session {
         output_tx: broadcast::Sender<SessionEvent>,
         history: Arc<Mutex<CircularBuffer>>,
     ) -> Self {
+        // Capture the raw fd before wrapping - used for tcgetpgrp() calls
+        let pty_fd = master.as_raw_fd();
         // Take the writer before wrapping master to cache it for the session lifetime
         let writer = master.take_writer().expect("Failed to take writer from PTY master");
         Self {
@@ -179,6 +237,14 @@ impl Session {
             output_tx,
             history,
             reader_handle: None,
+            pty_fd,
+            foreground_process: None,
+            last_output_at: Arc::new(Mutex::new(None)),
+            last_bell_at: Arc::new(Mutex::new(None)),
+            child_pid: None,
+            exit_code: None,
+            silence_notified: Arc::new(AtomicBool::new(false)),
+            silence_threshold_secs: 30,
         }
     }
 
@@ -251,6 +317,7 @@ impl Drop for Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::Ordering;
     use crate::pty::MockPtyProvider;
     use crate::pty::PtyProvider;
     use portable_pty::PtySize;
@@ -642,6 +709,223 @@ mod tests {
         assert_eq!(session.state, SessionState::Error);
         assert!(!session.allows_input(), "Error session should not allow input");
         assert!(!session.allows_resize(), "Error session should not allow resize");
+    }
+
+    // ==================== SessionState Exited State Tests ====================
+
+    #[test]
+    fn test_session_state_enum_has_exited_variant() {
+        let state = SessionState::Exited;
+        assert_eq!(state, SessionState::Exited);
+    }
+
+    #[test]
+    fn test_valid_transition_running_to_exited() {
+        let result = SessionState::Running.can_transition_to(&SessionState::Exited);
+        assert!(result, "Running -> Exited should be valid (shell process exits)");
+    }
+
+    #[test]
+    fn test_valid_transition_exited_to_closed() {
+        let result = SessionState::Exited.can_transition_to(&SessionState::Closed);
+        assert!(result, "Exited -> Closed should be valid (user manually closes)");
+    }
+
+    #[test]
+    fn test_invalid_transition_exited_to_exited() {
+        let result = SessionState::Exited.can_transition_to(&SessionState::Exited);
+        assert!(!result, "Exited -> Exited should be invalid (same state)");
+    }
+
+    #[test]
+    fn test_invalid_transition_exited_to_running() {
+        let result = SessionState::Exited.can_transition_to(&SessionState::Running);
+        assert!(!result, "Exited -> Running should be invalid (cannot restart exited shell)");
+    }
+
+    #[test]
+    fn test_invalid_transition_closed_to_exited() {
+        let result = SessionState::Closed.can_transition_to(&SessionState::Exited);
+        assert!(!result, "Closed -> Exited should be invalid (terminal state)");
+    }
+
+    #[test]
+    fn test_exited_state_does_not_allow_input() {
+        assert!(!SessionState::Exited.allows_input(), "Exited state should not allow input");
+    }
+
+    #[test]
+    fn test_exited_state_does_not_allow_resize() {
+        assert!(!SessionState::Exited.allows_resize(), "Exited state should not allow resize");
+    }
+
+    #[test]
+    fn test_display_name_creating() {
+        assert_eq!(SessionState::Creating.display_name(), "creating");
+    }
+
+    #[test]
+    fn test_display_name_running() {
+        assert_eq!(SessionState::Running.display_name(), "running");
+    }
+
+    #[test]
+    fn test_display_name_closing() {
+        assert_eq!(SessionState::Closing.display_name(), "closing");
+    }
+
+    #[test]
+    fn test_display_name_closed() {
+        assert_eq!(SessionState::Closed.display_name(), "closed");
+    }
+
+    #[test]
+    fn test_display_name_exited() {
+        assert_eq!(SessionState::Exited.display_name(), "exited");
+    }
+
+    #[test]
+    fn test_display_name_error() {
+        assert_eq!(SessionState::Error.display_name(), "error");
+    }
+
+    // ==================== F5a: Exited Session State Tests ====================
+
+    #[test]
+    fn test_session_has_exit_code_field() {
+        let session = create_test_session();
+        assert_eq!(session.exit_code, None, "Exit code should be None initially");
+    }
+
+    #[test]
+    fn test_session_exit_code_can_be_set() {
+        let mut session = create_test_session();
+        session.exit_code = Some(0);
+        assert_eq!(session.exit_code, Some(0));
+        session.exit_code = Some(137);
+        assert_eq!(session.exit_code, Some(137));
+    }
+
+    #[test]
+    fn test_exited_state_allows_attach() {
+        assert!(SessionState::Exited.allows_attach(), "Exited state should allow attach for read-only viewing");
+    }
+
+    #[test]
+    fn test_running_state_allows_attach() {
+        assert!(SessionState::Running.allows_attach(), "Running state should allow attach");
+    }
+
+    #[test]
+    fn test_closed_state_does_not_allow_attach() {
+        assert!(!SessionState::Closed.allows_attach(), "Closed state should not allow attach");
+    }
+
+    #[test]
+    fn test_error_state_does_not_allow_attach() {
+        assert!(!SessionState::Error.allows_attach(), "Error state should not allow attach");
+    }
+
+    #[test]
+    fn test_session_transition_running_to_exited() {
+        let mut session = create_test_session();
+        assert!(session.transition_to(SessionState::Exited).is_ok(),
+            "Transition from Running to Exited should succeed");
+        assert_eq!(session.state, SessionState::Exited);
+    }
+
+    #[test]
+    fn test_session_transition_exited_to_closed() {
+        let mut session = create_test_session();
+        session.transition_to(SessionState::Exited).unwrap();
+        assert!(session.transition_to(SessionState::Closed).is_ok(),
+            "Transition from Exited to Closed should succeed");
+        assert_eq!(session.state, SessionState::Closed);
+    }
+
+    #[test]
+    fn test_exited_session_rejects_input() {
+        let mut session = create_test_session();
+        session.transition_to(SessionState::Exited).unwrap();
+        assert!(!session.allows_input(), "Exited session should not allow input");
+    }
+
+    #[test]
+    fn test_exited_session_allows_attach_via_session() {
+        let mut session = create_test_session();
+        session.transition_to(SessionState::Exited).unwrap();
+        assert!(session.state.allows_attach(), "Exited session should allow attach");
+    }
+
+    #[test]
+    fn test_session_event_exited_variant() {
+        let event = SessionEvent::Exited(Some(0));
+        match event {
+            SessionEvent::Exited(code) => assert_eq!(code, Some(0)),
+            _ => panic!("Expected Exited event"),
+        }
+    }
+
+    #[test]
+    fn test_session_event_exited_with_none() {
+        let event = SessionEvent::Exited(None);
+        match event {
+            SessionEvent::Exited(code) => assert_eq!(code, None),
+            _ => panic!("Expected Exited event"),
+        }
+    }
+
+    // ==================== F3a: Activity Tracking Tests ====================
+
+    #[test]
+    fn test_session_has_silence_notified_field() {
+        let session = create_test_session();
+        assert!(!session.silence_notified.load(Ordering::Relaxed), "silence_notified should be false initially");
+    }
+
+    #[test]
+    fn test_session_has_silence_threshold_field() {
+        let session = create_test_session();
+        assert_eq!(session.silence_threshold_secs, 30, "Default silence threshold should be 30 seconds");
+    }
+
+    #[test]
+    fn test_session_last_output_at_initially_none() {
+        let session = create_test_session();
+        assert!(session.last_output_at.lock().is_none(), "last_output_at should be None initially");
+    }
+
+    #[test]
+    fn test_session_last_bell_at_initially_none() {
+        let session = create_test_session();
+        assert!(session.last_bell_at.lock().is_none(), "last_bell_at should be None initially");
+    }
+
+    #[test]
+    fn test_session_event_bell_variant() {
+        let event = SessionEvent::Bell;
+        match event {
+            SessionEvent::Bell => {},
+            _ => panic!("Expected Bell event"),
+        }
+    }
+
+    #[test]
+    fn test_session_event_activity_variant() {
+        let event = SessionEvent::Activity;
+        match event {
+            SessionEvent::Activity => {},
+            _ => panic!("Expected Activity event"),
+        }
+    }
+
+    #[test]
+    fn test_session_event_silence_variant() {
+        let event = SessionEvent::Silence;
+        match event {
+            SessionEvent::Silence => {},
+            _ => panic!("Expected Silence event"),
+        }
     }
 
     // ==================== Task 3.3.4: Broadcast Subscriber Cleanup Tests ====================

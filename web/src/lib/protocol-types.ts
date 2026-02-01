@@ -34,10 +34,15 @@ export type ClientMessage =
 
 // --- Server Messages (received from server) ---
 
+export type ActivityType = 'activity' | 'bell' | 'silence';
+
 export type ServerMessage =
     | { type: 'SessionList'; sessions: ProtocolSessionInfo[] }
     | { type: 'Output'; session_id: string; data: string }
     | { type: 'SessionClosed'; session_id: string }
+    | { type: 'SessionActivity'; session_id: string; activity_type: ActivityType }
+    | { type: 'SessionExited'; session_id: string; exit_code: number }
+    | { type: 'ForegroundChanged'; session_id: string; process_name: string | null }
     | { type: 'Error'; message: string }
     | { type: 'Shutdown'; reason: string }
     | { type: 'AuthOk'; token: string; expires: string }
@@ -45,9 +50,11 @@ export type ServerMessage =
 
 /** All valid server message type strings */
 const VALID_SERVER_TYPES = new Set<string>([
-    'SessionList', 'Output', 'SessionClosed', 'Error', 'Shutdown',
-    'AuthOk', 'AuthChallenge',
+    'SessionList', 'Output', 'SessionClosed', 'SessionActivity', 'SessionExited', 'ForegroundChanged',
+    'Error', 'Shutdown', 'AuthOk', 'AuthChallenge',
 ]);
+
+const VALID_ACTIVITY_TYPES = new Set<string>(['activity', 'bell', 'silence']);
 
 /**
  * Parse and validate a raw object as a ServerMessage.
@@ -77,6 +84,17 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
             return raw as ServerMessage;
         case 'SessionClosed':
             if (typeof msg.session_id !== 'string') return null;
+            return raw as ServerMessage;
+        case 'SessionActivity':
+            if (typeof msg.session_id !== 'string') return null;
+            if (typeof msg.activity_type !== 'string' || !VALID_ACTIVITY_TYPES.has(msg.activity_type)) return null;
+            return raw as ServerMessage;
+        case 'SessionExited':
+            if (typeof msg.session_id !== 'string' || typeof msg.exit_code !== 'number') return null;
+            return raw as ServerMessage;
+        case 'ForegroundChanged':
+            if (typeof msg.session_id !== 'string') return null;
+            if (msg.process_name !== null && typeof msg.process_name !== 'string') return null;
             return raw as ServerMessage;
         case 'Error':
             if (typeof msg.message !== 'string') return null;

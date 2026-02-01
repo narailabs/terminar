@@ -146,6 +146,10 @@ fn build_session_list(sessions: &SessionMap) -> Vec<SessionInfo> {
         shell: s.shell_cmd.clone(),
         cwd: s.cwd.clone(),
         started_at: "now".to_string(),
+        state: Some(s.state.display_name().to_string()),
+        foreground_process: s.foreground_process.clone(),
+        last_activity_at: s.last_output_at.lock().map(|_| "now".to_string()),
+        exit_code: s.exit_code,
     }).collect()
 }
 
@@ -225,15 +229,33 @@ pub(crate) async fn handle_create_session(
     let history = Arc::new(Mutex::new(CircularBuffer::with_default_capacity()));
     let history_clone = history.clone();
 
+    // Subscribe for exit monitoring before tx is moved into the session
+    let mut exit_rx = tx.subscribe();
+    let exit_sessions = sessions.clone();
+    let exit_session_id = id.clone();
+
     // Clone reader and take writer before wrapping master in Arc<Mutex<>>
     let mut reader = master.try_clone_reader()?;
     let writer = master.take_writer()?;
     let tx_clone = tx.clone();
 
+    // Capture the raw fd before wrapping - used for tcgetpgrp() foreground process detection
+    let pty_fd = master.as_raw_fd();
+
     // Wrap master in Arc<Mutex<>> for synchronized concurrent access
     let sync_master = Arc::new(Mutex::new(master));
     // Wrap writer in Arc<Mutex<>> - cache it to prevent dropping after each input
     let sync_writer = Arc::new(Mutex::new(writer));
+
+    // Share activity tracking state with the reader task (avoids locking the sessions map)
+    let reader_last_output_at = Arc::new(Mutex::new(None::<std::time::Instant>));
+    let reader_last_bell_at = Arc::new(Mutex::new(None::<std::time::Instant>));
+    let reader_silence_notified = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+    // These will be assigned to the session after construction
+    let session_last_output_at = reader_last_output_at.clone();
+    let session_last_bell_at = reader_last_bell_at.clone();
+    let session_silence_notified = reader_silence_notified.clone();
 
     // Use tokio::task::spawn_blocking for PTY reading (blocking I/O)
     let reader_handle = tokio::task::spawn_blocking(move || {
@@ -247,7 +269,8 @@ pub(crate) async fn handle_create_session(
                 let read_start = utf8_remainder.len();
                 match reader.read(&mut buf[read_start..]) {
                     Ok(0) => {
-                        let _ = tx_clone.send(SessionEvent::Closed);
+                        // PTY EOF - shell process exited
+                        let _ = tx_clone.send(SessionEvent::Exited(None));
                         break;
                     },
                     Ok(n) => {
@@ -268,6 +291,30 @@ pub(crate) async fn handle_create_session(
 
                         let safe_bytes = &data_bytes[0..valid_up_to];
                         if !safe_bytes.is_empty() {
+                            // Check for bell character (0x07) in the output
+                            let has_bell = safe_bytes.contains(&0x07);
+
+                            // Update activity timestamps (using Arc-wrapped fields, no sessions map lock needed)
+                            let was_silent = reader_silence_notified.swap(false, std::sync::atomic::Ordering::Relaxed);
+                            {
+                                let mut t = reader_last_output_at.lock();
+                                *t = Some(std::time::Instant::now());
+                            }
+                            if has_bell {
+                                let mut t = reader_last_bell_at.lock();
+                                *t = Some(std::time::Instant::now());
+                            }
+
+                            // Send activity notification if this is first output after silence
+                            if was_silent {
+                                let _ = tx_clone.send(SessionEvent::Activity);
+                            }
+
+                            // Send bell notification if detected
+                            if has_bell {
+                                let _ = tx_clone.send(SessionEvent::Bell);
+                            }
+
                             // safe_bytes is guaranteed to be valid UTF-8 at this point
                             let data = String::from_utf8_lossy(safe_bytes).to_string();
                             {
@@ -278,7 +325,8 @@ pub(crate) async fn handle_create_session(
                         }
                     }
                     Err(_) => {
-                        let _ = tx_clone.send(SessionEvent::Closed);
+                        // I/O error - treat as process exit
+                        let _ = tx_clone.send(SessionEvent::Exited(None));
                         break;
                     },
                 }
@@ -308,6 +356,14 @@ pub(crate) async fn handle_create_session(
         output_tx: tx,
         history,
         reader_handle: Some(reader_handle),
+        pty_fd,
+        foreground_process: None,
+        last_output_at: session_last_output_at,
+        last_bell_at: session_last_bell_at,
+        child_pid: None,
+        exit_code: None,
+        silence_notified: session_silence_notified,
+        silence_threshold_secs: 30,
     };
 
     let list = {
@@ -322,10 +378,30 @@ pub(crate) async fn handle_create_session(
             shell: s.shell_cmd.clone(),
             cwd: s.cwd.clone(),
             started_at: "now".to_string(),
+            state: Some(s.state.display_name().to_string()),
+            foreground_process: s.foreground_process.clone(),
+            last_activity_at: s.last_output_at.lock().map(|_| "now".to_string()),
+            exit_code: s.exit_code,
         }).collect::<Vec<_>>()
     };
     // Persist session state after creation
     persistence::persist_if_enabled(state.persist_sessions, &state.session_file_path, sessions);
+
+    // Spawn a task that listens for the Exited event and transitions the session state.
+    // This ensures the state transition happens even if no client is attached.
+    tokio::spawn(async move {
+        while let Ok(event) = exit_rx.recv().await {
+            if let SessionEvent::Exited(exit_code) = event {
+                let mut guard = exit_sessions.lock();
+                if let Some(session) = guard.get_mut(&exit_session_id) {
+                    let _ = session.transition_to(SessionState::Exited);
+                    session.exit_code = exit_code;
+                }
+                break;
+            }
+        }
+    });
+
     tx_out.send(ServerMessage::SessionList { sessions: list }).await?;
     Ok(())
 }
@@ -349,6 +425,10 @@ pub(crate) async fn handle_rename_session(
             shell: s.shell_cmd.clone(),
             cwd: s.cwd.clone(),
             started_at: "now".to_string(),
+            state: Some(s.state.display_name().to_string()),
+            foreground_process: s.foreground_process.clone(),
+            last_activity_at: s.last_output_at.lock().map(|_| "now".to_string()),
+            exit_code: s.exit_code,
         }).collect::<Vec<_>>()
     };
     tx_out.send(ServerMessage::SessionList { sessions: list }).await?;
@@ -372,6 +452,10 @@ pub(crate) async fn handle_kill_session(
             shell: s.shell_cmd.clone(),
             cwd: s.cwd.clone(),
             started_at: "now".to_string(),
+            state: Some(s.state.display_name().to_string()),
+            foreground_process: s.foreground_process.clone(),
+            last_activity_at: s.last_output_at.lock().map(|_| "now".to_string()),
+            exit_code: s.exit_code,
         }).collect::<Vec<_>>();
         (removed, list)
     };

@@ -3,9 +3,11 @@
   import TerminalListItem from './TerminalListItem.svelte';
   import ContextMenu from './ContextMenu.svelte';
   import type { SessionInfo } from '../lib/workspaceTypes';
+  import { broadcastTargets, toggleTarget, isTarget } from '../lib/broadcastStore';
 
   export let sessions: SessionInfo[] = [];
   export let activeSessionId: string | null = null;
+  export let broadcastMode: boolean = false;
 
   const dispatch = createEventDispatcher();
 
@@ -87,19 +89,32 @@
 <div class="terminal-list" on:contextmenu={handleListContextMenu} role="list">
   <div class="list-container">
     {#each sessions as session (session.id)}
-      <TerminalListItem
-        id={session.id}
-        name={session.name}
-        shell={session.shell}
-        cwd={session.cwd}
-        isActive={session.id === activeSessionId}
-        startEditing={editingSessionId === session.id}
-        on:select={handleSelect}
-        on:close={handleClose}
-        on:rename={handleRename}
-        on:editend={handleEditEnd}
-        on:contextmenu={handleContextMenu}
-      />
+      <div class="session-row" class:broadcast-mode={broadcastMode}>
+        {#if broadcastMode}
+          <label class="broadcast-checkbox" aria-label="Toggle broadcast target for {session.name}">
+            <input
+              type="checkbox"
+              checked={$broadcastTargets.has(session.id)}
+              on:change={() => toggleTarget(session.id)}
+            />
+          </label>
+        {/if}
+        <div class="session-item-wrapper">
+          <TerminalListItem
+            id={session.id}
+            name={session.name}
+            shell={session.shell}
+            cwd={session.cwd}
+            isActive={session.id === activeSessionId}
+            startEditing={editingSessionId === session.id}
+            on:select={handleSelect}
+            on:close={handleClose}
+            on:rename={handleRename}
+            on:editend={handleEditEnd}
+            on:contextmenu={handleContextMenu}
+          />
+        </div>
+      </div>
     {/each}
   </div>
 
@@ -155,6 +170,35 @@
 
   .list-container::-webkit-scrollbar-thumb:hover {
     background: #4f4f4f;
+  }
+
+  .session-row {
+    display: flex;
+    align-items: stretch;
+  }
+
+  .session-row.broadcast-mode {
+    padding-left: 4px;
+  }
+
+  .session-item-wrapper {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .broadcast-checkbox {
+    display: flex;
+    align-items: center;
+    padding: 0 4px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .broadcast-checkbox input[type="checkbox"] {
+    cursor: pointer;
+    accent-color: var(--ui-accent, #0e639c);
+    width: 14px;
+    height: 14px;
   }
 
   .new-terminal-btn {

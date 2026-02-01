@@ -1,10 +1,19 @@
 <script lang="ts">
-  import { createEventDispatcher, onDestroy } from 'svelte';
+  import { createEventDispatcher, onDestroy, onMount } from 'svelte';
   import Terminal from './Terminal.svelte';
+  import SearchBar from './SearchBar.svelte';
   import type { SessionManager, SessionInfo } from '../lib/SessionManager';
   import type { SessionId, DropZone } from '../lib/workspaceTypes';
   import { settingsStore } from '../lib/settingsStore';
   import { registerPane, unregisterPane } from '../lib/paneRegistry';
+  import { searchStore } from '../lib/searchStore';
+  import { broadcastTargets, broadcastEnabled } from '../lib/broadcastStore';
+  import { exitedSessions } from '../lib/exitedSessionsStore';
+  import { foregroundStore } from '../lib/foregroundStore';
+  import { matchAgent } from '../lib/agentRegistry';
+  import { getKeyBindingRegistry } from '../lib/keybindings';
+  import { createActionDispatcher } from '../lib/actionDispatcher';
+  import { createKeyEventHandler } from '../lib/keyEventHandler';
 
   export let paneId: string;
   export let sessionId: SessionId | null;
@@ -13,6 +22,35 @@
 
   let showTitleBar = true;
   let sessionName = '';
+
+  // Broadcast target indicator
+  $: isBroadcastTarget = $broadcastEnabled && sessionId !== null && $broadcastTargets.has(sessionId);
+
+  // Exited session state (subscribe to $exitedSessions for reactivity)
+  $: sessionExited = sessionId ? $exitedSessions.has(sessionId) : false;
+  $: exitInfo = sessionId && $exitedSessions.has(sessionId) ? $exitedSessions.get(sessionId) : undefined;
+  $: exitBadgeText = exitInfo ? (exitInfo.exitCode !== null ? `[exited: ${exitInfo.exitCode}]` : '[exited]') : '';
+
+  // Agent detection (subscribe to $foregroundStore for reactivity)
+  $: foregroundProcess = sessionId ? $foregroundStore.processes.get(sessionId) ?? null : null;
+  $: detectedAgent = foregroundProcess ? matchAgent(foregroundProcess) : null;
+
+  // Search state (subscribed from store)
+  let searchIsOpen = false;
+  let searchCurrentMatch = 0;
+  let searchTotalMatches = 0;
+  let searchCaseSensitive = false;
+  let searchUseRegex = false;
+  let searchQuery = '';
+
+  const unsubSearch = searchStore.subscribe((s) => {
+    searchIsOpen = s.isOpen;
+    searchCurrentMatch = s.currentMatch;
+    searchTotalMatches = s.totalMatches;
+    searchCaseSensitive = s.caseSensitive;
+    searchUseRegex = s.useRegex;
+    searchQuery = s.query;
+  });
 
   const unsubSettings = settingsStore.subscribe((s) => {
     showTitleBar = s.showPaneTitleBars;
@@ -48,6 +86,7 @@
 
   onDestroy(() => {
     unsubSettings();
+    unsubSearch();
     unregisterPane(paneId);
     if (prevManager && typeof prevManager.removeListener === 'function') {
       prevManager.removeListener('sessionList', onSessionListUpdated);
@@ -60,7 +99,91 @@
     focus: { paneId: string };
     detach: { paneId: string };
     kill: { paneId: string; sessionId: SessionId };
+    'action:session.new': void;
+    'action:sidebar.toggle': void;
+    'action:pane.close': { paneId: string };
+    'action:split.horizontal': { paneId: string };
+    'action:split.vertical': { paneId: string };
   }>();
+
+  // Search event handlers
+  function handleSearch(event: CustomEvent<{ query: string; caseSensitive: boolean; useRegex: boolean }>) {
+    const { query, caseSensitive, useRegex } = event.detail;
+    searchStore.setQuery(query);
+    if (query) {
+      const found = terminalRef?.searchFindNext(query, { caseSensitive, regex: useRegex });
+      // xterm-addon-search doesn't expose match count directly in v0.13
+      // We set match info based on whether a match was found
+      if (found) {
+        searchStore.setMatchInfo(1, 1); // Indicate at least 1 match
+      } else {
+        searchStore.setMatchInfo(0, 0);
+      }
+    } else {
+      terminalRef?.searchClearDecorations();
+      searchStore.setMatchInfo(0, 0);
+    }
+  }
+
+  function handleSearchNext() {
+    if (searchQuery) {
+      terminalRef?.searchFindNext(searchQuery, {
+        caseSensitive: searchCaseSensitive,
+        regex: searchUseRegex,
+      });
+    }
+  }
+
+  function handleSearchPrevious() {
+    if (searchQuery) {
+      terminalRef?.searchFindPrevious(searchQuery, {
+        caseSensitive: searchCaseSensitive,
+        regex: searchUseRegex,
+      });
+    }
+  }
+
+  function handleSearchClose() {
+    searchStore.close();
+    terminalRef?.searchClearDecorations();
+  }
+
+  function handleToggleCaseSensitive() {
+    searchStore.toggleCaseSensitive();
+  }
+
+  function handleToggleRegex() {
+    searchStore.toggleRegex();
+  }
+
+  // Create action dispatcher for keybinding actions
+  const actionDispatch = createActionDispatcher({
+    onSearchOpen: () => searchStore.open(),
+    onSearchClose: () => {
+      if (searchIsOpen) {
+        searchStore.close();
+        terminalRef?.searchClearDecorations();
+      }
+    },
+    onSessionNew: () => dispatch('action:session.new'),
+    onSidebarToggle: () => dispatch('action:sidebar.toggle'),
+    onPaneClose: () => dispatch('action:pane.close', { paneId }),
+    onSplitHorizontal: () => dispatch('action:split.horizontal', { paneId }),
+    onSplitVertical: () => dispatch('action:split.vertical', { paneId }),
+  });
+
+  // Create key event handler using the keybinding registry
+  const registry = getKeyBindingRegistry();
+  const handleKeyEvent = createKeyEventHandler(registry, actionDispatch);
+
+  // Register custom key event handler on terminal mount
+  onMount(() => {
+    queueMicrotask(() => {
+      terminalRef?.registerCustomKeyEventHandler((event: KeyboardEvent) => {
+        return handleKeyEvent(event);
+      });
+    });
+  });
 
   let showClosePopup = false;
   let closeButtonRef: HTMLButtonElement;
@@ -186,6 +309,8 @@
 <div
   class="pane"
   class:active={isActive}
+  class:exited={sessionExited}
+  class:broadcast-target={isBroadcastTarget}
   class:drag-over={isDragOver}
   class:drop-left={dropZone === 'left'}
   class:drop-right={dropZone === 'right'}
@@ -203,6 +328,8 @@
   {#if showTitleBar && sessionName}
     <div class="pane-title-bar">
       <span class="pane-title-text">{sessionName}</span>
+      {#if detectedAgent}<span class="agent-badge" style="background: {detectedAgent.color}">{detectedAgent.icon} {detectedAgent.displayName}</span>{/if}
+      {#if sessionExited}<span class="exited-badge">{exitBadgeText}</span>{/if}
       <button
         class="close-btn"
         bind:this={closeButtonRef}
@@ -227,6 +354,19 @@
 
   <div class="pane-content">
     {#if sessionId && manager}
+      <SearchBar
+        isOpen={searchIsOpen}
+        currentMatch={searchCurrentMatch}
+        totalMatches={searchTotalMatches}
+        caseSensitive={searchCaseSensitive}
+        useRegex={searchUseRegex}
+        on:search={handleSearch}
+        on:next={handleSearchNext}
+        on:previous={handleSearchPrevious}
+        on:close={handleSearchClose}
+        on:toggleCaseSensitive={handleToggleCaseSensitive}
+        on:toggleRegex={handleToggleRegex}
+      />
       <Terminal bind:this={terminalRef} {manager} activeSessionId={sessionId} {isActive} />
     {:else}
       <div class="empty-pane">
@@ -355,8 +495,38 @@
     position: relative;
   }
 
+  .pane.exited {
+    opacity: 0.6;
+  }
+
+  .exited-badge {
+    font-size: 11px;
+    color: #e5c07b;
+    margin-left: 8px;
+  }
+
+  .agent-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: white;
+    margin-left: 8px;
+  }
+
   .pane.active {
     border-color: var(--ui-accent, #0e639c);
+  }
+
+  .pane.broadcast-target {
+    border-color: #e5c07b;
+    border-width: 2px;
+  }
+
+  .pane.broadcast-target.active {
+    border-color: #e5c07b;
   }
 
   .empty-pane {

@@ -69,6 +69,10 @@ fn test_server_message_serialization() {
         shell: "bash".to_string(),
         cwd: "/home/user".to_string(),
         started_at: "now".to_string(),
+        state: None,
+        foreground_process: None,
+        last_activity_at: None,
+        exit_code: None,
     };
     let list_msg = ServerMessage::SessionList { sessions: vec![session] };
     let json = serde_json::to_string(&list_msg).unwrap();

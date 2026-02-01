@@ -24,6 +24,9 @@
     setActiveTerminalTheme,
   } from '../lib/themeStore';
   import { BUILT_IN_UI_THEMES, BUILT_IN_TERMINAL_THEMES } from '../lib/themeTypes';
+  import EnvVarEditor from './EnvVarEditor.svelte';
+  import { globalEnvVars, addEnvVar, updateEnvVar, deleteEnvVar } from '../lib/envStore';
+  import { get } from 'svelte/store';
 
   export let isOpen: boolean = false;
 
@@ -84,6 +87,11 @@
   function handlePaneTitleBarsChange(event: Event) {
     const target = event.target as HTMLInputElement;
     settingsStore.updateSetting('showPaneTitleBars', target.checked);
+  }
+
+  function handleStatusBarChange(event: Event) {
+    const target = event.target as HTMLInputElement;
+    settingsStore.updateSetting('showStatusBar', target.checked);
   }
 
   // Line height disabled - breaks TUI apps
@@ -158,6 +166,40 @@
     deleteCustomTerminalTheme(id);
   }
 
+  // Environment variables
+  let currentEnvVars: Record<string, string> = get(globalEnvVars);
+  const unsubscribeEnv = globalEnvVars.subscribe((value) => {
+    currentEnvVars = value;
+  });
+
+  let envSaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function handleEnvChange(event: CustomEvent<Record<string, string>>) {
+    const newVars = event.detail;
+    // Debounce the save to avoid excessive writes
+    if (envSaveTimer) clearTimeout(envSaveTimer);
+    envSaveTimer = setTimeout(() => {
+      // Diff and apply changes
+      const current = get(globalEnvVars);
+      // Delete removed keys
+      for (const key of Object.keys(current)) {
+        if (!(key in newVars)) {
+          deleteEnvVar(key);
+        }
+      }
+      // Add/update keys
+      for (const [key, value] of Object.entries(newVars)) {
+        if (current[key] !== value) {
+          if (key in current) {
+            updateEnvVar(key, value);
+          } else {
+            addEnvVar(key, value);
+          }
+        }
+      }
+    }, 300);
+  }
+
   function handleReset() {
     settingsStore.reset();
   }
@@ -169,6 +211,8 @@
   onDestroy(() => {
     document.removeEventListener('keydown', handleKeydown);
     unsubscribe();
+    unsubscribeEnv();
+    if (envSaveTimer) clearTimeout(envSaveTimer);
   });
 </script>
 
@@ -331,7 +375,30 @@
           </label>
         </div>
 
+        <!-- Status Bar -->
+        <div class="setting-group toggle-group">
+          <label for="showStatusBar">Status Bar</label>
+          <label class="toggle">
+            <input
+              type="checkbox"
+              id="showStatusBar"
+              checked={settings.showStatusBar}
+              on:change={handleStatusBarChange}
+            />
+            <span class="slider"></span>
+          </label>
+        </div>
+
         <!-- Line Height disabled - breaks TUI apps like vim, Claude Code -->
+
+        <!-- Environment Variables -->
+        <div class="setting-group" data-testid="env-vars-section">
+          <EnvVarEditor
+            envVars={currentEnvVars}
+            label="Global Environment Variables"
+            on:change={handleEnvChange}
+          />
+        </div>
       </div>
 
       <div class="panel-footer">

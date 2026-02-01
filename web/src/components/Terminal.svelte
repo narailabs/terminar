@@ -4,6 +4,7 @@
   import { FitAddon } from 'xterm-addon-fit';
   import { WebglAddon } from '@xterm/addon-webgl';
   import { Unicode11Addon } from 'xterm-addon-unicode11';
+  import { SearchAddon } from 'xterm-addon-search';
   import 'xterm/css/xterm.css';
   import type { SessionManager } from '../lib/SessionManager';
   import { xtermOptions } from '../lib/settingsStore';
@@ -24,6 +25,7 @@
   let term: Terminal;
   let fitAddon: FitAddon;
   let webglAddon: WebglAddon | null = null;
+  let searchAddon: SearchAddon | null = null;
   let resizeObserver: ResizeObserver;
   let resizeDebouncer: TerminalResizeDebouncer | null = null;
   let previousSessionId: string | null = null;
@@ -57,6 +59,37 @@
           if (term) term.scrollToBottom();
         }, delay);
       }
+    }
+  }
+
+  // Search addon methods for F4b integration
+  export function searchFindNext(query: string, options?: { caseSensitive?: boolean; regex?: boolean }): boolean {
+    if (!searchAddon || !query) return false;
+    return searchAddon.findNext(query, {
+      caseSensitive: options?.caseSensitive,
+      regex: options?.regex,
+    });
+  }
+
+  export function searchFindPrevious(query: string, options?: { caseSensitive?: boolean; regex?: boolean }): boolean {
+    if (!searchAddon || !query) return false;
+    return searchAddon.findPrevious(query, {
+      caseSensitive: options?.caseSensitive,
+      regex: options?.regex,
+    });
+  }
+
+  export function searchClearDecorations(): void {
+    searchAddon?.clearDecorations();
+  }
+
+  /**
+   * Register a custom key event handler on the terminal.
+   * Returns false from the handler to prevent the key from being sent to the terminal.
+   */
+  export function registerCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean): void {
+    if (term) {
+      term.attachCustomKeyEventHandler(handler);
     }
   }
   export let lastRows: number = 0;
@@ -350,6 +383,10 @@
     term.loadAddon(unicode11Addon);
     term.unicode.activeVersion = '11';
 
+    // Load Search addon for Ctrl-F search in scrollback (F4b)
+    searchAddon = new SearchAddon();
+    term.loadAddon(searchAddon);
+
     term.open(terminalContainer);
 
     // Load WebGL addon for GPU-accelerated rendering
@@ -491,6 +528,7 @@
     if (resizeTimeout) clearTimeout(resizeTimeout);
     if (outputActivityTimeout) clearTimeout(outputActivityTimeout);
     if (resizeDebouncer) resizeDebouncer.dispose();
+    if (searchAddon) searchAddon.dispose();
     if (webglAddon) webglAddon.dispose();
     if (term) term.dispose();
     if (resizeObserver) resizeObserver.disconnect();

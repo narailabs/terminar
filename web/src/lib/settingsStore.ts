@@ -13,6 +13,7 @@ export interface TerminalSettings {
   cursorBlink: boolean;    // default true
   lineHeight: number;      // 1.0-2.0, default 1.0
   showPaneTitleBars: boolean; // default true
+  showStatusBar: boolean;  // default true
 }
 
 /**
@@ -27,6 +28,7 @@ export const DEFAULT_SETTINGS: TerminalSettings = {
   cursorBlink: true,
   lineHeight: 1.0,
   showPaneTitleBars: true,
+  showStatusBar: true,
 };
 
 /**

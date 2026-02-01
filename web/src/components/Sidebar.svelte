@@ -6,6 +6,7 @@
   export let sessions: SessionInfo[] = [];
   export let activeSessionId: string | null = null;
   export let isOpen: boolean = true;
+  export let broadcastMode: boolean = false;
 
   const dispatch = createEventDispatcher();
 
@@ -48,6 +49,7 @@
       <TerminalList
         {sessions}
         {activeSessionId}
+        {broadcastMode}
         on:select={handleSelect}
         on:close={handleClose}
         on:rename={handleRename}

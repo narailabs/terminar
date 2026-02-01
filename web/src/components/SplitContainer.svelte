@@ -16,6 +16,11 @@
     resize: { splitId: string; ratios: number[] };
     detach: { paneId: string };
     kill: { paneId: string; sessionId: SessionId };
+    'action:session.new': void;
+    'action:sidebar.toggle': void;
+    'action:pane.close': { paneId: string };
+    'action:split.horizontal': { paneId: string };
+    'action:split.vertical': { paneId: string };
   }>();
 
   let containerRef: HTMLDivElement;
@@ -38,6 +43,27 @@
 
   function handlePaneKill(event: CustomEvent<{ paneId: string; sessionId: SessionId }>) {
     dispatch('kill', event.detail);
+  }
+
+  // Forward keybinding action events from Pane up to WorkspaceView
+  function handleActionSessionNew() {
+    dispatch('action:session.new');
+  }
+
+  function handleActionSidebarToggle() {
+    dispatch('action:sidebar.toggle');
+  }
+
+  function handleActionPaneClose(event: CustomEvent<{ paneId: string }>) {
+    dispatch('action:pane.close', event.detail);
+  }
+
+  function handleActionSplitHorizontal(event: CustomEvent<{ paneId: string }>) {
+    dispatch('action:split.horizontal', event.detail);
+  }
+
+  function handleActionSplitVertical(event: CustomEvent<{ paneId: string }>) {
+    dispatch('action:split.vertical', event.detail);
   }
 
   function handleSplitResize(event: CustomEvent<{ index: number; delta: number }>) {
@@ -103,6 +129,11 @@
     on:focus={handlePaneFocus}
     on:detach={handlePaneDetach}
     on:kill={handlePaneKill}
+    on:action:session.new={handleActionSessionNew}
+    on:action:sidebar.toggle={handleActionSidebarToggle}
+    on:action:pane.close={handleActionPaneClose}
+    on:action:split.horizontal={handleActionSplitHorizontal}
+    on:action:split.vertical={handleActionSplitVertical}
   />
 {:else}
   <div
@@ -126,6 +157,11 @@
           on:resize={handleNestedResize}
           on:detach={handlePaneDetach}
           on:kill={handlePaneKill}
+          on:action:session.new={handleActionSessionNew}
+          on:action:sidebar.toggle={handleActionSidebarToggle}
+          on:action:pane.close={handleActionPaneClose}
+          on:action:split.horizontal={handleActionSplitHorizontal}
+          on:action:split.vertical={handleActionSplitVertical}
         />
       </div>
       {#if i < node.children.length - 1}
