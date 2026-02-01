@@ -1,0 +1,148 @@
+{
+  "name": "terminar",
+  "displayName": "termiNar",
+  "description": "Persistent terminal sessions backed by a Rust server. Sessions survive VS Code crashes and restarts.",
+  "version": "0.0.1",
+  "publisher": "narai",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/narai-io/narai",
+    "directory": "apps/terminar/extension"
+  },
+  "icon": "resources/icon.png",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Other",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "terminal",
+    "persistent",
+    "shell",
+    "pty",
+    "session",
+    "tmux",
+    "rust"
+  ],
+  "activationEvents": [
+    "onView:terminarSessions",
+    "onCommand:terminar.newSession",
+    "onCommand:terminar.attachSession",
+    "onCommand:terminar.connectRemote"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "terminar-container",
+          "title": "termiNar",
+          "icon": "resources/terminal-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "terminar-container": [
+        {
+          "id": "terminarSessions",
+          "name": "Sessions"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "termiNar",
+      "properties": {
+        "terminar.serverPath": {
+          "type": "string",
+          "default": "",
+          "description": "Custom path to the terminar-server binary. Leave empty to use the bundled server."
+        },
+        "terminar.socketPath": {
+          "type": "string",
+          "default": "",
+          "description": "Custom Unix socket path for server communication. Leave empty to use the default."
+        },
+        "terminar.authToken": {
+          "type": "string",
+          "default": "",
+          "description": "Stored authentication token. Normally auto-read from ~/.terminar/token."
+        },
+        "terminar.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically start the server when the extension activates."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "terminar.newSession",
+        "title": "New Persistent Session",
+        "category": "termiNar"
+      },
+      {
+        "command": "terminar.attachSession",
+        "title": "Attach to Session",
+        "category": "termiNar"
+      },
+      {
+        "command": "terminar.connectRemote",
+        "title": "Connect to Remote Server",
+        "category": "termiNar"
+      },
+      {
+        "command": "terminar.killServer",
+        "title": "Stop Server",
+        "category": "termiNar"
+      },
+      {
+        "command": "terminar.renameSession",
+        "title": "Rename Session",
+        "category": "termiNar"
+      },
+      {
+        "command": "terminar.killSession",
+        "title": "Kill Session",
+        "category": "termiNar"
+      }
+    ],
+    "menus": {
+      "view/item/context": [
+        {
+          "command": "terminar.renameSession",
+          "when": "view == terminarSessions && viewItem == session",
+          "group": "inline"
+        },
+        {
+          "command": "terminar.killSession",
+          "when": "view == terminarSessions && viewItem == session",
+          "group": "inline"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package",
+    "pretest": "tsc -p tsconfig.test.json --outDir out-test",
+    "test": "mocha --ui tdd --require ./out-test/src/test/setup.js 'out-test/src/test/*.test.js' --timeout 15000"
+  },
+  "dependencies": {
+    "@narai/terminar-protocol": "workspace:*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.1",
+    "@types/node": "^16.x",
+    "@types/vscode": "^1.75.0",
+    "@types/ws": "^8.5.10",
+    "mocha": "^11.7.5",
+    "module-alias": "^2.2.3",
+    "typescript": "^4.9.5"
+  }
+}

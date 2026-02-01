@@ -1,0 +1,19 @@
+# Simple wrapper for Cargo build
+# NOTE: This requires 'cargo' to be in the system PATH and requires network access.
+
+genrule(
+    name = "server",
+    srcs = glob(["src/**/*.rs"]) + ["Cargo.toml", "Cargo.lock"],
+    outs = ["terminar-server"],
+    cmd = "export PATH=\"$$PATH:/Users/narayan/.cargo/bin\" && cargo build --release --manifest-path apps/terminar/server/Cargo.toml && cp apps/terminar/server/target/release/terminar-server $(location :terminar-server)",
+    tags = ["requires-network", "local"],
+    visibility = ["//visibility:public"],
+)
+
+sh_test(
+    name = "test",
+    srcs = ["test_wrapper.sh"],
+    data = glob(["src/**/*.rs", "tests/**/*.rs"]) + ["Cargo.toml", "Cargo.lock"],
+    tags = ["requires-network", "local"],
+    timeout = "long",  # Concurrency test needs more time
+)

@@ -1,0 +1,387 @@
+//! Session lifecycle message handlers: CreateSession, KillSession, RenameSession, ListSessions.
+
+use crate::constants::{SHELL_WHITELIST, ENV_BLOCKLIST, PTY_READ_BUFFER_SIZE};
+use crate::history::CircularBuffer;
+use crate::messages::{ServerMessage, SessionInfo};
+use crate::persistence;
+use crate::pty::PtyProvider;
+use crate::session::{Session, SessionEvent, SessionMap, SessionState};
+use crate::AppState;
+
+use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use std::collections::HashMap;
+use std::io::Read;
+use std::sync::Arc;
+use parking_lot::Mutex;
+use tokio::sync::{broadcast, mpsc};
+use uuid::Uuid;
+use tracing::{info, error, warn, instrument};
+
+/// Find the last byte index in `data` that ends a complete UTF-8 sequence.
+/// Any trailing bytes that start but don't complete a multi-byte character
+/// are excluded, so the caller can carry them over to the next read.
+fn find_utf8_safe_boundary(data: &[u8]) -> usize {
+    if data.is_empty() {
+        return 0;
+    }
+    // Check if the entire slice is already valid UTF-8
+    match std::str::from_utf8(data) {
+        Ok(_) => data.len(),
+        Err(e) => {
+            // valid_up_to() gives us the byte index up to which the data is valid UTF-8.
+            // Everything after that is either an incomplete sequence at the end or
+            // genuinely invalid bytes. We return valid_up_to to keep the safe prefix.
+            // If there's an error_len, it means there's actually invalid (not just incomplete)
+            // data - in that case skip past it so we don't get stuck buffering garbage forever.
+            let valid = e.valid_up_to();
+            if e.error_len().is_some() {
+                // Genuinely invalid byte(s) - skip past them
+                valid + e.error_len().unwrap()
+            } else {
+                // Incomplete sequence at end - carry it over
+                valid
+            }
+        }
+    }
+}
+
+/// Gets the default shell from $SHELL environment variable.
+/// Falls back to /bin/sh if $SHELL is not set or not in whitelist.
+fn get_default_shell() -> String {
+    if let Ok(shell) = std::env::var("SHELL") {
+        if SHELL_WHITELIST.contains(&shell.as_str()) {
+            return shell;
+        }
+    }
+    "/bin/sh".to_string()
+}
+
+/// Resolves the shell path - if empty, uses the system default.
+pub(crate) fn resolve_shell(shell: &str) -> String {
+    if shell.is_empty() {
+        get_default_shell()
+    } else {
+        shell.to_string()
+    }
+}
+
+/// Resolves the working directory - if empty or "/", uses the user's home directory.
+pub(crate) fn resolve_cwd(cwd: &str) -> String {
+    if cwd.is_empty() || cwd == "/" {
+        std::env::var("HOME").unwrap_or_else(|_| "/".to_string())
+    } else {
+        cwd.to_string()
+    }
+}
+
+/// Validates that a shell path is in the whitelist and is safe.
+/// Returns an error message if validation fails, None if valid.
+pub(crate) fn validate_shell(shell: &str) -> Option<String> {
+    // Reject path traversal attempts (contains "..")
+    if shell.contains("..") {
+        return Some(format!("Shell path '{}' contains path traversal and is not allowed", shell));
+    }
+
+    // Reject relative paths (must start with /)
+    if !shell.starts_with('/') {
+        return Some(format!("Shell '{}' must be an absolute path", shell));
+    }
+
+    // Check against whitelist
+    if !SHELL_WHITELIST.contains(&shell) {
+        return Some(format!("Shell '{}' is not in the allowed whitelist", shell));
+    }
+
+    None
+}
+
+/// Validates a working directory path for safety and existence.
+/// Returns an error message if validation fails, None if valid.
+pub(crate) fn validate_cwd(cwd: &str) -> Option<String> {
+    // Reject path traversal
+    if cwd.contains("..") {
+        return Some(format!("Working directory '{}' contains path traversal and is not allowed", cwd));
+    }
+
+    // Check path exists and is a directory
+    let path = std::path::Path::new(cwd);
+    if !path.exists() {
+        return Some(format!("Working directory '{}' does not exist", cwd));
+    }
+    if !path.is_dir() {
+        return Some(format!("Working directory '{}' is not a directory", cwd));
+    }
+
+    None
+}
+
+/// Filters environment variables, removing those in the blocklist.
+pub(crate) fn filter_env(env: &HashMap<String, String>) -> HashMap<String, String> {
+    env.iter()
+        .filter(|(k, _)| !ENV_BLOCKLIST.contains(&k.as_str()))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect()
+}
+
+/// Clamps terminal dimensions to valid range (1-500).
+/// Returns the clamped value and logs a warning if clamping was necessary.
+pub(crate) fn clamp_dimension(val: u16, name: &str) -> u16 {
+    if val < 1 {
+        warn!("{} {} below minimum, clamping to 1", name, val);
+        1
+    } else if val > 500 {
+        warn!("{} {} above maximum, clamping to 500", name, val);
+        500
+    } else {
+        val
+    }
+}
+
+/// Build a SessionInfo list from the current sessions.
+fn build_session_list(sessions: &SessionMap) -> Vec<SessionInfo> {
+    let guard = sessions.lock();
+    guard.values().map(|s| SessionInfo {
+        id: s.id.clone(),
+        name: s.name.clone(),
+        shell: s.shell_cmd.clone(),
+        cwd: s.cwd.clone(),
+        started_at: "now".to_string(),
+    }).collect()
+}
+
+/// Handle ListSessions message.
+#[instrument(skip(tx_out, sessions))]
+pub(crate) async fn handle_list_sessions(
+    tx_out: &mpsc::Sender<ServerMessage>,
+    sessions: &SessionMap,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let list = build_session_list(sessions);
+    tx_out.send(ServerMessage::SessionList { sessions: list }).await?;
+    Ok(())
+}
+
+/// Handle CreateSession message.
+#[allow(clippy::too_many_arguments)]
+#[instrument(skip(env, tx_out, sessions, state), fields(shell = %shell, cwd = %cwd, cols = cols, rows = rows))]
+pub(crate) async fn handle_create_session(
+    cwd: &str,
+    shell: &str,
+    env: &HashMap<String, String>,
+    cols: u16,
+    rows: u16,
+    tx_out: &mpsc::Sender<ServerMessage>,
+    sessions: &SessionMap,
+    state: &AppState,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Resolve shell - use system default if empty
+    let resolved_shell = resolve_shell(shell);
+    // Resolve cwd - use home directory if empty or "/"
+    let resolved_cwd = resolve_cwd(cwd);
+
+    // Validate shell against whitelist before spawning
+    if let Some(error_msg) = validate_shell(&resolved_shell) {
+        tx_out.send(ServerMessage::Error { message: error_msg }).await?;
+        return Ok(());
+    }
+
+    // Validate working directory
+    if let Some(error_msg) = validate_cwd(&resolved_cwd) {
+        tx_out.send(ServerMessage::Error { message: error_msg }).await?;
+        return Ok(());
+    }
+
+    // Clamp dimensions to valid range (1-500)
+    let cols = clamp_dimension(cols, "cols");
+    let rows = clamp_dimension(rows, "rows");
+
+    // Filter dangerous environment variables
+    let safe_env = filter_env(env);
+
+    let master: Box<dyn portable_pty::MasterPty + Send>;
+
+    if let Some(provider) = &state.mock_provider {
+        master = provider.create_pty(cols, rows)?;
+        let _c = provider.spawn_command(&*master, CommandBuilder::new(&resolved_shell))?;
+    } else {
+        let pty_system = native_pty_system();
+        let pair = pty_system.openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })?;
+        master = pair.master;
+
+        let mut cmd = CommandBuilder::new(&resolved_shell);
+        cmd.cwd(&resolved_cwd);
+        // Set TERM and COLORTERM so shells and TUI apps (vim, Claude Code, etc.)
+        // render escape sequences correctly. xterm-256color is the standard for
+        // xterm.js-based terminals. COLORTERM=truecolor enables 24-bit color.
+        cmd.env("TERM", "xterm-256color");
+        cmd.env("COLORTERM", "truecolor");
+        for (k, v) in safe_env {
+            cmd.env(k, v);
+        }
+        let _c = pair.slave.spawn_command(cmd)?;
+    }
+
+    let id = Uuid::new_v4().to_string();
+    let (tx, _) = broadcast::channel(100);
+    let history = Arc::new(Mutex::new(CircularBuffer::with_default_capacity()));
+    let history_clone = history.clone();
+
+    // Clone reader and take writer before wrapping master in Arc<Mutex<>>
+    let mut reader = master.try_clone_reader()?;
+    let writer = master.take_writer()?;
+    let tx_clone = tx.clone();
+
+    // Wrap master in Arc<Mutex<>> for synchronized concurrent access
+    let sync_master = Arc::new(Mutex::new(master));
+    // Wrap writer in Arc<Mutex<>> - cache it to prevent dropping after each input
+    let sync_writer = Arc::new(Mutex::new(writer));
+
+    // Use tokio::task::spawn_blocking for PTY reading (blocking I/O)
+    let reader_handle = tokio::task::spawn_blocking(move || {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut buf = [0u8; PTY_READ_BUFFER_SIZE];
+            // Carry-over buffer for incomplete UTF-8 sequences split across reads.
+            // A UTF-8 character is at most 4 bytes, so we only ever carry up to 3 bytes.
+            let mut utf8_remainder: Vec<u8> = Vec::with_capacity(4);
+            loop {
+                // Read into the buffer, leaving room for the remainder prefix
+                let read_start = utf8_remainder.len();
+                match reader.read(&mut buf[read_start..]) {
+                    Ok(0) => {
+                        let _ = tx_clone.send(SessionEvent::Closed);
+                        break;
+                    },
+                    Ok(n) => {
+                        // Prepend any leftover bytes from previous read
+                        buf[..read_start].copy_from_slice(&utf8_remainder);
+                        utf8_remainder.clear();
+                        let total = read_start + n;
+                        let data_bytes = &buf[0..total];
+
+                        // Find the boundary of complete UTF-8 sequences.
+                        // Walk backward from the end to find any incomplete trailing sequence.
+                        let valid_up_to = find_utf8_safe_boundary(data_bytes);
+
+                        // Save any trailing incomplete bytes for the next read
+                        if valid_up_to < total {
+                            utf8_remainder.extend_from_slice(&data_bytes[valid_up_to..total]);
+                        }
+
+                        let safe_bytes = &data_bytes[0..valid_up_to];
+                        if !safe_bytes.is_empty() {
+                            // safe_bytes is guaranteed to be valid UTF-8 at this point
+                            let data = String::from_utf8_lossy(safe_bytes).to_string();
+                            {
+                                let mut h = history_clone.lock();
+                                h.push(safe_bytes);
+                            }
+                            let _ = tx_clone.send(SessionEvent::Output(data));
+                        }
+                    }
+                    Err(_) => {
+                        let _ = tx_clone.send(SessionEvent::Closed);
+                        break;
+                    },
+                }
+            }
+        }));
+
+        if let Err(panic_info) = result {
+            let panic_msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                s.to_string()
+            } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "Unknown panic".to_string()
+            };
+            error!("PTY reader thread panicked: {}", panic_msg);
+        }
+    });
+
+    let session = Session {
+        id: id.clone(),
+        name: format!("Terminal {}", state.session_name_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed)),
+        shell_cmd: resolved_shell.clone(),
+        cwd: resolved_cwd.clone(),
+        state: SessionState::Running,
+        master: sync_master,
+        writer: sync_writer,
+        output_tx: tx,
+        history,
+        reader_handle: Some(reader_handle),
+    };
+
+    let list = {
+        let mut guard = sessions.lock();
+        guard.insert(id.clone(), session);
+        // Increment total sessions counter
+        state.sessions_total.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        info!(session_id = %id, shell = %resolved_shell, cwd = %resolved_cwd, event = "session_created", "Session lifecycle: created");
+        guard.values().map(|s| SessionInfo {
+            id: s.id.clone(),
+            name: s.name.clone(),
+            shell: s.shell_cmd.clone(),
+            cwd: s.cwd.clone(),
+            started_at: "now".to_string(),
+        }).collect::<Vec<_>>()
+    };
+    // Persist session state after creation
+    persistence::persist_if_enabled(state.persist_sessions, &state.session_file_path, sessions);
+    tx_out.send(ServerMessage::SessionList { sessions: list }).await?;
+    Ok(())
+}
+
+/// Handle RenameSession message.
+#[instrument(skip(tx_out, sessions), fields(session_id = %session_id, new_name = %new_name))]
+pub(crate) async fn handle_rename_session(
+    session_id: &str,
+    new_name: &str,
+    tx_out: &mpsc::Sender<ServerMessage>,
+    sessions: &SessionMap,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let list = {
+        let mut guard = sessions.lock();
+        if let Some(session) = guard.get_mut(session_id) {
+            session.name = new_name.to_string();
+        }
+        guard.values().map(|s| SessionInfo {
+            id: s.id.clone(),
+            name: s.name.clone(),
+            shell: s.shell_cmd.clone(),
+            cwd: s.cwd.clone(),
+            started_at: "now".to_string(),
+        }).collect::<Vec<_>>()
+    };
+    tx_out.send(ServerMessage::SessionList { sessions: list }).await?;
+    Ok(())
+}
+
+/// Handle KillSession message.
+#[instrument(skip(tx_out, sessions, state), fields(session_id = %session_id))]
+pub(crate) async fn handle_kill_session(
+    session_id: &str,
+    tx_out: &mpsc::Sender<ServerMessage>,
+    sessions: &SessionMap,
+    state: &AppState,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (was_removed, list) = {
+        let mut guard = sessions.lock();
+        let removed = guard.remove(session_id).is_some();
+        let list = guard.values().map(|s| SessionInfo {
+            id: s.id.clone(),
+            name: s.name.clone(),
+            shell: s.shell_cmd.clone(),
+            cwd: s.cwd.clone(),
+            started_at: "now".to_string(),
+        }).collect::<Vec<_>>();
+        (removed, list)
+    };
+
+    if was_removed {
+        info!(session_id = %session_id, event = "session_killed", "Session lifecycle: killed");
+        // Persist session state after kill
+        persistence::persist_if_enabled(state.persist_sessions, &state.session_file_path, sessions);
+        tx_out.send(ServerMessage::SessionClosed { session_id: session_id.to_string() }).await?;
+        tx_out.send(ServerMessage::SessionList { sessions: list }).await?;
+    }
+    Ok(())
+}

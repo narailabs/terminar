@@ -1,0 +1,612 @@
+<script lang="ts">
+  import { createEventDispatcher, onMount, onDestroy } from 'svelte';
+  import ColorPicker from './ColorPicker.svelte';
+  import ThemeEditor from './ThemeEditor.svelte';
+  import {
+    addCustomUITheme,
+    addCustomTerminalTheme,
+    deleteCustomUITheme,
+    deleteCustomTerminalTheme,
+    getActiveUITheme,
+    getActiveTerminalTheme,
+  } from '../lib/themeStore';
+  import { exportTheme, importTheme, type ExportedTheme } from '../lib/themeExport';
+  import {
+    settingsStore,
+    FONT_FAMILIES,
+    CURSOR_STYLES,
+    DEFAULT_SETTINGS,
+    type TerminalSettings,
+  } from '../lib/settingsStore';
+  import {
+    themeState,
+    setActiveUITheme,
+    setActiveTerminalTheme,
+  } from '../lib/themeStore';
+  import { BUILT_IN_UI_THEMES, BUILT_IN_TERMINAL_THEMES } from '../lib/themeTypes';
+
+  export let isOpen: boolean = false;
+
+  const dispatch = createEventDispatcher<{ close: void }>();
+
+  let panelElement: HTMLDivElement;
+
+  // Subscribe to settings store
+  let settings: TerminalSettings = DEFAULT_SETTINGS;
+  const unsubscribe = settingsStore.subscribe((value) => {
+    settings = value;
+  });
+
+  function handleClose() {
+    dispatch('close');
+  }
+
+  function handleKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape') {
+      handleClose();
+    }
+  }
+
+  function handleBackdropClick(event: MouseEvent) {
+    if (event.target === event.currentTarget) {
+      handleClose();
+    }
+  }
+
+  function handleFontSizeChange(event: Event) {
+    const target = event.target as HTMLInputElement;
+    settingsStore.updateSetting('fontSize', parseInt(target.value, 10));
+  }
+
+  function handleFontFamilyChange(event: Event) {
+    const target = event.target as HTMLSelectElement;
+    settingsStore.updateSetting('fontFamily', target.value);
+  }
+
+  function handleFontColorChange(event: CustomEvent<string>) {
+    settingsStore.updateSetting('fontColor', event.detail);
+  }
+
+  function handleBackgroundColorChange(event: CustomEvent<string>) {
+    settingsStore.updateSetting('backgroundColor', event.detail);
+  }
+
+  function handleCursorStyleChange(event: Event) {
+    const target = event.target as HTMLSelectElement;
+    settingsStore.updateSetting('cursorStyle', target.value as 'block' | 'underline' | 'bar');
+  }
+
+  function handleCursorBlinkChange(event: Event) {
+    const target = event.target as HTMLInputElement;
+    settingsStore.updateSetting('cursorBlink', target.checked);
+  }
+
+  function handlePaneTitleBarsChange(event: Event) {
+    const target = event.target as HTMLInputElement;
+    settingsStore.updateSetting('showPaneTitleBars', target.checked);
+  }
+
+  // Line height disabled - breaks TUI apps
+
+  // All available UI and terminal themes (built-in + custom)
+  $: allUIThemes = [...BUILT_IN_UI_THEMES, ...$themeState.customUIThemes];
+  $: allTerminalThemes = [...BUILT_IN_TERMINAL_THEMES, ...$themeState.customTerminalThemes];
+
+  function handleUIThemeChange(event: Event) {
+    const target = event.target as HTMLSelectElement;
+    setActiveUITheme(target.value);
+  }
+
+  function handleTerminalThemeChange(event: Event) {
+    const target = event.target as HTMLSelectElement;
+    setActiveTerminalTheme(target.value);
+  }
+
+  let showThemeEditor = false;
+
+  function handleCreateTheme() {
+    showThemeEditor = true;
+  }
+
+  function handleThemeEditorClose() {
+    showThemeEditor = false;
+  }
+
+  function handleThemeEditorSave() {
+    showThemeEditor = false;
+  }
+
+  function handleExportTheme() {
+    const ui = getActiveUITheme();
+    const terminal = getActiveTerminalTheme();
+    const exported = exportTheme({ ui, terminal });
+    const json = JSON.stringify(exported, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${exported.name.toLowerCase().replace(/\s+/g, '-')}-theme.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function handleImportTheme() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const data: ExportedTheme = JSON.parse(text);
+        const result = importTheme(data);
+        if (result.ui) addCustomUITheme(result.ui);
+        if (result.terminal) addCustomTerminalTheme(result.terminal);
+      } catch (e) {
+        console.error('[Settings] Failed to import theme:', e);
+      }
+    };
+    input.click();
+  }
+
+  function handleDeleteUITheme(id: string) {
+    deleteCustomUITheme(id);
+  }
+
+  function handleDeleteTerminalTheme(id: string) {
+    deleteCustomTerminalTheme(id);
+  }
+
+  function handleReset() {
+    settingsStore.reset();
+  }
+
+  onMount(() => {
+    document.addEventListener('keydown', handleKeydown);
+  });
+
+  onDestroy(() => {
+    document.removeEventListener('keydown', handleKeydown);
+    unsubscribe();
+  });
+</script>
+
+{#if isOpen}
+  <div class="modal-backdrop" on:click={handleBackdropClick} role="dialog" aria-modal="true">
+    <div class="settings-panel" bind:this={panelElement}>
+      <div class="panel-header">
+        <h2>Terminal Settings</h2>
+        <button class="close-btn" on:click={handleClose} aria-label="Close settings">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+
+      <div class="panel-content">
+        <!-- UI Theme -->
+        <div class="setting-group">
+          <label for="uiTheme">UI Theme</label>
+          <select
+            id="uiTheme"
+            value={$themeState.activeUIThemeId}
+            on:change={handleUIThemeChange}
+          >
+            {#each allUIThemes as theme}
+              <option value={theme.id}>{theme.name}</option>
+            {/each}
+          </select>
+        </div>
+
+        <!-- Terminal Theme -->
+        <div class="setting-group">
+          <label for="terminalTheme">Terminal Theme</label>
+          <select
+            id="terminalTheme"
+            value={$themeState.activeTerminalThemeId}
+            on:change={handleTerminalThemeChange}
+          >
+            {#each allTerminalThemes as theme}
+              <option value={theme.id}>{theme.name}</option>
+            {/each}
+          </select>
+        </div>
+
+        <!-- Theme Actions -->
+        <div class="theme-actions">
+          <button class="theme-action-btn" on:click={handleCreateTheme}>Create Theme</button>
+          <button class="theme-action-btn" on:click={handleExportTheme}>Export</button>
+          <button class="theme-action-btn" on:click={handleImportTheme}>Import</button>
+        </div>
+
+        <!-- Custom Theme Deletion -->
+        {#if $themeState.customUIThemes.length > 0 || $themeState.customTerminalThemes.length > 0}
+          <div class="setting-group">
+            <label>Custom Themes</label>
+            <div class="custom-theme-list">
+              {#each $themeState.customUIThemes as theme}
+                <div class="custom-theme-item">
+                  <span>{theme.name} (UI)</span>
+                  <button class="delete-theme-btn" on:click={() => handleDeleteUITheme(theme.id)}>×</button>
+                </div>
+              {/each}
+              {#each $themeState.customTerminalThemes as theme}
+                <div class="custom-theme-item">
+                  <span>{theme.name} (Terminal)</span>
+                  <button class="delete-theme-btn" on:click={() => handleDeleteTerminalTheme(theme.id)}>×</button>
+                </div>
+              {/each}
+            </div>
+          </div>
+        {/if}
+
+        <!-- Font Size -->
+        <div class="setting-group">
+          <label for="fontSize">
+            Font Size: <span class="value">{settings.fontSize}px</span>
+          </label>
+          <input
+            type="range"
+            id="fontSize"
+            min="10"
+            max="24"
+            step="1"
+            value={settings.fontSize}
+            on:input={handleFontSizeChange}
+          />
+        </div>
+
+        <!-- Font Family -->
+        <div class="setting-group">
+          <label for="fontFamily">Font Family</label>
+          <select
+            id="fontFamily"
+            value={settings.fontFamily}
+            on:change={handleFontFamilyChange}
+          >
+            {#each FONT_FAMILIES as font}
+              <option value={font}>{font}</option>
+            {/each}
+          </select>
+        </div>
+
+        <!-- Font Color -->
+        <div class="setting-group">
+          <ColorPicker
+            id="fontColor"
+            label="Font Color"
+            value={settings.fontColor}
+            on:change={handleFontColorChange}
+          />
+        </div>
+
+        <!-- Background Color -->
+        <div class="setting-group">
+          <ColorPicker
+            id="backgroundColor"
+            label="Background Color"
+            value={settings.backgroundColor}
+            on:change={handleBackgroundColorChange}
+          />
+        </div>
+
+        <!-- Cursor Style -->
+        <div class="setting-group">
+          <label for="cursorStyle">Cursor Style</label>
+          <select
+            id="cursorStyle"
+            value={settings.cursorStyle}
+            on:change={handleCursorStyleChange}
+          >
+            {#each CURSOR_STYLES as style}
+              <option value={style}>{style.charAt(0).toUpperCase() + style.slice(1)}</option>
+            {/each}
+          </select>
+        </div>
+
+        <!-- Cursor Blink -->
+        <div class="setting-group toggle-group">
+          <label for="cursorBlink">Cursor Blink</label>
+          <label class="toggle">
+            <input
+              type="checkbox"
+              id="cursorBlink"
+              checked={settings.cursorBlink}
+              on:change={handleCursorBlinkChange}
+            />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <!-- Pane Title Bars -->
+        <div class="setting-group toggle-group">
+          <label for="showPaneTitleBars">Pane Title Bars</label>
+          <label class="toggle">
+            <input
+              type="checkbox"
+              id="showPaneTitleBars"
+              checked={settings.showPaneTitleBars}
+              on:change={handlePaneTitleBarsChange}
+            />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <!-- Line Height disabled - breaks TUI apps like vim, Claude Code -->
+      </div>
+
+      <div class="panel-footer">
+        <button class="reset-btn" on:click={handleReset}>Reset to Defaults</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<ThemeEditor isOpen={showThemeEditor} on:close={handleThemeEditorClose} on:save={handleThemeEditorSave} />
+
+<style>
+  .modal-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+
+  .settings-panel {
+    background: var(--ui-bg-secondary, #252526);
+    border: 1px solid var(--ui-border, #3c3c3c);
+    border-radius: 8px;
+    width: 380px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--ui-border, #3c3c3c);
+    flex-shrink: 0;
+  }
+
+  .panel-header h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--ui-text-primary, #e0e0e0);
+  }
+
+  .close-btn {
+    background: none;
+    border: none;
+    color: var(--ui-text-secondary, #999);
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+  }
+
+  .close-btn:hover {
+    background: var(--ui-bg-tertiary, #3c3c3c);
+    color: var(--ui-text-primary, #fff);
+  }
+
+  .panel-content {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .setting-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .setting-group label {
+    font-size: 12px;
+    color: var(--ui-text-secondary, #999);
+    font-weight: 500;
+  }
+
+  .setting-group .value {
+    color: var(--ui-text-primary, #cccccc);
+    font-weight: 400;
+    margin-left: 4px;
+  }
+
+  .setting-group select {
+    padding: 8px 12px;
+    background: var(--ui-bg-tertiary, #3c3c3c);
+    border: 1px solid var(--ui-border, #555);
+    border-radius: 4px;
+    color: var(--ui-text-primary, white);
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .setting-group select:focus {
+    outline: none;
+    border-color: var(--ui-accent, #0e639c);
+  }
+
+  .setting-group input[type="range"] {
+    width: 100%;
+    height: 4px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: var(--ui-bg-tertiary, #3c3c3c);
+    border-radius: 2px;
+    outline: none;
+  }
+
+  .setting-group input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    background: var(--ui-accent, #0e639c);
+    border-radius: 50%;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .setting-group input[type="range"]::-webkit-slider-thumb:hover {
+    background: var(--ui-accent-hover, #1177bb);
+  }
+
+  .setting-group input[type="range"]::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    background: var(--ui-accent, #0e639c);
+    border-radius: 50%;
+    cursor: pointer;
+    border: none;
+  }
+
+  .toggle-group {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .toggle {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+  }
+
+  .toggle input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+
+  .slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--ui-bg-tertiary, #3c3c3c);
+    transition: 0.2s;
+    border-radius: 24px;
+  }
+
+  .slider:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background-color: var(--ui-text-primary, white);
+    transition: 0.2s;
+    border-radius: 50%;
+  }
+
+  .toggle input:checked + .slider {
+    background-color: var(--ui-accent, #0e639c);
+  }
+
+  .toggle input:checked + .slider:before {
+    transform: translateX(20px);
+  }
+
+  .panel-footer {
+    padding: 16px 20px;
+    border-top: 1px solid var(--ui-border, #3c3c3c);
+    display: flex;
+    justify-content: flex-end;
+    flex-shrink: 0;
+  }
+
+  .reset-btn {
+    padding: 8px 16px;
+    background: var(--ui-bg-tertiary, #3c3c3c);
+    border: 1px solid var(--ui-border, #555);
+    border-radius: 4px;
+    color: var(--ui-text-primary, #cccccc);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .reset-btn:hover {
+    background: var(--ui-bg-hover, #4a4a4a);
+    color: var(--ui-text-primary, white);
+  }
+
+  .theme-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .theme-action-btn {
+    flex: 1;
+    padding: 6px 12px;
+    background: var(--ui-bg-tertiary, #3c3c3c);
+    border: 1px solid var(--ui-border, #555);
+    border-radius: 4px;
+    color: var(--ui-text-primary, #ccc);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .theme-action-btn:hover {
+    background: var(--ui-bg-hover, #4a4a4a);
+  }
+
+  .custom-theme-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .custom-theme-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 8px;
+    background: var(--ui-bg-tertiary, #3c3c3c);
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--ui-text-primary, #ccc);
+  }
+
+  .delete-theme-btn {
+    background: none;
+    border: none;
+    color: var(--ui-text-muted, #888);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0 4px;
+    border-radius: 2px;
+  }
+
+  .delete-theme-btn:hover {
+    color: var(--ui-destructive, #f48771);
+    background: var(--ui-destructive-hover, #5a1d1d);
+  }
+</style>

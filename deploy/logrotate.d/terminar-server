@@ -1,0 +1,56 @@
+# Log rotation configuration for terminar-server
+#
+# Installation:
+#   Copy to /etc/logrotate.d/terminar-server
+#
+# The server writes logs to /var/log/terminar-server/server.log
+# when started with --log-file /var/log/terminar-server/server.log
+#
+# Log reopening: After rotation, logrotate sends SIGHUP to the server
+# process. The tracing-appender crate uses non-blocking I/O, so the
+# copytruncate directive is used instead to avoid requiring signal handling
+# for log file reopening.
+
+/var/log/terminar-server/*.log {
+    # Rotate daily
+    daily
+
+    # Keep 14 days of logs
+    rotate 14
+
+    # Compress rotated logs (gzip by default)
+    compress
+
+    # Delay compression by one rotation cycle so the most recent
+    # rotated file is still plaintext (useful for quick inspection)
+    delaycompress
+
+    # Do not error if log file is missing
+    missingok
+
+    # Do not rotate if log file is empty
+    notifempty
+
+    # Use copytruncate instead of move+create to avoid requiring
+    # the server to reopen log files. This atomically copies the
+    # log file and then truncates the original, so the server
+    # continues writing to the same file descriptor.
+    copytruncate
+
+    # Set permissions on new log files
+    create 0640 terminar terminar
+
+    # Run shared scripts once for all matched files
+    sharedscripts
+
+    # Optional: notify server to flush buffers after rotation
+    # The tracing-appender non-blocking writer will handle this
+    # gracefully with copytruncate, but sending USR1 can trigger
+    # an explicit flush if the server implements it.
+    postrotate
+        # If systemd is managing the service, use systemctl
+        if [ -f /run/terminar-server/terminar-server.pid ]; then
+            kill -USR1 $(cat /run/terminar-server/terminar-server.pid) 2>/dev/null || true
+        fi
+    endscript
+}
