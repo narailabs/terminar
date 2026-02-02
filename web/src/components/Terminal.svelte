@@ -8,12 +8,14 @@
   import 'xterm/css/xterm.css';
   import type { SessionManager } from '../lib/SessionManager';
   import { xtermOptions } from '../lib/settingsStore';
+  import { themeState, getTerminalTheme } from '../lib/themeStore';
   import { isResizing } from '../lib/resizeStore';
   import { TerminalResizeDebouncer } from '../lib/TerminalResizeDebouncer';
 
   export let manager: SessionManager | null = null;
   export let activeSessionId: string | null = null;
   export let isActive: boolean = false; // Only send input when active pane - default to false for safety
+  export let paneId: string = '';
 
   // Debug: unique ID for this terminal instance to track duplicates
   const terminalInstanceId = Math.random().toString(36).slice(2, 8);
@@ -235,13 +237,35 @@
     }, 100);
   }
 
+  // Resolve per-pane terminal theme (falls back to global if no override)
+  $: paneTheme = (() => {
+    // Subscribe to themeState so this re-evaluates when overrides change
+    void $themeState;
+    return getTerminalTheme(paneId);
+  })();
+
+  // Merge layout settings from xtermOptions with per-pane theme
+  $: resolvedOptions = $xtermOptions && paneTheme ? {
+    ...$xtermOptions,
+    theme: {
+      foreground: paneTheme.foreground,
+      background: paneTheme.background,
+      cursor: paneTheme.cursor,
+      cursorAccent: paneTheme.cursorAccent,
+      selectionBackground: paneTheme.selectionBackground,
+      selectionForeground: paneTheme.selectionForeground,
+      selectionInactiveBackground: paneTheme.selectionInactiveBackground,
+      ...paneTheme.ansi,
+    },
+  } : $xtermOptions;
+
   // Subscribe to settings changes and apply to terminal
   // Only apply if terminal is fully initialized and settings actually changed
-  $: if (term && term.options && $xtermOptions) {
-      const settingsKey = JSON.stringify($xtermOptions);
+  $: if (term && term.options && resolvedOptions) {
+      const settingsKey = JSON.stringify(resolvedOptions);
       if (settingsKey !== lastAppliedSettings) {
           lastAppliedSettings = settingsKey;
-          applySettings($xtermOptions);
+          applySettings(resolvedOptions);
       }
   }
 

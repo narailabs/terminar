@@ -379,7 +379,7 @@
         on:toggleCaseSensitive={handleToggleCaseSensitive}
         on:toggleRegex={handleToggleRegex}
       />
-      <Terminal bind:this={terminalRef} {manager} activeSessionId={sessionId} {isActive} />
+      <Terminal bind:this={terminalRef} {manager} activeSessionId={sessionId} {isActive} {paneId} />
     {:else}
       <div class="empty-pane">
         <p>Drag a session here</p>

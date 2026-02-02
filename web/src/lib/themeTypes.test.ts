@@ -53,15 +53,16 @@ describe('Built-in UI Themes', () => {
 // ── TerminalTheme structure ──────────────────────────────────────────────────
 
 describe('Built-in Terminal Themes', () => {
-  it('should have exactly 3 built-in terminal themes', () => {
-    expect(BUILT_IN_TERMINAL_THEMES).toHaveLength(3);
+  it('should have exactly 4 built-in terminal themes', () => {
+    expect(BUILT_IN_TERMINAL_THEMES).toHaveLength(4);
   });
 
-  it('should have dark, light, and dark-green themes', () => {
+  it('should have dark, light, dark-green, and classic-blue themes', () => {
     const ids = BUILT_IN_TERMINAL_THEMES.map((t) => t.id);
     expect(ids).toContain('dark');
     expect(ids).toContain('light');
     expect(ids).toContain('dark-green');
+    expect(ids).toContain('classic-blue');
   });
 
   it('each terminal theme should have foreground, background, cursor, and ansi colors', () => {

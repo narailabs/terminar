@@ -215,8 +215,41 @@ const darkGreenTerminal: TerminalTheme = {
   ansi: ANSI_GREEN,
 };
 
+const ANSI_BLUE: AnsiColors = {
+  black: '#000020',
+  red: '#ff6e6e',
+  green: '#54ff54',
+  yellow: '#ffff54',
+  blue: '#5454ff',
+  magenta: '#ff54ff',
+  cyan: '#54ffff',
+  white: '#ffffff',
+  brightBlack: '#555580',
+  brightRed: '#ff8a8a',
+  brightGreen: '#70ff70',
+  brightYellow: '#ffff70',
+  brightBlue: '#7070ff',
+  brightMagenta: '#ff70ff',
+  brightCyan: '#70ffff',
+  brightWhite: '#ffffff',
+};
+
+const classicBlueTerminal: TerminalTheme = {
+  id: 'classic-blue',
+  name: 'Classic Blue',
+  foreground: '#ffffff',
+  background: '#0000aa',
+  cursor: '#ffffff',
+  cursorAccent: '#0000aa',
+  selectionBackground: '#3333cc',
+  selectionForeground: '#ffffff',
+  selectionInactiveBackground: '#2222aa',
+  ansi: ANSI_BLUE,
+};
+
 export const BUILT_IN_TERMINAL_THEMES: readonly TerminalTheme[] = [
   darkTerminal,
   lightTerminal,
   darkGreenTerminal,
+  classicBlueTerminal,
 ];
