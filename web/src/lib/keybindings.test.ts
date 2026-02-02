@@ -129,10 +129,10 @@ describe('KeyBindingRegistry', () => {
       expect(action).toBeNull();
     });
 
-    it('should match Escape to search.close', () => {
+    it('should NOT intercept bare Escape (must reach terminal for TUI apps)', () => {
       const event = makeKeyEvent({ key: 'Escape' });
       const action = registry.match(event);
-      expect(action).toBe('search.close');
+      expect(action).toBeNull();
     });
   });
 
