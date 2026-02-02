@@ -106,19 +106,18 @@
     'action:split.vertical': { paneId: string };
   }>();
 
+  // Callback from Terminal's SearchAddon onDidChangeResults
+  function handleSearchResults(resultIndex: number, resultCount: number) {
+    searchStore.setMatchInfo(resultIndex, resultCount);
+  }
+
   // Search event handlers
   function handleSearch(event: CustomEvent<{ query: string; caseSensitive: boolean; useRegex: boolean }>) {
     const { query, caseSensitive, useRegex } = event.detail;
     searchStore.setQuery(query);
     if (query) {
-      const found = terminalRef?.searchFindNext(query, { caseSensitive, regex: useRegex });
-      // xterm-addon-search doesn't expose match count directly in v0.13
-      // We set match info based on whether a match was found
-      if (found) {
-        searchStore.setMatchInfo(1, 1); // Indicate at least 1 match
-      } else {
-        searchStore.setMatchInfo(0, 0);
-      }
+      terminalRef?.searchFindNext(query, { caseSensitive, regex: useRegex });
+      // Match info is updated via onSearchResults callback from the SearchAddon
     } else {
       terminalRef?.searchClearDecorations();
       searchStore.setMatchInfo(0, 0);
@@ -379,7 +378,7 @@
         on:toggleCaseSensitive={handleToggleCaseSensitive}
         on:toggleRegex={handleToggleRegex}
       />
-      <Terminal bind:this={terminalRef} {manager} activeSessionId={sessionId} {isActive} {paneId} />
+      <Terminal bind:this={terminalRef} {manager} activeSessionId={sessionId} {isActive} {paneId} onSearchResults={handleSearchResults} />
     {:else}
       <div class="empty-pane">
         <p>Drag a session here</p>
