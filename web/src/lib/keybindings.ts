@@ -24,10 +24,9 @@ export interface KeyBinding {
  * Both Ctrl and Meta variants are provided for cross-platform support.
  */
 export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
-  // Search
+  // Search (Escape is handled directly by SearchBar and Pane, not here — bare Escape must reach the terminal for TUI apps)
   { key: 'f', ctrl: true, shift: false, alt: false, meta: false, action: 'search.open' },
   { key: 'f', ctrl: false, shift: false, alt: false, meta: true, action: 'search.open' },
-  { key: 'Escape', ctrl: false, shift: false, alt: false, meta: false, action: 'search.close' },
 
   // Session management
   { key: 'N', ctrl: true, shift: true, alt: false, meta: false, action: 'session.new' },

@@ -207,6 +207,12 @@
 
   function handlePopupKeydown(event: KeyboardEvent) {
     if (event.key === 'Escape') {
+      if (searchIsOpen) {
+        event.preventDefault();
+        event.stopPropagation();
+        handleSearchClose();
+        return;
+      }
       showClosePopup = false;
     }
   }
