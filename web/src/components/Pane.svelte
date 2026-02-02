@@ -330,6 +330,18 @@
       <span class="pane-title-text">{sessionName}</span>
       {#if detectedAgent}<span class="agent-badge" style="background: {detectedAgent.color}">{detectedAgent.icon} {detectedAgent.displayName}</span>{/if}
       {#if sessionExited}<span class="exited-badge">{exitBadgeText}</span>{/if}
+      <span class="title-bar-spacer"></span>
+      <button
+        class="title-bar-icon-btn"
+        on:click={() => searchStore.open()}
+        title="Search (Ctrl+F)"
+        aria-label="Search terminal"
+      >
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.5"/>
+          <line x1="11" y1="11" x2="14" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </button>
       <button
         class="close-btn"
         bind:this={closeButtonRef}
@@ -439,6 +451,35 @@
   .close-btn:hover {
     background: var(--ui-bg-tertiary, #3c3c3c);
     color: var(--ui-text-primary, #ccc);
+  }
+
+  .title-bar-spacer {
+    flex: 1;
+  }
+
+  .title-bar-icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 3px;
+    color: var(--ui-text-muted, #888);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s, background 0.15s, color 0.15s;
+  }
+
+  .pane-title-bar:hover .title-bar-icon-btn {
+    opacity: 1;
+  }
+
+  .title-bar-icon-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--ui-text-primary, #fff);
   }
 
   .close-popup {

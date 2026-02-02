@@ -14,6 +14,7 @@ export interface ProtocolSessionInfo {
     name: string;
     shell: string;
     started_at: string;
+    foreground_process?: string | null;
 }
 
 // --- Client Messages (sent to server) ---

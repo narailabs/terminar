@@ -7,11 +7,76 @@
   import { setTerminalOverride } from '../lib/themeStore';
   import { BUILT_IN_TERMINAL_THEMES } from '../lib/themeTypes';
   import type { SessionManager } from '../lib/SessionManager';
-  import type { TabId, PaneId, SessionId, DropZone, SplitDirection } from '../lib/workspaceTypes';
+  import type { TabId, PaneId, SessionId, DropZone, SplitDirection, SplitNode } from '../lib/workspaceTypes';
   import { createEventDispatcher } from 'svelte';
+  import { activityStore } from '../lib/activityStore';
+  import { exitedSessions } from '../lib/exitedSessionsStore';
+  import { foregroundStore } from '../lib/foregroundStore';
+  import { matchAgent } from '../lib/agentRegistry';
 
   export let manager: SessionManager | null = null;
   export let availableSessions: { id: string; name?: string }[] = [];
+
+  // Helper: collect all sessionIds from a split tree
+  function collectSessionIds(node: SplitNode): string[] {
+    if (node.type === 'pane') {
+      return node.sessionId ? [node.sessionId] : [];
+    }
+    return node.children.flatMap(collectSessionIds);
+  }
+
+  // Compute tab indicator maps from stores (reactive)
+  $: tabActivities = (() => {
+    const map = new Map<string, string>();
+    const activities = $activityStore.activities;
+    for (const tab of $workspaceStore.tabs) {
+      if (tab.id === $workspaceStore.activeTabId) continue; // skip active tab
+      const sessionIds = collectSessionIds(tab.root);
+      for (const sid of sessionIds) {
+        const activity = activities.get(sid);
+        if (activity) {
+          map.set(tab.id, activity);
+          break; // one indicator per tab is enough
+        }
+      }
+    }
+    return map;
+  })();
+
+  $: tabExitStates = (() => {
+    const map = new Map<string, { exited: boolean; exitCode: number | null }>();
+    const exited = $exitedSessions;
+    for (const tab of $workspaceStore.tabs) {
+      const sessionIds = collectSessionIds(tab.root);
+      for (const sid of sessionIds) {
+        const info = exited.get(sid);
+        if (info) {
+          map.set(tab.id, { exited: true, exitCode: info.exitCode });
+          break;
+        }
+      }
+    }
+    return map;
+  })();
+
+  $: tabAgents = (() => {
+    const map = new Map<string, { icon: string; color: string; displayName: string }>();
+    const processes = $foregroundStore.processes;
+    for (const tab of $workspaceStore.tabs) {
+      const sessionIds = collectSessionIds(tab.root);
+      for (const sid of sessionIds) {
+        const proc = processes.get(sid);
+        if (proc) {
+          const agent = matchAgent(proc);
+          if (agent) {
+            map.set(tab.id, { icon: agent.icon, color: agent.color, displayName: agent.displayName });
+            break;
+          }
+        }
+      }
+    }
+    return map;
+  })();
 
   const dispatch = createEventDispatcher<{
     'action:session.new': void;
@@ -260,6 +325,9 @@
   <TabBar
     tabs={$workspaceStore.tabs}
     activeTabId={$workspaceStore.activeTabId}
+    {tabActivities}
+    {tabExitStates}
+    {tabAgents}
     on:select={handleTabSelect}
     on:close={handleTabClose}
     on:create={handleTabCreate}
