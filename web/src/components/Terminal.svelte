@@ -16,6 +16,7 @@
   export let activeSessionId: string | null = null;
   export let isActive: boolean = false; // Only send input when active pane - default to false for safety
   export let paneId: string = '';
+  export let onSearchResults: ((resultIndex: number, resultCount: number) => void) | null = null;
 
   // Debug: unique ID for this terminal instance to track duplicates
   const terminalInstanceId = Math.random().toString(36).slice(2, 8);
@@ -64,12 +65,24 @@
     }
   }
 
+  // Decoration options for search highlighting (required for onDidChangeResults to fire)
+  const searchDecorations = {
+    matchBackground: '#515C6A',
+    matchBorder: '#74879F',
+    matchOverviewRuler: '#515C6A',
+    activeMatchBackground: '#515C6A',
+    activeMatchBorder: '#FFA500',
+    activeMatchColorOverviewRuler: '#FFA500',
+  };
+
   // Search addon methods for F4b integration
   export function searchFindNext(query: string, options?: { caseSensitive?: boolean; regex?: boolean }): boolean {
     if (!searchAddon || !query) return false;
     return searchAddon.findNext(query, {
       caseSensitive: options?.caseSensitive,
       regex: options?.regex,
+      incremental: true,
+      decorations: searchDecorations,
     });
   }
 
@@ -78,6 +91,7 @@
     return searchAddon.findPrevious(query, {
       caseSensitive: options?.caseSensitive,
       regex: options?.regex,
+      decorations: searchDecorations,
     });
   }
 
@@ -119,10 +133,20 @@
   // Track last applied settings to avoid unnecessary updates
   let lastAppliedSettings: string = '';
 
-  // Focus xterm when this pane becomes active so keyboard input works immediately
-  $: if (isActive && term) {
+  // Returns true if focus is currently in a non-terminal input (e.g. search bar)
+  function isNonTerminalFocused(): boolean {
+    const el = document.activeElement;
+    if (!el) return false;
+    return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT';
+  }
+
+  // Focus xterm when this pane becomes active so keyboard input works immediately.
+  // Track previous value to only focus on transition to active (not on every reactive tick).
+  let wasActive = false;
+  $: if (isActive && term && !wasActive && !isNonTerminalFocused()) {
     term.focus();
   }
+  $: wasActive = isActive;
 
   // Subscribe to resize state - when resize ends and we have a pending fit, do it
   $: if (!$isResizing && pendingFit && term && fitAddon && resizeDebouncer) {
@@ -410,6 +434,12 @@
     // Load Search addon for Ctrl-F search in scrollback (F4b)
     searchAddon = new SearchAddon();
     term.loadAddon(searchAddon);
+    searchAddon.onDidChangeResults(({ resultIndex, resultCount }) => {
+      if (onSearchResults) {
+        // resultIndex is 0-based, convert to 1-based for display
+        onSearchResults(resultIndex >= 0 ? resultIndex + 1 : 0, resultCount);
+      }
+    });
 
     term.open(terminalContainer);
 
@@ -513,7 +543,7 @@
     const viewport = terminalContainer.querySelector('.xterm-viewport');
     if (viewport) {
       scrollEndHandler = () => {
-        if (isActive && term) {
+        if (isActive && term && !isNonTerminalFocused()) {
           term.focus();
         }
       };
