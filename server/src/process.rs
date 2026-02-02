@@ -61,6 +61,15 @@ pub fn resolve_process_name(pid: i32) -> Option<String> {
     Some(name)
 }
 
+/// Check if a string looks like a version number (e.g., "2.1.29", "1.0.0-beta").
+/// This happens when proc_pidpath resolves symlinks to versioned directories.
+fn looks_like_version(name: &str) -> bool {
+    // Version strings typically start with a digit and contain dots
+    name.starts_with(|c: char| c.is_ascii_digit())
+        && name.contains('.')
+        && name.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-' || c.is_ascii_alphanumeric())
+}
+
 /// Get the raw process name (comm) without wrapper resolution.
 #[cfg(target_os = "macos")]
 fn resolve_process_name_raw(pid: i32) -> Option<String> {
@@ -80,7 +89,14 @@ fn resolve_process_name_raw(pid: i32) -> Option<String> {
             .file_name()?
             .to_str()?
             .to_string();
-        return Some(binary);
+        // proc_pidpath resolves symlinks, so a binary like "claude" symlinked to
+        // ".../versions/2.1.29" would return "2.1.29" instead of "claude".
+        // Detect version-like names and fall back to proc_name.
+        if looks_like_version(&binary) {
+            // Fall through to proc_name fallback
+        } else {
+            return Some(binary);
+        }
     }
 
     // Fallback: use proc_name (shorter, limited to 16 chars on some systems)
@@ -337,6 +353,18 @@ mod tests {
         let result = extract_binary_name_from_cmdline(cmdline);
         // --version is a flag, but since there's no non-flag argument, returns None
         assert!(result.is_none(), "Only flags should return None");
+    }
+
+    // Test: looks_like_version detects version strings
+    #[test]
+    fn test_looks_like_version() {
+        assert!(looks_like_version("2.1.29"));
+        assert!(looks_like_version("1.0.0"));
+        assert!(looks_like_version("0.12.3-beta"));
+        assert!(!looks_like_version("claude"));
+        assert!(!looks_like_version("node"));
+        assert!(!looks_like_version("zsh"));
+        assert!(!looks_like_version(""));
     }
 
     // Test: WRAPPER_PROCESSES constant contains expected runtimes

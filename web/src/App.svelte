@@ -310,9 +310,12 @@
       const isFirstSessionList = previousSessionIds.size === 0;
       sessions = newSessions;
 
-      // Clean up stores for sessions that no longer exist
-      const currentIds = new Set(newSessions.map((s: SessionInfo) => s.id));
-      // (activity and foreground cleanup happens naturally when sessions are closed)
+      // Initialize foreground store from session list data
+      for (const s of newSessions) {
+        if ((s as any).foreground_process) {
+          foregroundStore.setForeground(s.id, (s as any).foreground_process);
+        }
+      }
 
       // Helper to find first empty pane
       function findEmptyPane(node: any): string | null {
