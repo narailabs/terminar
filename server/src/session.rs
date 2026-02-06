@@ -122,6 +122,8 @@ pub enum SessionEvent {
     Silence,
     /// Foreground process changed (e.g., user started vim, claude, etc.)
     ForegroundChanged(Option<String>),
+    /// Current working directory changed (e.g., user ran `cd`)
+    CwdChanged(String),
 }
 
 /// Type alias for synchronized PTY master access.

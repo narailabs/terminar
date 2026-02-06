@@ -166,6 +166,12 @@ pub(crate) async fn handle_attach(
                             process_name,
                         }).await;
                     },
+                    SessionEvent::CwdChanged(cwd) => {
+                        let _ = tx_out_clone.send(ServerMessage::CwdChanged {
+                            session_id: session_id_clone.clone(),
+                            cwd,
+                        }).await;
+                    },
                 }
             }
         });

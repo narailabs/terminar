@@ -139,6 +139,11 @@ pub enum ServerMessage {
         session_id: String,
         exit_code: Option<i32>,
     },
+    /// Notification that the current working directory in a session has changed.
+    CwdChanged {
+        session_id: String,
+        cwd: String,
+    },
     /// Response to LoadWorkspace with saved workspace data.
     WorkspaceData {
         workspace: Option<serde_json::Value>,
@@ -767,6 +772,27 @@ mod tests {
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains(r#""type":"WorkspaceData""#));
         assert!(json.contains(r#""workspace":null"#));
+    }
+
+    #[test]
+    fn test_server_message_cwd_changed() {
+        let msg = ServerMessage::CwdChanged {
+            session_id: "id1".into(),
+            cwd: "/tmp".into(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains(r#""type":"CwdChanged""#));
+        assert!(json.contains(r#""session_id":"id1""#));
+        assert!(json.contains(r#""cwd":"/tmp""#));
+
+        let deserialized: ServerMessage = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            ServerMessage::CwdChanged { session_id, cwd } => {
+                assert_eq!(session_id, "id1");
+                assert_eq!(cwd, "/tmp");
+            },
+            _ => panic!("Expected CwdChanged"),
+        }
     }
 
     // ==================== New ClientMessage Variants Tests ====================

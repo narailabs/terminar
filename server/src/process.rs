@@ -8,6 +8,8 @@
 //!   lines where `comm` reports a generic runtime like `node` or `python`.
 
 use std::os::unix::io::{BorrowedFd, RawFd};
+#[cfg(target_os = "macos")]
+use std::mem;
 
 /// Wrapper processes (interpreters/runtimes) that may mask the real binary name.
 /// When `comm` reports one of these, we fall back to inspecting the full command line.
@@ -35,6 +37,74 @@ pub fn get_foreground_process(pty_fd: RawFd) -> Option<String> {
     let pid = pgid.as_raw();
 
     resolve_process_name(pid)
+}
+
+/// Get the current working directory for the foreground process of a PTY session.
+///
+/// Uses `tcgetpgrp()` on the PTY file descriptor to get the foreground process group ID,
+/// then resolves that PGID's CWD using platform-specific APIs.
+///
+/// Returns `None` if:
+/// - The fd is invalid
+/// - `tcgetpgrp` fails
+/// - The CWD cannot be resolved
+pub fn get_process_cwd(pty_fd: RawFd) -> Option<String> {
+    if pty_fd < 0 {
+        return None;
+    }
+
+    let borrowed = unsafe { BorrowedFd::borrow_raw(pty_fd) };
+    let pgid = nix::unistd::tcgetpgrp(borrowed).ok()?;
+    let pid = pgid.as_raw();
+
+    resolve_process_cwd(pid)
+}
+
+/// Resolve the current working directory of a process by PID.
+///
+/// Platform-specific:
+/// - **macOS**: Uses `proc_pidinfo` with `PROC_PIDVNODEPATHINFO` to get `vip_path`.
+/// - **Linux**: Reads `/proc/<pid>/cwd` symlink.
+#[cfg(target_os = "macos")]
+fn resolve_process_cwd(pid: i32) -> Option<String> {
+    // Use proc_pidinfo with PROC_PIDVNODEPATHINFO to get the CWD
+    let mut vnode_info: libc::proc_vnodepathinfo = unsafe { mem::zeroed() };
+    let ret = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDVNODEPATHINFO,
+            0,
+            &mut vnode_info as *mut _ as *mut libc::c_void,
+            mem::size_of::<libc::proc_vnodepathinfo>() as i32,
+        )
+    };
+
+    if ret <= 0 {
+        return None;
+    }
+
+    // vip_path is [[c_char; 32]; 32] (libc workaround for [c_char; 1024])
+    // Flatten to a single byte slice and find the null terminator
+    let flat: Vec<u8> = vnode_info.pvi_cdir.vip_path
+        .iter()
+        .flat_map(|chunk| chunk.iter())
+        .map(|&b| b as u8)
+        .collect();
+    let nul_pos = flat.iter().position(|&b| b == 0).unwrap_or(flat.len());
+    let path = std::str::from_utf8(&flat[..nul_pos]).ok()?;
+
+    if path.is_empty() {
+        None
+    } else {
+        Some(path.to_string())
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn resolve_process_cwd(pid: i32) -> Option<String> {
+    std::fs::read_link(format!("/proc/{}/cwd", pid))
+        .ok()
+        .and_then(|p| p.to_str().map(|s| s.to_string()))
 }
 
 /// Resolve a process name from a PID.
@@ -420,5 +490,39 @@ mod tests {
     fn test_get_process_cmdline_returns_none_for_nonexistent_pid() {
         let result = get_process_cmdline(99999999);
         assert!(result.is_none(), "Non-existent PID should have no cmdline");
+    }
+
+    // ==================== CWD Detection Tests ====================
+
+    #[test]
+    fn test_get_process_cwd_returns_none_for_invalid_fd() {
+        let result = get_process_cwd(-1);
+        assert!(result.is_none(), "Invalid fd should return None");
+    }
+
+    #[test]
+    fn test_get_process_cwd_returns_none_for_non_terminal_fd() {
+        use std::os::unix::io::AsRawFd;
+        let (read_fd, write_fd) = nix::unistd::pipe().expect("pipe() should succeed");
+        let result = get_process_cwd(read_fd.as_raw_fd());
+        assert!(result.is_none(), "Non-terminal fd should return None");
+        drop(read_fd);
+        drop(write_fd);
+    }
+
+    #[test]
+    fn test_resolve_process_cwd_returns_path_for_current_process() {
+        let pid = std::process::id() as i32;
+        let result = resolve_process_cwd(pid);
+        assert!(result.is_some(), "Current process should have a CWD");
+        let cwd = result.unwrap();
+        assert!(!cwd.is_empty(), "CWD should not be empty");
+        assert!(cwd.starts_with('/'), "CWD should be an absolute path");
+    }
+
+    #[test]
+    fn test_resolve_process_cwd_returns_none_for_nonexistent_pid() {
+        let result = resolve_process_cwd(99999999);
+        assert!(result.is_none(), "Non-existent PID should return None");
     }
 }

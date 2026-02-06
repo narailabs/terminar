@@ -107,6 +107,22 @@ fn poll_foreground_processes(sessions: &SessionMap) {
             // events will receive this notification
             let _ = session.output_tx.send(session::SessionEvent::ForegroundChanged(new_process.clone()));
         }
+
+        // Poll CWD of the foreground process
+        let new_cwd = process::get_process_cwd(pty_fd);
+        if let Some(ref cwd) = new_cwd {
+            if *cwd != session.cwd {
+                let old = session.cwd.clone();
+                session.cwd = cwd.clone();
+                tracing::debug!(
+                    session_id = %session.id,
+                    old_cwd = %old,
+                    new_cwd = %cwd,
+                    "CWD changed"
+                );
+                let _ = session.output_tx.send(session::SessionEvent::CwdChanged(cwd.clone()));
+            }
+        }
     }
 }
 

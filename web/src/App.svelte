@@ -372,6 +372,10 @@
       foregroundStore.setForeground(sessionId, processName);
     });
 
+    manager.on('cwdChanged', (sessionId: string, cwd: string) => {
+      sessions = sessions.map(s => s.id === sessionId ? { ...s, cwd } : s);
+    });
+
     manager.on('shutdown', (reason: string) => {
       console.log('Server shutting down:', reason);
     });
