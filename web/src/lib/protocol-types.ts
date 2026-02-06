@@ -13,6 +13,7 @@ export interface ProtocolSessionInfo {
     id: string;
     name: string;
     shell: string;
+    cwd: string;
     started_at: string;
     foreground_process?: string | null;
 }
@@ -44,6 +45,7 @@ export type ServerMessage =
     | { type: 'SessionActivity'; session_id: string; activity_type: ActivityType }
     | { type: 'SessionExited'; session_id: string; exit_code: number }
     | { type: 'ForegroundChanged'; session_id: string; process_name: string | null }
+    | { type: 'CwdChanged'; session_id: string; cwd: string }
     | { type: 'Error'; message: string }
     | { type: 'Shutdown'; reason: string }
     | { type: 'AuthOk'; token: string; expires: string }
@@ -52,7 +54,7 @@ export type ServerMessage =
 /** All valid server message type strings */
 const VALID_SERVER_TYPES = new Set<string>([
     'SessionList', 'Output', 'SessionClosed', 'SessionActivity', 'SessionExited', 'ForegroundChanged',
-    'Error', 'Shutdown', 'AuthOk', 'AuthChallenge',
+    'CwdChanged', 'Error', 'Shutdown', 'AuthOk', 'AuthChallenge',
 ]);
 
 const VALID_ACTIVITY_TYPES = new Set<string>(['activity', 'bell', 'silence']);
@@ -96,6 +98,9 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
         case 'ForegroundChanged':
             if (typeof msg.session_id !== 'string') return null;
             if (msg.process_name !== null && typeof msg.process_name !== 'string') return null;
+            return raw as ServerMessage;
+        case 'CwdChanged':
+            if (typeof msg.session_id !== 'string' || typeof msg.cwd !== 'string') return null;
             return raw as ServerMessage;
         case 'Error':
             if (typeof msg.message !== 'string') return null;

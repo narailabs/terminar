@@ -110,6 +110,11 @@ describe('protocol-types', () => {
       const msg: ServerMessage = { type: 'AuthChallenge', nonce: 'base64nonce' };
       expect(msg.type).toBe('AuthChallenge');
     });
+
+    it('should support CwdChanged message type', () => {
+      const msg: ServerMessage = { type: 'CwdChanged', session_id: '1', cwd: '/tmp' };
+      expect(msg.type).toBe('CwdChanged');
+    });
   });
 
   describe('parseServerMessage', () => {
@@ -187,6 +192,29 @@ describe('protocol-types', () => {
 
     it('should return null for AuthChallenge missing nonce', () => {
       const raw = { type: 'AuthChallenge' };
+      const result = parseServerMessage(raw);
+      expect(result).toBeNull();
+    });
+
+    it('should parse a valid CwdChanged message', () => {
+      const raw = { type: 'CwdChanged', session_id: 'id1', cwd: '/tmp' };
+      const result = parseServerMessage(raw);
+      expect(result).not.toBeNull();
+      expect(result!.type).toBe('CwdChanged');
+      if (result!.type === 'CwdChanged') {
+        expect(result!.session_id).toBe('id1');
+        expect(result!.cwd).toBe('/tmp');
+      }
+    });
+
+    it('should return null for CwdChanged missing cwd', () => {
+      const raw = { type: 'CwdChanged', session_id: 'id1' };
+      const result = parseServerMessage(raw);
+      expect(result).toBeNull();
+    });
+
+    it('should return null for CwdChanged missing session_id', () => {
+      const raw = { type: 'CwdChanged', cwd: '/tmp' };
       const result = parseServerMessage(raw);
       expect(result).toBeNull();
     });
