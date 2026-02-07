@@ -5,10 +5,6 @@ on:
     tags:
       - 'v*'
 
-defaults:
-  run:
-    working-directory: apps/terminar
-
 permissions:
   contents: write
 
@@ -56,11 +52,11 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            apps/terminar/server/target/
-          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('apps/terminar/server/Cargo.lock') }}
+            server/target/
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('server/Cargo.lock') }}
 
       - name: Build server (release)
-        working-directory: apps/terminar/server
+        working-directory: server
         run: cargo build --release --target ${{ matrix.target }}
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
@@ -69,7 +65,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: server-${{ matrix.target }}
-          path: apps/terminar/server/target/${{ matrix.target }}/release/${{ matrix.artifact }}
+          path: server/target/${{ matrix.target }}/release/${{ matrix.artifact }}
 
   build-electron:
     name: Build Electron (${{ matrix.os }})
@@ -101,15 +97,15 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           pattern: server-*
-          path: apps/terminar/server/target/release/
+          path: server/target/release/
           merge-multiple: true
 
       - name: Install dependencies
-        working-directory: apps/terminar/electron
+        working-directory: electron
         run: pnpm install
 
       - name: Build Electron app
-        working-directory: apps/terminar/electron
+        working-directory: electron
         run: pnpm build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -119,13 +115,13 @@ jobs:
         with:
           name: electron-${{ matrix.platform }}
           path: |
-            apps/terminar/electron/release/*.dmg
-            apps/terminar/electron/release/*.zip
-            apps/terminar/electron/release/*.AppImage
-            apps/terminar/electron/release/*.deb
-            apps/terminar/electron/release/*.snap
-            apps/terminar/electron/release/*.exe
-            apps/terminar/electron/release/*.msi
+            electron/release/*.dmg
+            electron/release/*.zip
+            electron/release/*.AppImage
+            electron/release/*.deb
+            electron/release/*.snap
+            electron/release/*.exe
+            electron/release/*.msi
 
   release:
     name: Create Release

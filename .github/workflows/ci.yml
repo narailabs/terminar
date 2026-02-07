@@ -3,15 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
-    paths:
-      - 'apps/terminar/**'
   pull_request:
-    paths:
-      - 'apps/terminar/**'
-
-defaults:
-  run:
-    working-directory: apps/terminar
 
 jobs:
   rust:
@@ -33,25 +25,25 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            apps/terminar/server/target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('apps/terminar/server/Cargo.lock') }}
+            server/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('server/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
 
       - name: Check formatting
-        working-directory: apps/terminar/server
+        working-directory: server
         run: cargo fmt --check
 
       - name: Run Clippy
-        working-directory: apps/terminar/server
+        working-directory: server
         run: cargo clippy -- -D warnings
 
       - name: Run unit tests
-        working-directory: apps/terminar/server
+        working-directory: server
         run: cargo test 2>&1 | tee rust-test-output.txt
 
       - name: Run integration tests (ignored)
-        working-directory: apps/terminar/server
+        working-directory: server
         run: cargo test -- --ignored 2>&1 | tee rust-integration-output.txt
         continue-on-error: true
 
@@ -61,8 +53,8 @@ jobs:
         with:
           name: rust-test-results
           path: |
-            apps/terminar/server/rust-test-output.txt
-            apps/terminar/server/rust-integration-output.txt
+            server/rust-test-output.txt
+            server/rust-integration-output.txt
 
   typescript:
     name: TypeScript Tests
@@ -89,34 +81,34 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('apps/terminar/**/pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-pnpm-
 
       - name: Install dependencies (shell-protocol)
-        working-directory: apps/terminar/packages/shell-protocol
+        working-directory: packages/shell-protocol
         run: pnpm install
 
       - name: Test shell-protocol
-        working-directory: apps/terminar/packages/shell-protocol
+        working-directory: packages/shell-protocol
         run: pnpm test 2>&1 | tee shell-protocol-test-output.txt
         continue-on-error: true
 
       - name: Install dependencies (web)
-        working-directory: apps/terminar/web
+        working-directory: web
         run: pnpm install
 
       - name: Test web
-        working-directory: apps/terminar/web
+        working-directory: web
         run: pnpm test 2>&1 | tee web-test-output.txt
         continue-on-error: true
 
       - name: Install dependencies (extension)
-        working-directory: apps/terminar/extension
+        working-directory: extension
         run: pnpm install
 
       - name: Test extension
-        working-directory: apps/terminar/extension
+        working-directory: extension
         run: pnpm test 2>&1 | tee extension-test-output.txt
         continue-on-error: true
 
@@ -126,9 +118,9 @@ jobs:
         with:
           name: typescript-test-results
           path: |
-            apps/terminar/packages/shell-protocol/shell-protocol-test-output.txt
-            apps/terminar/web/web-test-output.txt
-            apps/terminar/extension/extension-test-output.txt
+            packages/shell-protocol/shell-protocol-test-output.txt
+            web/web-test-output.txt
+            extension/extension-test-output.txt
 
   build:
     name: Build All Artifacts
@@ -148,11 +140,11 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            apps/terminar/server/target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('apps/terminar/server/Cargo.lock') }}
+            server/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('server/Cargo.lock') }}
 
       - name: Build Rust server (release)
-        working-directory: apps/terminar/server
+        working-directory: server
         run: cargo build --release
 
       - name: Setup Node.js
@@ -166,19 +158,19 @@ jobs:
           version: 9
 
       - name: Build shell-protocol
-        working-directory: apps/terminar/packages/shell-protocol
+        working-directory: packages/shell-protocol
         run: |
           pnpm install
           pnpm build
 
       - name: Build web client
-        working-directory: apps/terminar/web
+        working-directory: web
         run: |
           pnpm install
           pnpm build
 
       - name: Build extension
-        working-directory: apps/terminar/extension
+        working-directory: extension
         run: |
           pnpm install
           pnpm run compile
@@ -188,6 +180,6 @@ jobs:
         with:
           name: build-artifacts
           path: |
-            apps/terminar/server/target/release/terminar-server
-            apps/terminar/web/dist/
-            apps/terminar/extension/out/
+            server/target/release/terminar-server
+            web/dist/
+            extension/out/

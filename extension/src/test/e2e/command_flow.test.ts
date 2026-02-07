@@ -11,7 +11,7 @@ suite('E2E Command Flow', function() {
     this.timeout(10000);
     const uid = os.userInfo().uid;
     const socketPath = `/tmp/vscode-terminar-${uid}.sock`;
-    const serverBin = path.resolve(__dirname, '../../../../../../../bazel-bin/apps/terminar/server/terminar-server');
+    const serverBin = path.resolve(__dirname, '../../../../../bazel-bin/server/terminar-server');
     let serverProcess: cp.ChildProcess;
 
     setup(async () => {

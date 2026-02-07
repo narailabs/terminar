@@ -49,7 +49,7 @@ pnpm install
 ### 2. Build the Rust server
 
 ```bash
-cd apps/terminar/server
+cd server
 cargo build
 ```
 
@@ -62,13 +62,13 @@ cargo build --release
 ### 3. Build the VS Code extension
 
 ```bash
-cd apps/terminar/extension
+cd extension
 pnpm run compile
 ```
 
 ### 4. Run in development
 
-1. Open `apps/terminar` in VS Code.
+1. Open the repo root in VS Code.
 2. Press `F5` to launch the Extension Development Host.
 3. In the new window, use the command palette (`Cmd+Shift+P`) and run:
    - `termiNar: New Persistent Session`
@@ -77,14 +77,14 @@ pnpm run compile
 ### 5. Run the server standalone
 
 ```bash
-cd apps/terminar/server
+cd server
 cargo run -- --port 3000
 ```
 
 ### 6. Run tests
 
 ```bash
-cd apps/terminar/server
+cd server
 cargo test
 ```
 
@@ -172,10 +172,10 @@ To connect to a server running on a remote machine:
 
 ```bash
 # Build everything
-bazel build //apps/terminar/...
+bazel build //...
 
 # Run Rust tests via Bazel
-bazel test //apps/terminar/server:test
+bazel test //server:test
 ```
 
 ## Docker
@@ -184,7 +184,7 @@ Build and run the server in a container:
 
 ```bash
 # Build
-docker build -t terminar-server -f apps/terminar/Dockerfile apps/terminar/
+docker build -t terminar-server -f Dockerfile 
 
 # Run
 docker run -p 3000:3000 terminar-server

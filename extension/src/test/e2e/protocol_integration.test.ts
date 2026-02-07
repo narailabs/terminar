@@ -10,12 +10,12 @@ suite('E2E Protocol Integration', function() {
     let serverProcess: cp.ChildProcess;
     let manager: SessionManager;
     const socketPath = '/tmp/test-vscode-e2e.sock';
-    const serverBin = path.resolve(__dirname, '../../../../../../../bazel-bin/apps/terminar/server/terminar-server');
+    const serverBin = path.resolve(__dirname, '../../../../../bazel-bin/server/terminar-server');
 
     setup(async () => {
         if (fs.existsSync(socketPath)) fs.unlinkSync(socketPath);
         if (fs.existsSync(serverBin) === false) {
-             console.error(`Server binary not found at ${serverBin}. Please run 'bazel build //apps/terminar/server'`);
+             console.error(`Server binary not found at ${serverBin}. Please run 'bazel build //server'`);
              throw new Error('Server binary missing');
         }
         
