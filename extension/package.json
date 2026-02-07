@@ -7,8 +7,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/narai-io/narai",
-    "directory": "apps/terminar/extension"
+    "url": "https://github.com/narailabs/terminar"
   },
   "icon": "resources/icon.png",
   "engines": {

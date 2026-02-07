@@ -10,7 +10,7 @@ suite('E2E Multi-Session', function() {
     let serverProcess: cp.ChildProcess;
     let manager: SessionManager;
     const socketPath = '/tmp/test-vscode-e2e-multi.sock';
-    const serverBin = path.resolve(__dirname, '../../../../../../../bazel-bin/apps/terminar/server/terminar-server');
+    const serverBin = path.resolve(__dirname, '../../../../../bazel-bin/server/terminar-server');
 
     setup(async () => {
         if (fs.existsSync(socketPath)) fs.unlinkSync(socketPath);

@@ -18,7 +18,7 @@ vi.mock('svelte', () => ({
 }));
 
 // Mock WebSocketSessionManager - use absolute path for resolution
-vi.mock('/Users/narayan/src/narai/apps/terminar/web/src/lib/WebSocketSessionManager', () => {
+vi.mock('../../../web/src/lib/WebSocketSessionManager', () => {
   // Return a class-like constructor that will return the mock instance
   return {
     WebSocketSessionManager: class MockWebSocketSessionManager {
@@ -32,7 +32,7 @@ vi.mock('/Users/narayan/src/narai/apps/terminar/web/src/lib/WebSocketSessionMana
 });
 
 // Mock App.svelte - use absolute path for resolution
-vi.mock('/Users/narayan/src/narai/apps/terminar/web/src/App.svelte', () => ({
+vi.mock('../../../web/src/App.svelte', () => ({
   default: MockAppComponent,
 }));
 
