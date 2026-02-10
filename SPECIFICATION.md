@@ -210,19 +210,17 @@ struct Session {
 
 ### 3.4 Threading Hazards
 
-> ⚠️ **KNOWN ISSUES**: The following race conditions and concurrency bugs exist in the current implementation.
+> The following concurrency issues were identified during initial development. Most have been resolved.
 
-| Hazard | Location | Description | Mitigation |
-|--------|----------|-------------|------------|
-| **Blocking thread in async context** | `lib.rs:327` | Uses `std::thread::spawn()` instead of `tokio::spawn_blocking()` | Replace with `spawn_blocking` |
-| **Concurrent PTY access** | `lib.rs:327,449-460` | Reader thread and Input/Resize handlers access PTY without synchronization | Use `RwLock` or serialize operations |
-| **MockReader deadlock** | `pty.rs:94-118` | Mutex lock held during blocking `recv()` call | Release lock before blocking |
-| **Thread handle leak** | `lib.rs:327` | `JoinHandle` from spawned thread is discarded | Store in Session struct |
-| **Subscriber leak** | `lib.rs:320` | Broadcast receiver dropped; subscribers never cleaned up | Implement `Drop` for Session |
-| **Mutex poisoning** | `lib.rs` (15 places) | `.unwrap()` on mutex lock causes cascade failures | Use `parking_lot::Mutex` |
-| **Task abort without await** | `lib.rs:206-237` | WebSocket tasks aborted, not awaited | Replace `abort()` with graceful shutdown |
-
-**Priority**: All P0 or P1 - must fix before production deployment.
+| Hazard | Status | Resolution |
+|--------|--------|------------|
+| **Blocking thread in async context** | ✅ Fixed | PTY reader uses `tokio::spawn_blocking()` |
+| **Concurrent PTY access** | ✅ Fixed | PTY master wrapped in `Arc<parking_lot::Mutex<>>`, writer cached separately |
+| **MockReader deadlock** | ✅ Fixed | Lock released before blocking `recv()` |
+| **Thread handle leak** | ✅ Fixed | `reader_handle` stored in `Session` struct, aborted in `Drop` |
+| **Subscriber leak** | ✅ Fixed | `Session::Drop` aborts reader and logs subscriber count |
+| **Mutex poisoning** | ✅ Fixed | All mutexes use `parking_lot::Mutex` (non-poisoning) |
+| **Task abort without await** | Open | WebSocket tasks still use `abort()` |
 
 ---
 
@@ -808,7 +806,6 @@ pub struct Session {
 
     /// Background reader task handle
     pub reader_handle: Option<JoinHandle<()>>,
-    // ⚠️ NOT IMPLEMENTED: Thread handle is currently discarded (lib.rs:327)
 
     /// Number of attached clients
     pub attached_count: AtomicUsize,

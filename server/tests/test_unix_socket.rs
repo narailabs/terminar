@@ -221,7 +221,7 @@ async fn test_unix_socket_concurrent_connections() {
                 ServerMessage::SessionList { sessions } => {
                     assert!(!sessions.is_empty(), "Client {} should see sessions", i);
                 }
-                ServerMessage::Error { message } => {
+                ServerMessage::Error { message, .. } => {
                     // Shell validation will reject non-whitelisted shells
                     // That's acceptable - the server handled it gracefully
                     assert!(message.contains("whitelist"), "Expected whitelist error for client {}", i);

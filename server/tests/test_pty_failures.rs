@@ -109,7 +109,7 @@ async fn test_invalid_shell_path_returns_error() {
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(3) {
         if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::Error { message }) = serde_json::from_str::<ServerMessage>(&text) {
+            if let Ok(ServerMessage::Error { message, .. }) = serde_json::from_str::<ServerMessage>(&text) {
                 assert!(
                     message.contains("whitelist") || message.contains("not allowed"),
                     "Error should mention whitelist: {}", message
@@ -159,7 +159,7 @@ async fn test_shell_path_traversal_rejected() {
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(3) {
         if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::Error { message }) = serde_json::from_str::<ServerMessage>(&text) {
+            if let Ok(ServerMessage::Error { message, .. }) = serde_json::from_str::<ServerMessage>(&text) {
                 assert!(
                     message.contains("path traversal") || message.contains("not allowed"),
                     "Error should mention path traversal: {}", message
@@ -195,7 +195,7 @@ async fn test_relative_shell_path_rejected() {
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(3) {
         if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::Error { message }) = serde_json::from_str::<ServerMessage>(&text) {
+            if let Ok(ServerMessage::Error { message, .. }) = serde_json::from_str::<ServerMessage>(&text) {
                 assert!(
                     message.contains("absolute path") || message.contains("not allowed") || message.contains("whitelist"),
                     "Error should mention absolute path requirement: {}", message
@@ -231,7 +231,7 @@ async fn test_invalid_cwd_returns_error() {
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(3) {
         if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::Error { message }) = serde_json::from_str::<ServerMessage>(&text) {
+            if let Ok(ServerMessage::Error { message, .. }) = serde_json::from_str::<ServerMessage>(&text) {
                 assert!(
                     message.contains("does not exist") || message.contains("not found"),
                     "Error should mention non-existent path: {}", message

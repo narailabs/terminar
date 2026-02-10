@@ -17,6 +17,9 @@ pub enum ClientMessage {
     Auth {
         /// The API token (UUID).
         token: String,
+        /// Protocol version the client supports (e.g., "0.2.0").
+        #[serde(skip_serializing_if = "Option::is_none")]
+        protocol_version: Option<String>,
     },
     /// Request the list of all active sessions.
     ListSessions,
@@ -110,7 +113,12 @@ pub enum ServerMessage {
     /// A session has been closed (killed or shell exited).
     SessionClosed { session_id: String },
     /// An error occurred processing a client message.
-    Error { message: String },
+    Error {
+        message: String,
+        /// Machine-readable error code (e.g., "SESSION_NOT_FOUND", "AUTH_FAILED").
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error_code: Option<String>,
+    },
     /// Response to a pairing request with a generated code.
     PairResponse { code: String, expiry_secs: u64 },
     /// Server is shutting down gracefully. Clients should reconnect later.
@@ -119,6 +127,9 @@ pub enum ServerMessage {
     AuthOk {
         token: String,
         expires: String,
+        /// Protocol version the server supports (e.g., "0.2.0").
+        #[serde(skip_serializing_if = "Option::is_none")]
+        protocol_version: Option<String>,
     },
     /// SSH public key challenge. Client must sign this nonce with their private key.
     AuthChallenge {
@@ -188,19 +199,19 @@ mod tests {
 
     fn test_client_message_auth() {
 
-        let msg = ClientMessage::Auth { token: "abc".into() };
+        let msg = ClientMessage::Auth { token: "abc".into(), protocol_version: None };
 
         let json = serde_json::to_string(&msg).unwrap();
 
         assert_eq!(json, r#"{"type":"auth","token":"abc"}"#);
 
-        
+
 
         let deserialized: ClientMessage = serde_json::from_str(&json).unwrap();
 
         match deserialized {
 
-            ClientMessage::Auth { token } => assert_eq!(token, "abc"),
+            ClientMessage::Auth { token, .. } => assert_eq!(token, "abc"),
 
             _ => panic!("Wrong type"),
 
@@ -436,7 +447,7 @@ mod tests {
 
     fn test_server_message_error() {
 
-        let msg = ServerMessage::Error { message: "err".into() };
+        let msg = ServerMessage::Error { message: "err".into(), error_code: None };
 
         let json = serde_json::to_string(&msg).unwrap();
 
@@ -531,6 +542,7 @@ mod tests {
         let msg = ServerMessage::AuthOk {
             token: "eyJhbGciOiJIUzI1NiJ9.test.sig".into(),
             expires: "2026-01-30T06:42:08Z".into(),
+            protocol_version: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains(r#""type":"AuthOk""#));
@@ -539,7 +551,7 @@ mod tests {
 
         let deserialized: ServerMessage = serde_json::from_str(&json).unwrap();
         match deserialized {
-            ServerMessage::AuthOk { token, expires } => {
+            ServerMessage::AuthOk { token, expires, .. } => {
                 assert!(token.starts_with("eyJ"));
                 assert!(expires.contains("2026"));
             },

@@ -60,6 +60,28 @@ impl ServerError {
     pub fn invalid_input(msg: impl Into<String>) -> Self {
         ServerError::InvalidInput(msg.into())
     }
+
+    /// Returns a machine-readable error code string for this error variant.
+    pub fn error_code(&self) -> &'static str {
+        match self {
+            ServerError::SessionNotFound(_) => "SESSION_NOT_FOUND",
+            ServerError::AuthFailed => "AUTH_FAILED",
+            ServerError::PtyError(_) => "PTY_ERROR",
+            ServerError::WebSocketError(_) => "WEBSOCKET_ERROR",
+            ServerError::ProtocolError(_) => "PROTOCOL_ERROR",
+            ServerError::RateLimitExceeded => "RATE_LIMIT_EXCEEDED",
+            ServerError::InvalidInput(_) => "INVALID_INPUT",
+            ServerError::Internal(_) => "INTERNAL_ERROR",
+        }
+    }
+
+    /// Converts this error into a `ServerMessage::Error` with both human-readable message and machine-readable error code.
+    pub fn to_error_message(&self) -> crate::messages::ServerMessage {
+        crate::messages::ServerMessage::Error {
+            message: self.to_string(),
+            error_code: Some(self.error_code().to_string()),
+        }
+    }
 }
 
 impl From<serde_json::Error> for ServerError {
@@ -119,5 +141,30 @@ mod tests {
         let json_err = serde_json::from_str::<String>("not valid json").unwrap_err();
         let err: ServerError = json_err.into();
         assert!(err.to_string().starts_with("protocol error:"));
+    }
+
+    #[test]
+    fn test_error_codes() {
+        assert_eq!(ServerError::session_not_found("x").error_code(), "SESSION_NOT_FOUND");
+        assert_eq!(ServerError::AuthFailed.error_code(), "AUTH_FAILED");
+        assert_eq!(ServerError::pty("x").error_code(), "PTY_ERROR");
+        assert_eq!(ServerError::WebSocketError("x".into()).error_code(), "WEBSOCKET_ERROR");
+        assert_eq!(ServerError::protocol("x").error_code(), "PROTOCOL_ERROR");
+        assert_eq!(ServerError::RateLimitExceeded.error_code(), "RATE_LIMIT_EXCEEDED");
+        assert_eq!(ServerError::invalid_input("x").error_code(), "INVALID_INPUT");
+        assert_eq!(ServerError::Internal("x".into()).error_code(), "INTERNAL_ERROR");
+    }
+
+    #[test]
+    fn test_to_error_message() {
+        let err = ServerError::session_not_found("test-id");
+        let msg = err.to_error_message();
+        match msg {
+            crate::messages::ServerMessage::Error { message, error_code } => {
+                assert_eq!(message, "session not found: test-id");
+                assert_eq!(error_code, Some("SESSION_NOT_FOUND".to_string()));
+            }
+            _ => panic!("Expected Error message"),
+        }
     }
 }

@@ -11,8 +11,16 @@
   import { themeState, getTerminalTheme } from '../lib/themeStore';
   import { isResizing } from '../lib/resizeStore';
   import { TerminalResizeDebouncer } from '../lib/TerminalResizeDebouncer';
+  import { getManagerContext } from '../lib/sessionContext';
 
-  export let manager: SessionManager | null = null;
+  // Optional prop override (for tests that render without context).
+  // Named _managerProp to avoid shadowing the `manager` local used throughout.
+  export let _managerProp: SessionManager | null | undefined = undefined;
+
+  const managerStore = getManagerContext();
+  let manager: SessionManager | null;
+  $: manager = _managerProp !== undefined ? _managerProp : $managerStore;
+
   export let activeSessionId: string | null = null;
   export let isActive: boolean = false; // Only send input when active pane - default to false for safety
   export let paneId: string = '';

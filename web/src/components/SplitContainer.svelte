@@ -2,11 +2,9 @@
   import { createEventDispatcher } from 'svelte';
   import Pane from './Pane.svelte';
   import SplitHandle from './SplitHandle.svelte';
-  import type { SessionManager } from '../lib/SessionManager';
   import type { SplitNode, SplitContainer as SplitContainerType, DropZone, SessionId, PaneId } from '../lib/workspaceTypes';
 
   export let node: SplitNode;
-  export let manager: SessionManager | null = null;
   export let activePaneId: PaneId | null = null;
 
   const dispatch = createEventDispatcher<{
@@ -16,8 +14,6 @@
     resize: { splitId: string; ratios: number[] };
     detach: { paneId: string };
     kill: { paneId: string; sessionId: SessionId };
-    'action:session.new': void;
-    'action:sidebar.toggle': void;
     'action:pane.close': { paneId: string };
     'action:split.horizontal': { paneId: string };
     'action:split.vertical': { paneId: string };
@@ -43,15 +39,6 @@
 
   function handlePaneKill(event: CustomEvent<{ paneId: string; sessionId: SessionId }>) {
     dispatch('kill', event.detail);
-  }
-
-  // Forward keybinding action events from Pane up to WorkspaceView
-  function handleActionSessionNew() {
-    dispatch('action:session.new');
-  }
-
-  function handleActionSidebarToggle() {
-    dispatch('action:sidebar.toggle');
   }
 
   function handleActionPaneClose(event: CustomEvent<{ paneId: string }>) {
@@ -122,15 +109,12 @@
   <Pane
     paneId={node.id}
     sessionId={node.sessionId}
-    {manager}
     isActive={activePaneId === node.id}
     on:drop={handlePaneDrop}
     on:contextmenu={handlePaneContextMenu}
     on:focus={handlePaneFocus}
     on:detach={handlePaneDetach}
     on:kill={handlePaneKill}
-    on:action:session.new={handleActionSessionNew}
-    on:action:sidebar.toggle={handleActionSidebarToggle}
     on:action:pane.close={handleActionPaneClose}
     on:action:split.horizontal={handleActionSplitHorizontal}
     on:action:split.vertical={handleActionSplitVertical}
@@ -149,7 +133,6 @@
       >
         <svelte:self
           node={child}
-          {manager}
           {activePaneId}
           on:drop={handlePaneDrop}
           on:contextmenu={handlePaneContextMenu}
@@ -157,8 +140,6 @@
           on:resize={handleNestedResize}
           on:detach={handlePaneDetach}
           on:kill={handlePaneKill}
-          on:action:session.new={handleActionSessionNew}
-          on:action:sidebar.toggle={handleActionSidebarToggle}
           on:action:pane.close={handleActionPaneClose}
           on:action:split.horizontal={handleActionSplitHorizontal}
           on:action:split.vertical={handleActionSplitVertical}

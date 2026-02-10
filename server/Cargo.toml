@@ -35,6 +35,8 @@ tower = { version = "0.4", features = ["util", "make"] }
 tower-http = { version = "0.5", features = ["cors", "fs"] }
 futures = "0.3"
 
+tempfile = "3.0"
+
 # TLS Support
 rustls = "0.23"
 rustls-pemfile = "2"
@@ -45,7 +47,6 @@ tokio-tungstenite = "0.20"
 url = "2.4"
 reqwest = { version = "0.11", features = ["json"] }
 serial_test = "3.0"
-tempfile = "3.0"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 criterion = { version = "0.5", features = ["html_reports"] }
 

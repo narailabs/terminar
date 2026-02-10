@@ -233,6 +233,8 @@ describe('WebSocketSessionManager Negative Scenarios', () => {
 
     it('should handle rapid connect/disconnect', async () => {
       const manager = new WebSocketSessionManager(url);
+      // Absorb async errors from mock-socket that fire after disconnect
+      manager.on('error', () => {});
 
       // Rapidly connect and disconnect
       const connectPromise = manager.connect();

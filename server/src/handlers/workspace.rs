@@ -128,7 +128,7 @@ pub(crate) async fn handle_save_workspace(
             payload_size, MAX_WORKSPACE_SIZE
         );
         warn!("{}", msg);
-        tx_out.send(ServerMessage::Error { message: msg }).await?;
+        tx_out.send(ServerMessage::Error { message: msg, error_code: Some("INVALID_INPUT".to_string()) }).await?;
         return Ok(());
     }
 
@@ -143,7 +143,7 @@ pub(crate) async fn handle_save_workspace(
         Err(e) => {
             let msg = format!("Failed to save workspace: {}", e);
             error!("{}", msg);
-            tx_out.send(ServerMessage::Error { message: msg }).await?;
+            tx_out.send(ServerMessage::Error { message: msg, error_code: Some("INTERNAL_ERROR".to_string()) }).await?;
         }
     }
 
@@ -166,7 +166,7 @@ pub(crate) async fn handle_load_workspace(
         Err(e) => {
             let msg = format!("Failed to load workspace: {}", e);
             error!("{}", msg);
-            tx_out.send(ServerMessage::Error { message: msg }).await?;
+            tx_out.send(ServerMessage::Error { message: msg, error_code: Some("INTERNAL_ERROR".to_string()) }).await?;
         }
     }
 
@@ -289,8 +289,9 @@ mod tests {
 
         let msg = rx.recv().await.unwrap();
         match msg {
-            ServerMessage::Error { message } => {
+            ServerMessage::Error { message, error_code } => {
                 assert!(message.contains("too large"), "Error should mention size: {}", message);
+                assert_eq!(error_code, Some("INVALID_INPUT".to_string()));
             }
             other => panic!("Expected Error message, got {:?}", other),
         }

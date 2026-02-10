@@ -191,7 +191,7 @@ async fn test_localhost_connection_skips_auth() {
                 // Success! Localhost connection skipped auth
                 assert_eq!(sessions.len(), 0, "Expected empty session list");
             },
-            ServerMessage::Error { message } => {
+            ServerMessage::Error { message, .. } => {
                 panic!("Got auth error, localhost bypass not working: {}", message);
             },
             _ => {

@@ -100,6 +100,7 @@ fn test_server_message_serialization() {
     // 4. Error
     let error_msg = ServerMessage::Error {
         message: "bad".to_string(),
+        error_code: None,
     };
     let json = serde_json::to_string(&error_msg).unwrap();
     assert_eq!(json, r#"{"type":"Error","message":"bad"}"#);

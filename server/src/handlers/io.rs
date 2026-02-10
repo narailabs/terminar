@@ -40,7 +40,7 @@ pub(crate) async fn handle_input(
     // Now the guard is dropped, safe to .await
     if let Err(ref message) = result {
         info!(session_id = %session_id, event = "session_error", error = %message, "Session lifecycle: error");
-        tx_out.send(ServerMessage::Error { message: message.clone() }).await?;
+        tx_out.send(ServerMessage::Error { message: message.clone(), error_code: Some("SESSION_NOT_FOUND".to_string()) }).await?;
     }
     Ok(())
 }
@@ -71,7 +71,8 @@ pub(crate) async fn handle_resize(
     };
     if !found {
         tx_out.send(ServerMessage::Error {
-            message: format!("Session '{}' not found", session_id)
+            message: format!("Session '{}' not found", session_id),
+            error_code: Some("SESSION_NOT_FOUND".to_string()),
         }).await?;
     }
     Ok(())

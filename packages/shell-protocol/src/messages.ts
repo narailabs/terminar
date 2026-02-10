@@ -16,7 +16,7 @@ export const SessionInfoSchema = z.object({
 export type SessionInfo = z.infer<typeof SessionInfoSchema>;
 
 export const ClientMessageSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('auth'), token: z.string() }),
+  z.object({ type: z.literal('auth'), token: z.string(), protocol_version: z.string().optional() }),
   z.object({ type: z.literal('list_sessions') }),
   z.object({
     type: z.literal('create_session'),
@@ -43,12 +43,12 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
 
 export const ServerMessageSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('AuthOk'), token: z.string(), expires: z.string() }),
+  z.object({ type: z.literal('AuthOk'), token: z.string(), expires: z.string(), protocol_version: z.string().optional() }),
   z.object({ type: z.literal('AuthChallenge'), nonce: z.string() }),
   z.object({ type: z.literal('SessionList'), sessions: z.array(SessionInfoSchema) }),
   z.object({ type: z.literal('Output'), session_id: z.string(), data: z.string() }),
   z.object({ type: z.literal('SessionClosed'), session_id: z.string() }),
-  z.object({ type: z.literal('Error'), message: z.string() }),
+  z.object({ type: z.literal('Error'), message: z.string(), error_code: z.string().optional() }),
   z.object({ type: z.literal('PairResponse'), code: z.string(), expiry_secs: z.number() }),
   z.object({ type: z.literal('Shutdown'), reason: z.string() }),
   // New session tracking messages

@@ -5,6 +5,11 @@
 
 use std::time::Duration;
 
+// ==================== Protocol Constants ====================
+
+/// Protocol version for client-server version negotiation.
+pub const PROTOCOL_VERSION: &str = "0.2.0";
+
 // ==================== Security Constants ====================
 
 /// Whitelist of approved shell paths for security.

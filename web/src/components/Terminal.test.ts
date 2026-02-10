@@ -123,7 +123,7 @@ describe('Terminal Component', () => {
   });
 
   it('should render the terminal container and initialize xterm', () => {
-    const { container } = render(TerminalComp, { manager: mockManager, activeSessionId: 'sess-1' });
+    const { container } = render(TerminalComp, { _managerProp: mockManager, activeSessionId: 'sess-1' });
 
     expect(container.querySelector('.terminal-container')).toBeTruthy();
     expect(mockTerm.open).toHaveBeenCalled();
@@ -131,7 +131,7 @@ describe('Terminal Component', () => {
   });
 
   it('should call manager.sendInput when terminal emits data', async () => {
-    render(TerminalComp, { manager: mockManager, activeSessionId: 'sess-1', isActive: true });
+    render(TerminalComp, { _managerProp: mockManager, activeSessionId: 'sess-1', isActive: true });
 
     const onDataCallback = mockTerm.onData.mock.calls[0][0];
     onDataCallback('ls\n');
@@ -140,7 +140,7 @@ describe('Terminal Component', () => {
   });
 
   it('should write to terminal when manager emits output for active session', async () => {
-    render(TerminalComp, { manager: mockManager, activeSessionId: 'sess-1' });
+    render(TerminalComp, { _managerProp: mockManager, activeSessionId: 'sess-1' });
 
     // Flush requestAnimationFrame to set initialSizingComplete = true
     await flushRAF();
@@ -153,7 +153,7 @@ describe('Terminal Component', () => {
   });
 
   it('should cleanup on destroy', () => {
-    const { unmount } = render(TerminalComp, { manager: mockManager, activeSessionId: 'sess-1' });
+    const { unmount } = render(TerminalComp, { _managerProp: mockManager, activeSessionId: 'sess-1' });
     unmount();
     expect(mockTerm.dispose).toHaveBeenCalled();
   });
@@ -178,7 +178,7 @@ describe('Terminal - No Width/Column Limiting', () => {
     // Simulate a very wide terminal (e.g., 4K display full screen)
     mockFit.proposeDimensions.mockReturnValue({ cols: 320, rows: 50 });
 
-    render(TerminalComp, { manager: mockManager, activeSessionId: 'sess-1' });
+    render(TerminalComp, { _managerProp: mockManager, activeSessionId: 'sess-1' });
 
     // Terminal should have been created with no column cap
     // The fit addon should be called and its dimensions respected
@@ -186,7 +186,7 @@ describe('Terminal - No Width/Column Limiting', () => {
   });
 
   it('should not impose any max-width on the terminal container', () => {
-    const { container } = render(TerminalComp, { manager: mockManager, activeSessionId: 'sess-1' });
+    const { container } = render(TerminalComp, { _managerProp: mockManager, activeSessionId: 'sess-1' });
 
     const termContainer = container.querySelector('.terminal-container') as HTMLElement;
     expect(termContainer).toBeTruthy();
@@ -200,7 +200,7 @@ describe('Terminal - No Width/Column Limiting', () => {
   });
 
   it('should create terminal with scrollback of at least 5000 lines', () => {
-    render(TerminalComp, { manager: mockManager, activeSessionId: 'sess-1' });
+    render(TerminalComp, { _managerProp: mockManager, activeSessionId: 'sess-1' });
 
     // Check the Terminal constructor was called with adequate scrollback
     const constructorCall = TerminalMock.mock.calls[0]?.[0];
@@ -215,7 +215,7 @@ describe('Terminal - No Width/Column Limiting', () => {
       mockFit.proposeDimensions.mockReturnValue({ cols, rows: 24 });
 
       const { unmount } = render(TerminalComp, {
-        manager: mockManager,
+        _managerProp: mockManager,
         activeSessionId: `sess-${cols}`,
       });
 
