@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::io::Write;
 use std::path::Path;
 
 // Re-export from constants for backward compatibility
@@ -35,20 +36,32 @@ pub fn resolve_session_file_path(session_file: &Option<String>) -> String {
         .unwrap_or_else(|| DEFAULT_SESSION_FILE.to_string())
 }
 
-/// Save session data to a JSON file.
-/// Creates parent directories if needed.
-pub fn save_sessions(path: &str, data: &PersistedSessionData) -> Result<(), String> {
-    let p = Path::new(path);
-    if let Some(parent) = p.parent() {
-        if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create directory {:?}: {}", parent, e))?;
-        }
+/// Atomically write data to a file using temp file + rename.
+/// This prevents corruption if the process crashes mid-write.
+fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
+    let parent = path.parent()
+        .ok_or_else(|| format!("No parent directory for {:?}", path))?;
+    if !parent.as_os_str().is_empty() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create directory {:?}: {}", parent, e))?;
     }
+    let mut tmp = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|e| format!("Failed to create temp file in {:?}: {}", parent, e))?;
+    tmp.write_all(data)
+        .map_err(|e| format!("Failed to write temp file: {}", e))?;
+    tmp.flush()
+        .map_err(|e| format!("Failed to flush temp file: {}", e))?;
+    tmp.persist(path)
+        .map_err(|e| format!("Failed to rename temp file to {:?}: {}", path, e))?;
+    Ok(())
+}
+
+/// Save session data to a JSON file.
+/// Creates parent directories if needed. Uses atomic write (temp + rename).
+pub fn save_sessions(path: &str, data: &PersistedSessionData) -> Result<(), String> {
     let json = serde_json::to_string_pretty(data)
         .map_err(|e| format!("Failed to serialize sessions: {}", e))?;
-    std::fs::write(p, json)
-        .map_err(|e| format!("Failed to write session file {:?}: {}", path, e))
+    atomic_write(Path::new(path), json.as_bytes())
 }
 
 /// Build PersistedSessionData from a SessionMap by extracting metadata.
@@ -102,15 +115,10 @@ pub fn history_file_path(base_dir: &str, session_id: &str) -> std::path::PathBuf
 }
 
 /// Save history data to disk for a session.
-/// Creates the directory if it doesn't exist.
+/// Creates the directory if it doesn't exist. Uses atomic write (temp + rename).
 pub fn save_history(base_dir: &str, session_id: &str, data: &[u8]) -> Result<(), String> {
-    let dir = Path::new(base_dir);
-    std::fs::create_dir_all(dir)
-        .map_err(|e| format!("Failed to create history directory {:?}: {}", dir, e))?;
-
     let path = history_file_path(base_dir, session_id);
-    std::fs::write(&path, data)
-        .map_err(|e| format!("Failed to write history file {:?}: {}", path, e))
+    atomic_write(&path, data)
 }
 
 /// Load history data from disk for a session.
@@ -394,7 +402,7 @@ mod tests {
             master,
             tx,
             history,
-        );
+        ).unwrap();
         sessions.lock().insert("test-id".to_string(), session);
 
         let data = build_persisted_data(&sessions);

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent, screen, waitFor, cleanup } from '@testing-library/svelte';
-import WorkspaceView from './WorkspaceView.svelte';
+import WorkspaceView from './WorkspaceViewTestWrapper.svelte';
 import { workspaceStore } from '../lib/workspaceStore';
 import { registerPane, unregisterPane } from '../lib/paneRegistry';
 import type { PaneHandle } from '../lib/paneRegistry';

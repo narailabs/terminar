@@ -14,7 +14,7 @@ describe('ShellClient', () => {
     client.connect(socket);
 
     socket.emit('open');
-    expect(socket.send).toHaveBeenCalledWith(JSON.stringify({ type: 'auth', token: 'secret' }));
+    expect(socket.send).toHaveBeenCalledWith(JSON.stringify({ type: 'auth', token: 'secret', protocol_version: '0.2.0' }));
   });
 
   it('should emit message on valid server message', () => {

@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+
+# Rust build artifacts
+server/target/
+
+# TypeScript compiled output
+packages/shell-protocol/dist/
+packages/shell-protocol/tsconfig.tsbuildinfo
+extension/out/
+extension/out-test/
+
+# Electron build output
+electron/dist/
+
+# Web build output
+web/dist/
+
+# VS Code extension packaging
+*.vsix
+
+# Lock files (pnpm)
+pnpm-lock.yaml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+
+# Environment / secrets
+.env
+.env.*
+credentials.json
+
+# Log files
+*.log
+
+# Runtime data
+*.sock

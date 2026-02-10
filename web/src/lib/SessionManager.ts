@@ -1,9 +1,8 @@
 import { EventEmitter } from 'events';
+import type { ConnectionState } from './shared-protocol';
 
-/**
- * Connection states for session managers
- */
-export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
+// Re-export for backward compatibility
+export type { ConnectionState } from './shared-protocol';
 
 /**
  * Session information

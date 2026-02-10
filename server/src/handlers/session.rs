@@ -184,13 +184,13 @@ pub(crate) async fn handle_create_session(
 
     // Validate shell against whitelist before spawning
     if let Some(error_msg) = validate_shell(&resolved_shell) {
-        tx_out.send(ServerMessage::Error { message: error_msg }).await?;
+        tx_out.send(ServerMessage::Error { message: error_msg, error_code: Some("INVALID_INPUT".to_string()) }).await?;
         return Ok(());
     }
 
     // Validate working directory
     if let Some(error_msg) = validate_cwd(&resolved_cwd) {
-        tx_out.send(ServerMessage::Error { message: error_msg }).await?;
+        tx_out.send(ServerMessage::Error { message: error_msg, error_code: Some("INVALID_INPUT".to_string()) }).await?;
         return Ok(());
     }
 

@@ -59,7 +59,7 @@ suite('SessionManager', () => {
                 for (const msg of messages) {
                     // Handle auth message by responding with AuthOk
                     if (msg.type === 'auth') {
-                        socket.write(createFrame({ type: 'AuthOk' }));
+                        socket.write(createFrame({ type: 'AuthOk', token: 'jwt-test', expires: '2099-01-01T00:00:00Z' }));
                         continue;
                     }
 
@@ -68,7 +68,7 @@ suite('SessionManager', () => {
                     if (msg.type === 'list_sessions') {
                         socket.write(createFrame({
                             type: 'SessionList',
-                            sessions: [{ id: '1', shell: 'bash', name: 'test', started_at: 'now' }]
+                            sessions: [{ id: '1', shell: 'bash', name: 'test', cwd: '/tmp', started_at: 'now' }]
                         }));
                     }
                 }

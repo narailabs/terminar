@@ -213,8 +213,8 @@ impl Session {
     ///
     /// The session state is set to `Running` after successful creation.
     ///
-    /// # Panics
-    /// Panics if `take_writer()` fails on the master.
+    /// # Errors
+    /// Returns an error if `take_writer()` fails on the master.
     pub fn new(
         id: String,
         name: String,
@@ -223,12 +223,13 @@ impl Session {
         master: Box<dyn portable_pty::MasterPty + Send>,
         output_tx: broadcast::Sender<SessionEvent>,
         history: Arc<Mutex<CircularBuffer>>,
-    ) -> Self {
+    ) -> Result<Self, String> {
         // Capture the raw fd before wrapping - used for tcgetpgrp() calls
         let pty_fd = master.as_raw_fd();
         // Take the writer before wrapping master to cache it for the session lifetime
-        let writer = master.take_writer().expect("Failed to take writer from PTY master");
-        Self {
+        let writer = master.take_writer()
+            .map_err(|e| format!("Failed to take writer from PTY master: {}", e))?;
+        Ok(Self {
             id,
             name,
             shell_cmd,
@@ -247,7 +248,7 @@ impl Session {
             exit_code: None,
             silence_notified: Arc::new(AtomicBool::new(false)),
             silence_threshold_secs: 30,
-        }
+        })
     }
 
     /// Attempt to transition the session to a new state.
@@ -339,7 +340,7 @@ mod tests {
             master,
             tx,
             history,
-        )
+        ).unwrap()
     }
 
     /// Test that Session.master is wrapped in Arc<Mutex<>> for synchronized access.

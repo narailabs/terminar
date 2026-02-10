@@ -70,7 +70,7 @@ async fn test_malformed_json_rejection() {
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(2) {
         if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::Error { message }) = serde_json::from_str::<ServerMessage>(&text) {
+            if let Ok(ServerMessage::Error { message, .. }) = serde_json::from_str::<ServerMessage>(&text) {
                 assert!(message.contains("parse") || message.contains("JSON") || message.contains("invalid"),
                     "Error message should mention parsing: {}", message);
                 got_error = true;
@@ -161,7 +161,7 @@ async fn test_nonexistent_session_operations() {
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(2) {
         if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::Error { message }) = serde_json::from_str::<ServerMessage>(&text) {
+            if let Ok(ServerMessage::Error { message, .. }) = serde_json::from_str::<ServerMessage>(&text) {
                 assert!(message.contains("not found") || message.contains("unknown") || message.contains("exist"),
                     "Error should mention session not found: {}", message);
                 got_error = true;

@@ -2,6 +2,8 @@ import { EventEmitter } from 'events';
 import { ClientMessage, ServerMessageSchema } from './messages.js';
 import { ParseError, ValidationError } from './errors.js';
 
+const PROTOCOL_VERSION = '0.2.0';
+
 export interface IShellSocket {
   send(data: string): void;
   close(): void;
@@ -31,7 +33,7 @@ export class ShellClient extends EventEmitter {
 
     socket.on('open', () => {
       if (this.token) {
-        this.socket!.send(JSON.stringify({ type: 'auth', token: this.token }));
+        this.socket!.send(JSON.stringify({ type: 'auth', token: this.token, protocol_version: PROTOCOL_VERSION }));
       } else {
         // No token — local connection, skip auth
         this._authenticated = true;

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { WebSocketSessionManager } from './WebSocketSessionManager';
+import { calculateReconnectDelay } from './shared-protocol';
 import { WebSocket, Server } from 'mock-socket';
 
 // Polyfill global WebSocket
@@ -43,8 +44,10 @@ describe('WebSocketSessionManager', () => {
   it('should fail to connect if server is unreachable', async () => {
     mockServer.stop();
     manager = new WebSocketSessionManager(url);
-    
-    // In mock-socket, if no server is running at the URL, 
+    // Absorb async errors from mock-socket that fire after rejection
+    manager.on('error', () => {});
+
+    // In mock-socket, if no server is running at the URL,
     // it usually times out or errors depending on implementation.
     // Forcing a rejection for this test case if it hangs.
     const connectPromise = manager.connect();
@@ -232,47 +235,38 @@ describe('WebSocketSessionManager', () => {
     });
 
     it('should calculate exponential backoff delay', () => {
-      manager = new WebSocketSessionManager(url, undefined, {
+      const config = {
         baseDelay: 1000,
         maxDelay: 30000,
         maxRetries: 10,
         jitter: 0 // No jitter for deterministic test
-      });
-
-      const calculateDelay = (manager as any).calculateReconnectDelay.bind(manager);
+      };
 
       // Attempt 0: 1000 * 2^0 = 1000
-      (manager as any).reconnectAttempt = 0;
-      expect(calculateDelay()).toBe(1000);
+      expect(calculateReconnectDelay(0, config)).toBe(1000);
 
       // Attempt 1: 1000 * 2^1 = 2000
-      (manager as any).reconnectAttempt = 1;
-      expect(calculateDelay()).toBe(2000);
+      expect(calculateReconnectDelay(1, config)).toBe(2000);
 
       // Attempt 2: 1000 * 2^2 = 4000
-      (manager as any).reconnectAttempt = 2;
-      expect(calculateDelay()).toBe(4000);
+      expect(calculateReconnectDelay(2, config)).toBe(4000);
 
       // Attempt 5: 1000 * 2^5 = 32000 -> capped at 30000
-      (manager as any).reconnectAttempt = 5;
-      expect(calculateDelay()).toBe(30000);
+      expect(calculateReconnectDelay(5, config)).toBe(30000);
     });
 
     it('should add jitter to reconnect delay', () => {
-      manager = new WebSocketSessionManager(url, undefined, {
+      const config = {
         baseDelay: 1000,
         maxDelay: 30000,
         maxRetries: 10,
         jitter: 500
-      });
-
-      (manager as any).reconnectAttempt = 0;
-      const calculateDelay = (manager as any).calculateReconnectDelay.bind(manager);
+      };
 
       // Run multiple times and check that values vary
       const delays = new Set<number>();
       for (let i = 0; i < 10; i++) {
-        delays.add(calculateDelay());
+        delays.add(calculateReconnectDelay(0, config));
       }
 
       // With jitter, we should get different values

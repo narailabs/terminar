@@ -6,16 +6,25 @@
   import { getPane } from '../lib/paneRegistry';
   import { setTerminalOverride } from '../lib/themeStore';
   import { BUILT_IN_TERMINAL_THEMES } from '../lib/themeTypes';
-  import type { SessionManager } from '../lib/SessionManager';
   import type { TabId, PaneId, SessionId, DropZone, SplitDirection, SplitNode } from '../lib/workspaceTypes';
-  import { createEventDispatcher } from 'svelte';
   import { activityStore } from '../lib/activityStore';
   import { exitedSessions } from '../lib/exitedSessionsStore';
   import { foregroundStore } from '../lib/foregroundStore';
   import { matchAgent } from '../lib/agentRegistry';
+  import { getManagerContext, getSessionsContext, getActionsContext } from '../lib/sessionContext';
+  import type { SessionManager } from '../lib/SessionManager';
 
-  export let manager: SessionManager | null = null;
-  export let availableSessions: { id: string; name?: string }[] = [];
+  // Optional prop overrides (for tests that render without context)
+  export let manager: SessionManager | null | undefined = undefined;
+  export let availableSessions: { id: string; name?: string }[] | undefined = undefined;
+
+  const managerStore = getManagerContext();
+  const sessionsStore = getSessionsContext();
+  const actions = getActionsContext();
+
+  // Use prop override if provided, otherwise read from context
+  $: effectiveManager = manager !== undefined ? manager : $managerStore;
+  $: effectiveAvailableSessions = availableSessions !== undefined ? availableSessions : $sessionsStore.map(s => ({ id: s.id, name: s.name }));
 
   // Helper: collect all sessionIds from a split tree
   function collectSessionIds(node: SplitNode): string[] {
@@ -78,11 +87,6 @@
     return map;
   })();
 
-  const dispatch = createEventDispatcher<{
-    'action:session.new': void;
-    'action:sidebar.toggle': void;
-  }>();
-
   let activePaneId: PaneId | null = null;
   let contextMenu: { x: number; y: number; paneId: string } | null = null;
   let clipboardText: string = '';
@@ -140,19 +144,10 @@
 
   function handleKill(event: CustomEvent<{ paneId: string; sessionId: string }>) {
     const { paneId, sessionId } = event.detail;
-    if (manager) {
-      manager.killSession(sessionId);
+    if (effectiveManager) {
+      effectiveManager.killSession(sessionId);
     }
     workspaceStore.closePane(paneId);
-  }
-
-  // Handle keybinding action events from panes (via SplitContainer)
-  function handleActionSessionNew() {
-    dispatch('action:session.new');
-  }
-
-  function handleActionSidebarToggle() {
-    dispatch('action:sidebar.toggle');
   }
 
   function handleActionPaneClose(event: CustomEvent<{ paneId: string }>) {
@@ -304,7 +299,7 @@
     { label: 'Split Right', action: handleSplitHorizontal, shortcut: 'Cmd+Shift+E' },
     { label: 'Split Down', action: handleSplitVertical, shortcut: 'Cmd+Shift+O' },
     { type: 'separator' as const },
-    ...availableSessions.map(session => ({
+    ...effectiveAvailableSessions.map(session => ({
       label: `Assign: ${session.name || session.id.slice(0, 8)}`,
       action: () => handleAssignSession(session.id),
     })),
@@ -339,7 +334,6 @@
     {#if $activeTab}
       <SplitContainer
         node={$activeTab.root}
-        {manager}
         {activePaneId}
         on:drop={handleDrop}
         on:contextmenu={handlePaneContextMenu}
@@ -347,8 +341,6 @@
         on:resize={handleResize}
         on:detach={handleDetach}
         on:kill={handleKill}
-        on:action:session.new={handleActionSessionNew}
-        on:action:sidebar.toggle={handleActionSidebarToggle}
         on:action:pane.close={handleActionPaneClose}
         on:action:split.horizontal={handleActionSplitHorizontal}
         on:action:split.vertical={handleActionSplitVertical}

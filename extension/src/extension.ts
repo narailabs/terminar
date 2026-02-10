@@ -6,295 +6,297 @@ import { ServerController } from './ServerController';
 import { WebSocketSessionManager, exchangePairingCode, SessionInfo as WsSessionInfo } from './WebSocketAdapter';
 import { setupServerErrorHandler } from './errorHandling';
 
-// Union type for both local and remote session managers
-type SessionManagerType = SessionManager | WebSocketSessionManager;
-
-let manager: SessionManagerType | null = null;
-let remoteManager: WebSocketSessionManager | null = null;
-let treeProvider: SessionTreeProvider | null = null;
-let serverController: ServerController;
-let outputChannel: vscode.OutputChannel;
-const activeTerminals = new Map<string, Terminar>();
-const knownSessions = new Set<string>();
-
 function getSocketPath(): string {
     return `/tmp/vscode-terminar-${os.userInfo().uid}.sock`;
 }
 
-function setupManager(): SessionManager {
-    const token = readTokenFile();
-    if (!token) {
-        throw new Error('Token file not found. Server may not be running.');
+class TerminarExtension {
+    private manager: SessionManager | WebSocketSessionManager | null = null;
+    private remoteManager: WebSocketSessionManager | null = null;
+    private treeProvider: SessionTreeProvider | null = null;
+    private serverController: ServerController;
+    private outputChannel: vscode.OutputChannel;
+    private activeTerminals = new Map<string, Terminar>();
+    private knownSessions = new Set<string>();
+
+    constructor(private context: vscode.ExtensionContext) {
+        this.outputChannel = vscode.window.createOutputChannel("termiNar");
+        this.outputChannel.appendLine("Extension activated.");
+
+        this.serverController = new ServerController(context.extensionPath);
     }
 
-    const newManager = new SessionManager(getSocketPath(), token);
-
-    newManager.on('sessionList', updateSessionList);
-    newManager.on('output', (sessionId, data) => {
-        const term = activeTerminals.get(sessionId);
-        if (term) term.write(data);
-    });
-
-    return newManager;
-}
-
-export function activate(context: vscode.ExtensionContext) {
-    outputChannel = vscode.window.createOutputChannel("termiNar");
-    outputChannel.appendLine("Extension activated.");
-
-    serverController = new ServerController(context.extensionPath);
-
-    // Wire up server error handling with retry support
-    setupServerErrorHandler(serverController, outputChannel, () => {
-        outputChannel.appendLine("Retrying server spawn...");
-        ensureServerRunning(context).then(() => {
-            outputChannel.appendLine("Connected to backend after retry.");
-            manager!.listSessions();
-        }).catch(err => {
-            vscode.window.showErrorMessage("Retry failed: " + err);
+    async activate(): Promise<void> {
+        // Wire up server error handling with retry support
+        setupServerErrorHandler(this.serverController, this.outputChannel, () => {
+            this.outputChannel.appendLine("Retrying server spawn...");
+            this.ensureServerRunning().then(() => {
+                this.outputChannel.appendLine("Connected to backend after retry.");
+                this.manager!.listSessions();
+            }).catch(err => {
+                vscode.window.showErrorMessage("Retry failed: " + err);
+            });
         });
-    });
 
-    // Initialize tree provider with null manager (will be set after connection)
-    treeProvider = new SessionTreeProvider(null);
-    vscode.window.registerTreeDataProvider('terminarSessions', treeProvider);
+        // Initialize tree provider with null manager (will be set after connection)
+        this.treeProvider = new SessionTreeProvider(null);
+        vscode.window.registerTreeDataProvider('terminarSessions', this.treeProvider);
 
-    ensureServerRunning(context).then(() => {
-        outputChannel.appendLine("Connected to backend.");
-        manager!.listSessions();
-    }).catch(err => {
-        vscode.window.showErrorMessage("Failed to start termiNar server: " + err);
-    });
+        this.ensureServerRunning().then(() => {
+            this.outputChannel.appendLine("Connected to backend.");
+            this.manager!.listSessions();
+        }).catch(err => {
+            vscode.window.showErrorMessage("Failed to start termiNar server: " + err);
+        });
 
-    context.subscriptions.push(vscode.commands.registerCommand('terminar.newSession', async () => {
-        if (manager) {
-            // Filter out undefined values from process.env
-            const env: Record<string, string> = {};
-            for (const [key, value] of Object.entries(process.env)) {
-                if (value !== undefined) {
-                    env[key] = value;
-                }
-            }
-            manager.createSession(os.homedir(), process.env.SHELL || '/bin/bash', env);
+        this.registerCommands();
+    }
+
+    deactivate(): void {
+        if (this.manager) {
+            this.manager.disconnect();
+            this.manager = null;
         }
-    }));
+        if (this.remoteManager) {
+            this.remoteManager.disconnect();
+            this.remoteManager = null;
+        }
+        this.activeTerminals.clear();
+        this.knownSessions.clear();
+        if (this.outputChannel) {
+            this.outputChannel.appendLine("Extension deactivated.");
+            this.outputChannel.dispose();
+        }
+        this.treeProvider = null;
+    }
 
-    context.subscriptions.push(vscode.commands.registerCommand('terminar.connectRemote', async () => {
-        const host = await vscode.window.showInputBox({ prompt: 'Enter server address (e.g. localhost:3000)', placeHolder: 'localhost:3000' });
-        if (!host) return;
-
-        const code = await vscode.window.showInputBox({ prompt: 'Enter 6-digit pairing code', placeHolder: '123456' });
-        if (!code) return;
-
-        try {
-            outputChannel.appendLine(`Attempting to pair with ${host}...`);
-            vscode.window.showInformationMessage(`Pairing with ${host}...`);
-
-            // Exchange pairing code for token
-            const token = await exchangePairingCode(host, code);
-            outputChannel.appendLine('Pairing successful, connecting via WebSocket...');
-
-            // Disconnect existing remote connection if any
-            if (remoteManager) {
-                remoteManager.disconnect();
-            }
-
-            // Create WebSocket connection
-            const wsUrl = `ws://${host}/ws`;
-            remoteManager = new WebSocketSessionManager(wsUrl, token);
-
-            // Set up event handlers
-            remoteManager.on('sessionList', (sessions: WsSessionInfo[]) => {
-                outputChannel.appendLine(`Remote sessions: ${sessions.length}`);
-                for (const s of sessions) {
-                    if (!knownSessions.has(`remote-${s.id}`)) {
-                        knownSessions.add(`remote-${s.id}`);
-                        createRemoteTerminalUI(s.id, s.shell, host);
+    private registerCommands(): void {
+        this.context.subscriptions.push(vscode.commands.registerCommand('terminar.newSession', async () => {
+            if (this.manager) {
+                const env: Record<string, string> = {};
+                for (const [key, value] of Object.entries(process.env)) {
+                    if (value !== undefined) {
+                        env[key] = value;
                     }
                 }
-            });
-
-            remoteManager.on('output', (sessionId: string, data: string) => {
-                const term = activeTerminals.get(`remote-${sessionId}`);
-                if (term) term.write(data);
-            });
-
-            remoteManager.on('sessionClosed', (sessionId: string) => {
-                outputChannel.appendLine(`Remote session ${sessionId} closed`);
-            });
-
-            remoteManager.on('error', (err: Error) => {
-                outputChannel.appendLine(`Remote connection error: ${err.message}`);
-            });
-
-            remoteManager.on('reconnecting', (attempt: number, delay: number) => {
-                outputChannel.appendLine(`Reconnecting to ${host} in ${delay}ms (attempt ${attempt})`);
-            });
-
-            remoteManager.on('reconnected', () => {
-                outputChannel.appendLine(`Reconnected to ${host}`);
-                vscode.window.showInformationMessage(`Reconnected to ${host}`);
-            });
-
-            // Connect
-            await remoteManager.connect();
-            outputChannel.appendLine(`Connected to remote server ${host}`);
-            vscode.window.showInformationMessage(`Connected to ${host}!`);
-
-            // List sessions
-            remoteManager.listSessions();
-
-        } catch (err) {
-            outputChannel.appendLine(`Error connecting to ${host}: ${err}`);
-            vscode.window.showErrorMessage(`Error connecting to ${host}: ${err}`);
-        }
-    }));
-}
-
-async function ensureServerRunning(context: vscode.ExtensionContext): Promise<void> {
-    // First, try to connect if token already exists (server already running)
-    const existingToken = readTokenFile();
-    if (existingToken) {
-        try {
-            manager = setupManager();
-            if (treeProvider) {
-                treeProvider.setManager(manager);
+                this.manager.createSession(os.homedir(), process.env.SHELL || '/bin/bash', env);
             }
-            await manager.connect();
-            return;
-        } catch (e) {
-            outputChannel.appendLine("Connection failed, will spawn server...");
-        }
+        }));
+
+        this.context.subscriptions.push(vscode.commands.registerCommand('terminar.connectRemote', async () => {
+            const host = await vscode.window.showInputBox({ prompt: 'Enter server address (e.g. localhost:3000)', placeHolder: 'localhost:3000' });
+            if (!host) return;
+
+            const code = await vscode.window.showInputBox({ prompt: 'Enter 6-digit pairing code', placeHolder: '123456' });
+            if (!code) return;
+
+            try {
+                this.outputChannel.appendLine(`Attempting to pair with ${host}...`);
+                vscode.window.showInformationMessage(`Pairing with ${host}...`);
+
+                const token = await exchangePairingCode(host, code);
+                this.outputChannel.appendLine('Pairing successful, connecting via WebSocket...');
+
+                if (this.remoteManager) {
+                    this.remoteManager.disconnect();
+                }
+
+                const wsUrl = `ws://${host}/ws`;
+                this.remoteManager = new WebSocketSessionManager(wsUrl, token);
+
+                this.remoteManager.on('sessionList', (sessions: WsSessionInfo[]) => {
+                    this.outputChannel.appendLine(`Remote sessions: ${sessions.length}`);
+                    for (const s of sessions) {
+                        if (!this.knownSessions.has(`remote-${s.id}`)) {
+                            this.knownSessions.add(`remote-${s.id}`);
+                            this.createRemoteTerminalUI(s.id, s.shell, host);
+                        }
+                    }
+                });
+
+                this.remoteManager.on('output', (sessionId: string, data: string) => {
+                    const term = this.activeTerminals.get(`remote-${sessionId}`);
+                    if (term) term.write(data);
+                });
+
+                this.remoteManager.on('sessionClosed', (sessionId: string) => {
+                    this.outputChannel.appendLine(`Remote session ${sessionId} closed`);
+                });
+
+                this.remoteManager.on('error', (err: Error) => {
+                    this.outputChannel.appendLine(`Remote connection error: ${err.message}`);
+                });
+
+                this.remoteManager.on('reconnecting', (attempt: number, delay: number) => {
+                    this.outputChannel.appendLine(`Reconnecting to ${host} in ${delay}ms (attempt ${attempt})`);
+                });
+
+                this.remoteManager.on('reconnected', () => {
+                    this.outputChannel.appendLine(`Reconnected to ${host}`);
+                    vscode.window.showInformationMessage(`Reconnected to ${host}`);
+                });
+
+                await this.remoteManager.connect();
+                this.outputChannel.appendLine(`Connected to remote server ${host}`);
+                vscode.window.showInformationMessage(`Connected to ${host}!`);
+
+                this.remoteManager.listSessions();
+
+            } catch (err) {
+                this.outputChannel.appendLine(`Error connecting to ${host}: ${err}`);
+                vscode.window.showErrorMessage(`Error connecting to ${host}: ${err}`);
+            }
+        }));
     }
 
-    // Server not running - spawn it
-    outputChannel.appendLine("Server not found, spawning...");
-    await spawnServer(context);
-
-    // Wait for server to start and write token file
-    for (let attempt = 0; attempt < 10; attempt++) {
-        await new Promise(r => setTimeout(r, 500));
+    private setupManager(): SessionManager {
         const token = readTokenFile();
-        if (token) {
-            manager = setupManager();
-            if (treeProvider) {
-                treeProvider.setManager(manager);
+        if (!token) {
+            throw new Error('Token file not found. Server may not be running.');
+        }
+
+        const newManager = new SessionManager(getSocketPath(), token);
+
+        newManager.on('sessionList', (sessions: SessionInfo[]) => this.updateSessionList(sessions));
+        newManager.on('output', (sessionId: string, data: string) => {
+            const term = this.activeTerminals.get(sessionId);
+            if (term) term.write(data);
+        });
+
+        return newManager;
+    }
+
+    private async ensureServerRunning(): Promise<void> {
+        const existingToken = readTokenFile();
+        if (existingToken) {
+            try {
+                this.manager = this.setupManager();
+                if (this.treeProvider) {
+                    this.treeProvider.setManager(this.manager);
+                }
+                await (this.manager as SessionManager).connect();
+                return;
+            } catch (e) {
+                this.outputChannel.appendLine("Connection failed, will spawn server...");
             }
-            await manager.connect();
-            return;
+        }
+
+        this.outputChannel.appendLine("Server not found, spawning...");
+        await this.serverController.spawn();
+
+        for (let attempt = 0; attempt < 10; attempt++) {
+            await new Promise(r => setTimeout(r, 500));
+            const token = readTokenFile();
+            if (token) {
+                this.manager = this.setupManager();
+                if (this.treeProvider) {
+                    this.treeProvider.setManager(this.manager);
+                }
+                await (this.manager as SessionManager).connect();
+                return;
+            }
+        }
+
+        throw new Error('Server failed to start - token file not created');
+    }
+
+    private updateSessionList(sessions: SessionInfo[]): void {
+        for (const s of sessions) {
+            if (!this.knownSessions.has(s.id)) {
+                this.knownSessions.add(s.id);
+                this.createTerminalUI(s.id, s.shell);
+            }
         }
     }
 
-    throw new Error('Server failed to start - token file not created');
-}
+    private createTerminalUI(sessionId: string, shell: string): void {
+        const pt = new Terminar(sessionId, false, this);
+        this.activeTerminals.set(sessionId, pt);
 
-async function spawnServer(context: vscode.ExtensionContext): Promise<void> {
-    outputChannel.appendLine("Spawning server...");
-    return serverController.spawn();
-}
+        const terminal = vscode.window.createTerminal({
+            name: `termiNar: ${shell}`,
+            pty: pt.getPty()
+        });
 
-function updateSessionList(sessions: SessionInfo[]) {
-    for (const s of sessions) {
-        if (!knownSessions.has(s.id)) {
-            knownSessions.add(s.id);
-            createTerminalUI(s.id, s.shell);
+        if (this.manager instanceof SessionManager) {
+            this.manager.attach(sessionId);
+        }
+        terminal.show();
+        vscode.commands.executeCommand('workbench.action.terminal.moveToEditor');
+    }
+
+    private createRemoteTerminalUI(sessionId: string, shell: string, host: string): void {
+        const pt = new Terminar(sessionId, true, this);
+        this.activeTerminals.set(`remote-${sessionId}`, pt);
+
+        const terminal = vscode.window.createTerminal({
+            name: `termiNar Remote (${host}): ${shell}`,
+            pty: pt.getPty()
+        });
+
+        if (this.remoteManager) {
+            this.remoteManager.attach(sessionId);
+        }
+        terminal.show();
+        vscode.commands.executeCommand('workbench.action.terminal.moveToEditor');
+    }
+
+    // Public accessors for Terminar PTY to call
+    sendInput(sessionId: string, data: string, isRemote: boolean): void {
+        if (isRemote && this.remoteManager) {
+            this.remoteManager.sendInput(sessionId, data);
+        } else if (!isRemote && this.manager) {
+            this.manager.sendInput(sessionId, data);
         }
     }
-}
 
-function createTerminalUI(sessionId: string, shell: string) {
-    const pt = new Terminar(sessionId, false);
-    activeTerminals.set(sessionId, pt);
-
-    const terminal = vscode.window.createTerminal({
-        name: `termiNar: ${shell}`,
-        pty: pt.getPty()
-    });
-
-    if (manager && 'attach' in manager) {
-        manager.attach(sessionId);
+    resize(sessionId: string, cols: number, rows: number, isRemote: boolean): void {
+        if (isRemote && this.remoteManager) {
+            this.remoteManager.resize(sessionId, cols, rows);
+        } else if (!isRemote && this.manager) {
+            this.manager.resize(sessionId, cols, rows);
+        }
     }
-    terminal.show();
-    vscode.commands.executeCommand('workbench.action.terminal.moveToEditor');
-}
-
-function createRemoteTerminalUI(sessionId: string, shell: string, host: string) {
-    const pt = new Terminar(sessionId, true);
-    activeTerminals.set(`remote-${sessionId}`, pt);
-
-    const terminal = vscode.window.createTerminal({
-        name: `termiNar Remote (${host}): ${shell}`,
-        pty: pt.getPty()
-    });
-
-    if (remoteManager) {
-        remoteManager.attach(sessionId);
-    }
-    terminal.show();
-    vscode.commands.executeCommand('workbench.action.terminal.moveToEditor');
 }
 
 class Terminar {
     private writeEmitter = new vscode.EventEmitter<string>();
 
-    constructor(private sessionId: string, private isRemote: boolean = false) {}
+    constructor(
+        private sessionId: string,
+        private isRemote: boolean,
+        private ext: TerminarExtension,
+    ) {}
 
     public write(data: string) {
         this.writeEmitter.fire(data);
     }
 
     public getPty(): vscode.Pseudoterminal {
-        const self = this;
         return {
             onDidWrite: this.writeEmitter.event,
             open: () => {},
             close: () => {},
             handleInput: (data) => {
-                if (self.isRemote && remoteManager) {
-                    remoteManager.sendInput(self.sessionId, data);
-                } else if (!self.isRemote && manager) {
-                    manager.sendInput(self.sessionId, data);
-                }
+                this.ext.sendInput(this.sessionId, data, this.isRemote);
             },
             setDimensions: (dims) => {
-                if (self.isRemote && remoteManager) {
-                    remoteManager.resize(self.sessionId, dims.columns, dims.rows);
-                } else if (!self.isRemote && manager) {
-                    manager.resize(self.sessionId, dims.columns, dims.rows);
-                }
+                this.ext.resize(this.sessionId, dims.columns, dims.rows, this.isRemote);
             }
         };
     }
 }
 
-/**
- * Clean up resources when extension is deactivated
- */
+let extensionInstance: TerminarExtension | null = null;
+
+export function activate(context: vscode.ExtensionContext) {
+    extensionInstance = new TerminarExtension(context);
+    extensionInstance.activate();
+}
+
 export function deactivate(): void {
-    // Disconnect from local server (disables automatic reconnection)
-    if (manager) {
-        manager.disconnect();
-        manager = null;
+    if (extensionInstance) {
+        extensionInstance.deactivate();
+        extensionInstance = null;
     }
-
-    // Disconnect from remote server
-    if (remoteManager) {
-        remoteManager.disconnect();
-        remoteManager = null;
-    }
-
-    // Clear active terminals map
-    activeTerminals.clear();
-
-    // Clear known sessions
-    knownSessions.clear();
-
-    // Dispose output channel
-    if (outputChannel) {
-        outputChannel.appendLine("Extension deactivated.");
-        outputChannel.dispose();
-    }
-
-    // Clear tree provider reference
-    treeProvider = null;
 }

@@ -1052,7 +1052,7 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
                     if let Message::Text(text) = msg {
                         match serde_json::from_str::<ClientMessage>(&text) {
                             // Legacy token auth (UUID)
-                            Ok(ClientMessage::Auth { token }) => {
+                            Ok(ClientMessage::Auth { token, .. }) => {
                                 if token == state.api_key {
                                     // Send AuthOk with a JWT for future reconnections
                                     if let Ok(jwt) = jwt::issue_token(
@@ -1062,6 +1062,7 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
                                         let ok_msg = ServerMessage::AuthOk {
                                             token: jwt,
                                             expires: "24h".to_string(),
+                                            protocol_version: Some(constants::PROTOCOL_VERSION.to_string()),
                                         };
                                         let _ = sender.send(Message::Text(
                                             serde_json::to_string(&ok_msg).unwrap()
@@ -1086,6 +1087,7 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
                                             let ok_msg = ServerMessage::AuthOk {
                                                 token: result.token,
                                                 expires: result.expires,
+                                                protocol_version: Some(constants::PROTOCOL_VERSION.to_string()),
                                             };
                                             let _ = sender.send(Message::Text(
                                                 serde_json::to_string(&ok_msg).unwrap()
@@ -1096,6 +1098,7 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
                                             warn!("Password auth failed for {}: {}", username, e);
                                             let err_msg = ServerMessage::Error {
                                                 message: "Authentication failed".to_string(),
+                                                error_code: Some("AUTH_FAILED".to_string()),
                                             };
                                             let _ = sender.send(Message::Text(
                                                 serde_json::to_string(&err_msg).unwrap()
@@ -1114,6 +1117,7 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
                                         let ok_msg = ServerMessage::AuthOk {
                                             token: result.token,
                                             expires: result.expires,
+                                            protocol_version: Some(constants::PROTOCOL_VERSION.to_string()),
                                         };
                                         let _ = sender.send(Message::Text(
                                             serde_json::to_string(&ok_msg).unwrap()
@@ -1124,6 +1128,7 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
                                         warn!("Token auth failed: {}", e);
                                         let err_msg = ServerMessage::Error {
                                             message: "Token authentication failed".to_string(),
+                                            error_code: Some("AUTH_FAILED".to_string()),
                                         };
                                         let _ = sender.send(Message::Text(
                                             serde_json::to_string(&err_msg).unwrap()
@@ -1164,6 +1169,7 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
                                                                 let ok_msg = ServerMessage::AuthOk {
                                                                     token: result.token,
                                                                     expires: result.expires,
+                                                                    protocol_version: Some(constants::PROTOCOL_VERSION.to_string()),
                                                                 };
                                                                 let _ = sender.send(Message::Text(
                                                                     serde_json::to_string(&ok_msg).unwrap()
@@ -1174,6 +1180,7 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
                                                                 warn!("Pubkey signature verification failed: {}", e);
                                                                 let err_msg = ServerMessage::Error {
                                                                     message: "Signature verification failed".to_string(),
+                                                                    error_code: Some("AUTH_FAILED".to_string()),
                                                                 };
                                                                 let _ = sender.send(Message::Text(
                                                                     serde_json::to_string(&err_msg).unwrap()
@@ -1192,6 +1199,7 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
                                         warn!("Pubkey init failed for {}: {}", username, e);
                                         let err_msg = ServerMessage::Error {
                                             message: "Public key not authorized".to_string(),
+                                            error_code: Some("AUTH_FAILED".to_string()),
                                         };
                                         let _ = sender.send(Message::Text(
                                             serde_json::to_string(&err_msg).unwrap()
@@ -1954,7 +1962,7 @@ mod tests {
             &tx, &state.sessions, &state, &mut attach_tasks, "test"
         ).await.unwrap();
         match rx.recv().await.unwrap() {
-            ServerMessage::Error { message } => {
+            ServerMessage::Error { message, .. } => {
                 assert!(message.contains("not found"), "Expected 'not found', got: {}", message);
             },
             other => panic!("Expected Error for input to unknown session, got {:?}", other),
@@ -1966,7 +1974,7 @@ mod tests {
             &tx, &state.sessions, &state, &mut attach_tasks, "test"
         ).await.unwrap();
         match rx.recv().await.unwrap() {
-            ServerMessage::Error { message } => {
+            ServerMessage::Error { message, .. } => {
                 assert!(message.contains("not found"), "Expected 'not found', got: {}", message);
             },
             other => panic!("Expected Error for resize of unknown session, got {:?}", other),
@@ -1997,7 +2005,7 @@ mod tests {
 
         // Should receive an Error message about session not found
         match rx.recv().await.unwrap() {
-            ServerMessage::Error { message } => {
+            ServerMessage::Error { message, .. } => {
                 assert!(message.contains("not found") || message.contains("nonexistent"),
                     "Error should indicate session not found, got: {}", message);
             },
@@ -2043,7 +2051,7 @@ mod tests {
 
         // Should receive an Error message about session state
         match rx.recv().await.unwrap() {
-            ServerMessage::Error { message } => {
+            ServerMessage::Error { message, .. } => {
                 assert!(message.contains("error") || message.contains("not accepting"),
                     "Error should indicate session not accepting input, got: {}", message);
             },
@@ -2066,7 +2074,7 @@ mod tests {
 
         // Should receive an Error message
         match rx.recv().await.unwrap() {
-            ServerMessage::Error { message } => {
+            ServerMessage::Error { message, .. } => {
                 assert!(message.contains("not found") || message.contains("nonexistent"),
                     "Error should indicate session not found, got: {}", message);
             },
@@ -2099,7 +2107,7 @@ mod tests {
                 assert_eq!(sessions.len(), 1);
                 assert_eq!(sessions[0].shell, "/bin/bash");
             },
-            ServerMessage::Error { message } => panic!("Expected SessionList but got Error: {}", message),
+            ServerMessage::Error { message, .. } => panic!("Expected SessionList but got Error: {}", message),
             other => panic!("Expected SessionList but got {:?}", other),
         }
     }
@@ -2127,7 +2135,7 @@ mod tests {
                 assert_eq!(sessions.len(), 1);
                 assert_eq!(sessions[0].shell, "/bin/sh");
             },
-            ServerMessage::Error { message } => panic!("Expected SessionList but got Error: {}", message),
+            ServerMessage::Error { message, .. } => panic!("Expected SessionList but got Error: {}", message),
             other => panic!("Expected SessionList but got {:?}", other),
         }
     }
@@ -2151,7 +2159,7 @@ mod tests {
 
         // Should receive Error, not SessionList
         match rx.recv().await.unwrap() {
-            ServerMessage::Error { message } => {
+            ServerMessage::Error { message, .. } => {
                 assert!(message.contains("not allowed") || message.contains("whitelist") || message.contains("invalid"),
                     "Error message should indicate shell is not allowed: {}", message);
             },
@@ -2179,7 +2187,7 @@ mod tests {
 
         // Should receive Error - path traversal attempts must be rejected
         match rx.recv().await.unwrap() {
-            ServerMessage::Error { message } => {
+            ServerMessage::Error { message, .. } => {
                 assert!(message.contains("not allowed") || message.contains("traversal") || message.contains("invalid"),
                     "Error message should indicate path traversal is not allowed: {}", message);
             },
@@ -2207,7 +2215,7 @@ mod tests {
 
         // Should receive Error - relative paths without full path are not allowed
         match rx.recv().await.unwrap() {
-            ServerMessage::Error { message } => {
+            ServerMessage::Error { message, .. } => {
                 assert!(message.contains("not allowed") || message.contains("whitelist") || message.contains("absolute"),
                     "Error message should indicate relative path is not allowed: {}", message);
             },
@@ -2784,7 +2792,7 @@ mod tests {
         process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
 
         match rx.recv().await.unwrap() {
-            ServerMessage::Error { message } => {
+            ServerMessage::Error { message, .. } => {
                 assert!(message.contains("traversal") || message.contains(".."),
                     "Error should mention path traversal, got: {}", message);
             },
@@ -2810,7 +2818,7 @@ mod tests {
         process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
 
         match rx.recv().await.unwrap() {
-            ServerMessage::Error { message } => {
+            ServerMessage::Error { message, .. } => {
                 assert!(message.contains("does not exist") || message.contains("not found") || message.contains("invalid"),
                     "Error should indicate path doesn't exist, got: {}", message);
             },
@@ -2840,7 +2848,7 @@ mod tests {
                 assert_eq!(sessions.len(), 1);
                 assert_eq!(sessions[0].cwd, "/tmp");
             },
-            ServerMessage::Error { message } => panic!("Expected SessionList but got Error: {}", message),
+            ServerMessage::Error { message, .. } => panic!("Expected SessionList but got Error: {}", message),
             other => panic!("Expected SessionList, got {:?}", other),
         }
     }
@@ -3210,7 +3218,7 @@ mod tests {
 
         // Should receive an Error message
         match rx.recv().await.unwrap() {
-            ServerMessage::Error { message } => {
+            ServerMessage::Error { message, .. } => {
                 assert!(message.contains("not accepting"),
                     "Error should indicate session not accepting input, got: {}", message);
             },

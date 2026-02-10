@@ -57,7 +57,7 @@ describe('ShellClient Auth State Tracking', () => {
     socket.emit('open');
     // Only auth message sent
     expect(socket.send).toHaveBeenCalledTimes(1);
-    expect(socket.send).toHaveBeenCalledWith(JSON.stringify({ type: 'auth', token: 'secret' }));
+    expect(socket.send).toHaveBeenCalledWith(JSON.stringify({ type: 'auth', token: 'secret', protocol_version: '0.2.0' }));
 
     // Server confirms auth
     socket.emit('message', JSON.stringify({ type: 'AuthOk', token: 'jwt-token', expires: '2026-01-30T00:00:00Z' }));
@@ -103,6 +103,6 @@ describe('ShellClient Auth State Tracking', () => {
 
     // Only auth should have been sent, not the old queued message
     expect(socket2.send).toHaveBeenCalledTimes(1);
-    expect(socket2.send).toHaveBeenCalledWith(JSON.stringify({ type: 'auth', token: 'secret' }));
+    expect(socket2.send).toHaveBeenCalledWith(JSON.stringify({ type: 'auth', token: 'secret', protocol_version: '0.2.0' }));
   });
 });

@@ -14,11 +14,15 @@
   import { getKeyBindingRegistry } from '../lib/keybindings';
   import { createActionDispatcher } from '../lib/actionDispatcher';
   import { createKeyEventHandler } from '../lib/keyEventHandler';
+  import { getManagerContext, getActionsContext } from '../lib/sessionContext';
 
   export let paneId: string;
   export let sessionId: SessionId | null;
-  export let manager: SessionManager | null = null;
   export let isActive: boolean = false;
+
+  const managerStore = getManagerContext();
+  const actions = getActionsContext();
+  $: manager = $managerStore;
 
   let showTitleBar = true;
   let sessionName = '';
@@ -99,8 +103,6 @@
     focus: { paneId: string };
     detach: { paneId: string };
     kill: { paneId: string; sessionId: SessionId };
-    'action:session.new': void;
-    'action:sidebar.toggle': void;
     'action:pane.close': { paneId: string };
     'action:split.horizontal': { paneId: string };
     'action:split.vertical': { paneId: string };
@@ -164,8 +166,8 @@
         terminalRef?.searchClearDecorations();
       }
     },
-    onSessionNew: () => dispatch('action:session.new'),
-    onSidebarToggle: () => dispatch('action:sidebar.toggle'),
+    onSessionNew: () => actions.createNewTerminal(),
+    onSidebarToggle: () => actions.toggleSidebar(),
     onPaneClose: () => dispatch('action:pane.close', { paneId }),
     onSplitHorizontal: () => dispatch('action:split.horizontal', { paneId }),
     onSplitVertical: () => dispatch('action:split.vertical', { paneId }),
@@ -384,7 +386,7 @@
         on:toggleCaseSensitive={handleToggleCaseSensitive}
         on:toggleRegex={handleToggleRegex}
       />
-      <Terminal bind:this={terminalRef} {manager} activeSessionId={sessionId} {isActive} {paneId} onSearchResults={handleSearchResults} />
+      <Terminal bind:this={terminalRef} activeSessionId={sessionId} {isActive} {paneId} onSearchResults={handleSearchResults} />
     {:else}
       <div class="empty-pane">
         <p>Drag a session here</p>

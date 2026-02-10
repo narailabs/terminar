@@ -118,7 +118,7 @@ async fn test_auth_required_non_auth_first_message() {
                             // localhost bypass worked
                             break;
                         }
-                        ServerMessage::Error { message } => {
+                        ServerMessage::Error { message, .. } => {
                             assert!(
                                 message.contains("auth") || message.contains("Auth"),
                                 "Error should be about authentication: {}", message
@@ -151,6 +151,7 @@ async fn test_auth_invalid_token_rejected() {
     // Send Auth with invalid token
     let auth_msg = ClientMessage::Auth {
         token: "invalid-token-12345".to_string(),
+        protocol_version: None,
     };
     socket.send(Message::Text(serde_json::to_string(&auth_msg).unwrap())).await.unwrap();
 
@@ -163,7 +164,7 @@ async fn test_auth_invalid_token_rejected() {
             Some(Ok(Message::Text(text))) => {
                 if let Ok(msg) = serde_json::from_str::<ServerMessage>(&text) {
                     match msg {
-                        ServerMessage::Error { message } => {
+                        ServerMessage::Error { message, .. } => {
                             assert!(message.contains("auth") || message.contains("Auth"),
                                 "Should be auth error: {}", message);
                             _got_response = true;
@@ -200,6 +201,7 @@ async fn test_auth_empty_token() {
 
     let auth_msg = ClientMessage::Auth {
         token: "".to_string(),
+        protocol_version: None,
     };
     socket.send(Message::Text(serde_json::to_string(&auth_msg).unwrap())).await.unwrap();
 
@@ -393,7 +395,7 @@ async fn test_cwd_path_traversal() {
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(3) {
         if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::Error { message }) = serde_json::from_str::<ServerMessage>(&text) {
+            if let Ok(ServerMessage::Error { message, .. }) = serde_json::from_str::<ServerMessage>(&text) {
                 assert!(
                     message.contains("path traversal"),
                     "Error should mention path traversal: {}", message
