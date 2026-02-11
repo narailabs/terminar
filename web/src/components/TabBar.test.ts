@@ -111,8 +111,8 @@ describe('TabBar - Indicators', () => {
     expect(exitBadge!.textContent).toContain('[exited: 1]');
   });
 
-  // 8. Shows agent icon when tabAgents has entry for a tab
-  it('should show agent icon when tabAgents has entry', () => {
+  // 8. Agent icons are no longer rendered in tabs
+  it('should not show agent icon even when tabAgents has entry', () => {
     const tabs = makeTabs();
     const tabAgents = new Map([['tab-1', { icon: 'C', color: '#ff6600', displayName: 'Claude' }]]);
     const { container } = render(TabBar, {
@@ -121,22 +121,7 @@ describe('TabBar - Indicators', () => {
 
     const tab1 = container.querySelectorAll('.tab')[0];
     const agentIcon = tab1.querySelector('[data-testid="agent-icon"]');
-    expect(agentIcon).toBeTruthy();
-    expect(agentIcon!.textContent).toContain('C');
-  });
-
-  // 9. Agent icon shows correct color
-  it('should apply correct color to agent icon', () => {
-    const tabs = makeTabs();
-    const tabAgents = new Map([['tab-1', { icon: 'C', color: '#ff6600', displayName: 'Claude' }]]);
-    const { container } = render(TabBar, {
-      props: { tabs, activeTabId: 'tab-1', tabAgents },
-    });
-
-    const tab1 = container.querySelectorAll('.tab')[0];
-    const agentIcon = tab1.querySelector('[data-testid="agent-icon"]') as HTMLElement;
-    expect(agentIcon).toBeTruthy();
-    expect(agentIcon.style.color).toBe('rgb(255, 102, 0)');
+    expect(agentIcon).toBeNull();
   });
 
   // 10. Activity badge clears when tab becomes active
