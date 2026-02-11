@@ -5,6 +5,7 @@
   export let name: string;
   export let shell: string;
   export let cwd: string;
+  export let foregroundProcess: string | null = null;
   export let isActive: boolean = false;
   export let startEditing: boolean = false;
 
@@ -28,6 +29,9 @@
 
   // Truncate cwd to show last parts if too long
   $: displayCwd = truncatePath(cwd, 25);
+
+  // Show process badge when foreground process differs from the shell
+  $: processBadge = foregroundProcess && foregroundProcess !== shellName ? foregroundProcess : null;
 
   function truncatePath(path: string, maxLength: number): string {
     if (!path) return '';
@@ -139,6 +143,9 @@
       {:else}
         <span class="name">{name}</span>
       {/if}
+      {#if processBadge}
+        <span class="process-badge" title={foregroundProcess}>{processBadge}</span>
+      {/if}
       {#if isHovered && !isEditing}
         <button class="close-btn" on:click={handleClose} title="Close terminal">
           ×
@@ -214,6 +221,24 @@
     color: var(--ui-text-primary, white);
     font-size: 13px;
     outline: none;
+  }
+
+  .process-badge {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.08);
+    color: #9a9a9a;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 80px;
+    flex-shrink: 0;
+  }
+
+  .terminal-item.active .process-badge {
+    background: rgba(255, 255, 255, 0.12);
+    color: #a0c0e0;
   }
 
   .close-btn {

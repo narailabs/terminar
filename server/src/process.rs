@@ -128,6 +128,16 @@ pub fn resolve_process_name(pid: i32) -> Option<String> {
         }
     }
 
+    // If the name looks like a version string (e.g., proc_pidpath resolved a symlink
+    // to a versioned directory like ~/.claude/local/2.1.29), extract from the cmdline
+    if looks_like_version(&name) {
+        if let Some(cmdline) = get_process_cmdline(pid) {
+            if let Some(real_name) = extract_binary_from_first_arg(&cmdline) {
+                return Some(real_name);
+            }
+        }
+    }
+
     Some(name)
 }
 
@@ -249,6 +259,30 @@ fn get_process_cmdline(pid: i32) -> Option<String> {
         None
     } else {
         Some(cmdline)
+    }
+}
+
+/// Extract the binary name from the first argument of a command line.
+///
+/// Used when `proc_pidpath`/`proc_name` return a version-like string because
+/// the binary's real path was resolved through a versioned symlink (e.g.,
+/// `~/.claude/local/2.1.29` is actually the `claude` binary).
+///
+/// The cmdline from `ps` typically shows the original argv[0], which preserves
+/// the symlink name (e.g., `/usr/local/bin/claude`).
+///
+/// Returns `None` if the first arg also looks like a version or is empty.
+pub fn extract_binary_from_first_arg(cmdline: &str) -> Option<String> {
+    let first_arg = cmdline.split_whitespace().next()?;
+    let binary = std::path::Path::new(first_arg)
+        .file_name()?
+        .to_str()?
+        .to_string();
+
+    if binary.is_empty() || looks_like_version(&binary) {
+        None
+    } else {
+        Some(binary)
     }
 }
 
@@ -423,6 +457,27 @@ mod tests {
         let result = extract_binary_name_from_cmdline(cmdline);
         // --version is a flag, but since there's no non-flag argument, returns None
         assert!(result.is_none(), "Only flags should return None");
+    }
+
+    // Test: extract_binary_from_first_arg extracts binary from versioned symlink cmdline
+    #[test]
+    fn test_extract_binary_from_first_arg_claude() {
+        let cmdline = "/usr/local/bin/claude --config /tmp/foo";
+        let result = extract_binary_from_first_arg(cmdline);
+        assert_eq!(result, Some("claude".to_string()));
+    }
+
+    #[test]
+    fn test_extract_binary_from_first_arg_returns_none_for_version() {
+        let cmdline = "2.1.29 --something";
+        let result = extract_binary_from_first_arg(cmdline);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_extract_binary_from_first_arg_returns_none_for_empty() {
+        let result = extract_binary_from_first_arg("");
+        assert!(result.is_none());
     }
 
     // Test: looks_like_version detects version strings
