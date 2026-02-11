@@ -4,6 +4,7 @@
   import ContextMenu from './ContextMenu.svelte';
   import type { SessionInfo } from '../lib/workspaceTypes';
   import { broadcastTargets, toggleTarget, isTarget } from '../lib/broadcastStore';
+  import { foregroundStore } from '../lib/foregroundStore';
 
   export let sessions: SessionInfo[] = [];
   export let activeSessionId: string | null = null;
@@ -105,6 +106,7 @@
             name={session.name}
             shell={session.shell}
             cwd={session.cwd}
+            foregroundProcess={$foregroundStore.processes.get(session.id) ?? null}
             isActive={session.id === activeSessionId}
             startEditing={editingSessionId === session.id}
             on:select={handleSelect}
