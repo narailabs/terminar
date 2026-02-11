@@ -9,8 +9,7 @@
   import type { TabId, PaneId, SessionId, DropZone, SplitDirection, SplitNode } from '../lib/workspaceTypes';
   import { activityStore } from '../lib/activityStore';
   import { exitedSessions } from '../lib/exitedSessionsStore';
-  import { foregroundStore } from '../lib/foregroundStore';
-  import { matchAgent } from '../lib/agentRegistry';
+
   import { getManagerContext, getSessionsContext, getActionsContext } from '../lib/sessionContext';
   import type { SessionManager } from '../lib/SessionManager';
 
@@ -68,24 +67,8 @@
     return map;
   })();
 
-  $: tabAgents = (() => {
-    const map = new Map<string, { icon: string; color: string; displayName: string }>();
-    const processes = $foregroundStore.processes;
-    for (const tab of $workspaceStore.tabs) {
-      const sessionIds = collectSessionIds(tab.root);
-      for (const sid of sessionIds) {
-        const proc = processes.get(sid);
-        if (proc) {
-          const agent = matchAgent(proc);
-          if (agent) {
-            map.set(tab.id, { icon: agent.icon, color: agent.color, displayName: agent.displayName });
-            break;
-          }
-        }
-      }
-    }
-    return map;
-  })();
+  // tabAgents no longer displayed in tabs — pass empty map for prop compat
+  $: tabAgents = new Map<string, { icon: string; color: string; displayName: string }>();
 
   let activePaneId: PaneId | null = null;
   let contextMenu: { x: number; y: number; paneId: string } | null = null;

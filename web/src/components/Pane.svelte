@@ -10,22 +10,31 @@
   import { broadcastTargets, broadcastEnabled } from '../lib/broadcastStore';
   import { exitedSessions } from '../lib/exitedSessionsStore';
   import { foregroundStore } from '../lib/foregroundStore';
-  import { matchAgent } from '../lib/agentRegistry';
+  // agentRegistry no longer needed for title bar display
   import { getKeyBindingRegistry } from '../lib/keybindings';
   import { createActionDispatcher } from '../lib/actionDispatcher';
   import { createKeyEventHandler } from '../lib/keyEventHandler';
-  import { getManagerContext, getActionsContext } from '../lib/sessionContext';
+  import { getManagerContext, getSessionsContext, getActionsContext } from '../lib/sessionContext';
 
   export let paneId: string;
   export let sessionId: SessionId | null;
   export let isActive: boolean = false;
 
   const managerStore = getManagerContext();
+  const sessionsStore = getSessionsContext();
   const actions = getActionsContext();
   $: manager = $managerStore;
 
   let showTitleBar = true;
   let sessionName = '';
+
+  // Live session info from sessions store (updated by CwdChanged events)
+  $: currentSession = sessionId ? $sessionsStore.find(s => s.id === sessionId) : null;
+  $: sessionCwd = currentSession?.cwd ?? '';
+  $: sessionShell = (() => {
+    const sh = currentSession?.shell ?? '';
+    return sh.split('/').pop() || sh;
+  })();
 
   // Broadcast target indicator
   $: isBroadcastTarget = $broadcastEnabled && sessionId !== null && $broadcastTargets.has(sessionId);
@@ -35,9 +44,18 @@
   $: exitInfo = sessionId && $exitedSessions.has(sessionId) ? $exitedSessions.get(sessionId) : undefined;
   $: exitBadgeText = exitInfo ? (exitInfo.exitCode !== null ? `[exited: ${exitInfo.exitCode}]` : '[exited]') : '';
 
-  // Agent detection (subscribe to $foregroundStore for reactivity)
+  // Foreground process tracking (subscribe to $foregroundStore for reactivity)
   $: foregroundProcess = sessionId ? $foregroundStore.processes.get(sessionId) ?? null : null;
-  $: detectedAgent = foregroundProcess ? matchAgent(foregroundProcess) : null;
+  const SHELL_NAMES = new Set(['sh', 'bash', 'zsh', 'fish', 'dash', 'ksh', 'csh', 'tcsh', 'ash', 'nu', 'pwsh', 'login']);
+  $: processBadge = foregroundProcess && !SHELL_NAMES.has(foregroundProcess) ? foregroundProcess : null;
+  // Compact cwd: show last directory component, or ~ for home
+  $: displayCwd = (() => {
+    if (!sessionCwd) return '';
+    const home = '/Users/' + (sessionCwd.split('/')[2] || '');
+    if (sessionCwd === home) return '~';
+    if (sessionCwd.startsWith(home + '/')) return '~/' + sessionCwd.slice(home.length + 1);
+    return sessionCwd;
+  })();
 
   // Search state (subscribed from store)
   let searchIsOpen = false;
@@ -60,7 +78,7 @@
     showTitleBar = s.showPaneTitleBars;
   });
 
-  function updateSessionName() {
+  function updateSessionInfo() {
     if (sessionId && manager) {
       const session = manager.getLastSessionList().find((s: SessionInfo) => s.id === sessionId);
       sessionName = session?.name ?? '';
@@ -70,7 +88,7 @@
   }
 
   function onSessionListUpdated() {
-    updateSessionName();
+    updateSessionInfo();
   }
 
   let prevManager: SessionManager | null = null;
@@ -84,8 +102,8 @@
       manager.on('sessionList', onSessionListUpdated);
     }
     prevManager = manager ?? null;
-    // Also update name when sessionId or manager changes
-    updateSessionName();
+    // Also update info when sessionId or manager changes
+    updateSessionInfo();
   }
 
   onDestroy(() => {
@@ -334,8 +352,7 @@
 >
   {#if showTitleBar && sessionName}
     <div class="pane-title-bar">
-      <span class="pane-title-text">{sessionName}</span>
-      {#if detectedAgent}<span class="agent-badge" style="background: {detectedAgent.color}">{detectedAgent.icon} {detectedAgent.displayName}</span>{/if}
+      <span class="pane-title-text">{sessionName}{#if sessionShell} · {sessionShell}{/if}{#if displayCwd} · {displayCwd}{/if}{#if processBadge} · <span class="process-badge">{processBadge}</span>{/if}</span>
       {#if sessionExited}<span class="exited-badge">{exitBadgeText}</span>{/if}
       <span class="title-bar-spacer"></span>
       <button
@@ -476,12 +493,7 @@
     border-radius: 3px;
     color: var(--ui-text-muted, #888);
     cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.15s, background 0.15s, color 0.15s;
-  }
-
-  .pane-title-bar:hover .title-bar-icon-btn {
-    opacity: 1;
+    transition: background 0.15s, color 0.15s;
   }
 
   .title-bar-icon-btn:hover {
@@ -553,15 +565,12 @@
     margin-left: 8px;
   }
 
-  .agent-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 11px;
+  .process-badge {
+    font-size: 10px;
     padding: 1px 6px;
     border-radius: 3px;
-    color: white;
-    margin-left: 8px;
+    background: rgba(255, 255, 255, 0.08);
+    color: #9a9a9a;
   }
 
   .pane.active {

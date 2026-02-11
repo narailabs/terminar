@@ -30,8 +30,9 @@
   // Truncate cwd to show last parts if too long
   $: displayCwd = truncatePath(cwd, 25);
 
-  // Show process badge when foreground process differs from the shell
-  $: processBadge = foregroundProcess && foregroundProcess !== shellName ? foregroundProcess : null;
+  // Show process badge only for non-shell processes
+  const SHELL_NAMES = new Set(['sh', 'bash', 'zsh', 'fish', 'dash', 'ksh', 'csh', 'tcsh', 'ash', 'nu', 'pwsh', 'login']);
+  $: processBadge = foregroundProcess && !SHELL_NAMES.has(foregroundProcess) ? foregroundProcess : null;
 
   function truncatePath(path: string, maxLength: number): string {
     if (!path) return '';

@@ -8,7 +8,7 @@
   export let tabActivities: Map<string, string> = new Map();
   /** Map of tabId -> { exited: boolean, exitCode: number | null } */
   export let tabExitStates: Map<string, { exited: boolean; exitCode: number | null }> = new Map();
-  /** Map of tabId -> { icon: string, color: string, displayName: string } */
+  /** @deprecated No longer displayed - kept for prop compat */
   export let tabAgents: Map<string, { icon: string; color: string; displayName: string }> = new Map();
 
   function getActivityIcon(activityType: string): string {
@@ -134,10 +134,6 @@
         aria-selected={tab.id === activeTabId}
         tabindex="0"
       >
-        {#if tabAgents.has(tab.id)}
-          {@const agent = tabAgents.get(tab.id)}
-          <span class="agent-icon" data-testid="agent-icon" style="color: {agent.color}" title={agent.displayName}>{agent.icon}</span>
-        {/if}
         {#if editingTabId === tab.id}
           <input
             type="text"
@@ -251,12 +247,6 @@
 
   .tab.active .tab-name {
     color: var(--ui-text-primary, #fff);
-  }
-
-  .agent-icon {
-    font-size: 10px;
-    line-height: 1;
-    flex-shrink: 0;
   }
 
   .activity-badge {
