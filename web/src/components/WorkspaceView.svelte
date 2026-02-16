@@ -151,9 +151,23 @@
     contextMenu = null;
   }
 
+  function handleSplitLeft() {
+    if (contextMenu) {
+      workspaceStore.splitPaneBefore(contextMenu.paneId, 'horizontal');
+      contextMenu = null;
+    }
+  }
+
   function handleSplitHorizontal() {
     if (contextMenu) {
       workspaceStore.splitPane(contextMenu.paneId, 'horizontal');
+      contextMenu = null;
+    }
+  }
+
+  function handleSplitUp() {
+    if (contextMenu) {
+      workspaceStore.splitPaneBefore(contextMenu.paneId, 'vertical');
       contextMenu = null;
     }
   }
@@ -280,8 +294,12 @@
     { type: 'separator' as const },
     { label: 'Refresh', action: handleRefresh },
     { type: 'separator' as const },
-    { label: 'Split Right', action: handleSplitHorizontal, shortcut: 'Cmd+Shift+E' },
-    { label: 'Split Down', action: handleSplitVertical, shortcut: 'Cmd+Shift+O' },
+    { label: 'Split', action: () => {}, children: [
+      { label: 'Split Left', action: handleSplitLeft },
+      { label: 'Split Right', action: handleSplitHorizontal, shortcut: 'Cmd+Shift+E' },
+      { label: 'Split Up', action: handleSplitUp },
+      { label: 'Split Down', action: handleSplitVertical, shortcut: 'Cmd+Shift+O' },
+    ]},
     { type: 'separator' as const },
     ...effectiveAvailableSessions.map(session => ({
       label: `Assign: ${session.name || session.id.slice(0, 8)}`,
