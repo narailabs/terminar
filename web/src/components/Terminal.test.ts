@@ -31,7 +31,7 @@ const { TerminalMock, FitAddonMock, mockTerm, mockFit } = vi.hoisted(() => {
     },
     buffer: {
       normal: { length: 0 },
-      active: { length: 0 },
+      active: { length: 0, viewportY: 0, baseY: 0 },
     },
     unicode: {
       activeVersion: '6',
@@ -149,13 +149,41 @@ describe('Terminal Component', () => {
     expect(outputCallback).toBeTruthy();
     outputCallback![1]('sess-1', 'hello world');
 
-    expect(mockTerm.write).toHaveBeenCalledWith('hello world');
+    // Writes are batched via requestAnimationFrame - flush to trigger term.write
+    await flushRAF();
+
+    expect(mockTerm.write).toHaveBeenCalled();
+    expect(mockTerm.write.mock.calls[0][0]).toBe('hello world');
   });
 
   it('should cleanup on destroy', () => {
     const { unmount } = render(TerminalComp, { _managerProp: mockManager, activeSessionId: 'sess-1' });
     unmount();
     expect(mockTerm.dispose).toHaveBeenCalled();
+  });
+});
+
+describe('Terminal - Scroll to Bottom Badge', () => {
+  let mockManager: any;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockManager = {
+      on: vi.fn(),
+      off: vi.fn(),
+      sendInput: vi.fn(),
+      resize: vi.fn(),
+      attach: vi.fn(),
+      listenerCount: vi.fn().mockReturnValue(0),
+    };
+  });
+
+  it('should render scroll-to-bottom badge hidden initially (auto-scroll is on)', () => {
+    const { container } = render(TerminalComp, { _managerProp: mockManager, activeSessionId: 'sess-1' });
+
+    const badge = container.querySelector('.scroll-to-bottom-badge');
+    expect(badge).toBeTruthy();
+    expect(badge?.classList.contains('visible')).toBe(false);
   });
 });
 

@@ -27,6 +27,7 @@
   import EnvVarEditor from './EnvVarEditor.svelte';
   import { globalEnvVars, addEnvVar, updateEnvVar, deleteEnvVar } from '../lib/envStore';
   import { get } from 'svelte/store';
+  import { getKeyBindingRegistry, formatBinding, type KeyBinding } from '../lib/keybindings';
 
   export let isOpen: boolean = false;
 
@@ -45,6 +46,10 @@
   }
 
   function handleKeydown(event: KeyboardEvent) {
+    if (recordingAction) {
+      handleKeybindingCapture(event);
+      return;
+    }
     if (event.key === 'Escape') {
       handleClose();
     }
@@ -92,6 +97,11 @@
   function handleStatusBarChange(event: Event) {
     const target = event.target as HTMLInputElement;
     settingsStore.updateSetting('showStatusBar', target.checked);
+  }
+
+  function handleAutoScrollChange(event: Event) {
+    const target = event.target as HTMLInputElement;
+    settingsStore.updateSetting('autoScroll', target.checked);
   }
 
   // Line height disabled - breaks TUI apps
@@ -198,6 +208,53 @@
         }
       }
     }, 300);
+  }
+
+  // Keyboard shortcuts
+  let recordingAction: string | null = null;
+
+  function getEffectiveBindings() {
+    return getKeyBindingRegistry().getEffectiveBindings();
+  }
+
+  let effectiveBindings = getEffectiveBindings();
+
+  function refreshBindings() {
+    effectiveBindings = getEffectiveBindings();
+  }
+
+  function startRecording(action: string) {
+    recordingAction = action;
+  }
+
+  function handleKeybindingCapture(event: KeyboardEvent) {
+    if (!recordingAction) return;
+    if (event.key === 'Escape') {
+      recordingAction = null;
+      return;
+    }
+    // Ignore bare modifier keys
+    if (['Control', 'Shift', 'Alt', 'Meta'].includes(event.key)) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const registry = getKeyBindingRegistry();
+    registry.setOverride(recordingAction, {
+      key: event.key,
+      ctrl: event.ctrlKey,
+      shift: event.shiftKey,
+      alt: event.altKey,
+      meta: event.metaKey,
+    });
+    recordingAction = null;
+    refreshBindings();
+  }
+
+  function handleClearOverride(action: string) {
+    const registry = getKeyBindingRegistry();
+    registry.clearOverride(action);
+    refreshBindings();
   }
 
   function handleReset() {
@@ -389,7 +446,49 @@
           </label>
         </div>
 
+        <!-- Auto-Scroll -->
+        <div class="setting-group toggle-group">
+          <label for="autoScroll">Auto-Scroll on Output</label>
+          <label class="toggle">
+            <input
+              type="checkbox"
+              id="autoScroll"
+              checked={settings.autoScroll}
+              on:change={handleAutoScrollChange}
+            />
+            <span class="slider"></span>
+          </label>
+        </div>
+
         <!-- Line Height disabled - breaks TUI apps like vim, Claude Code -->
+
+        <!-- Keyboard Shortcuts -->
+        <div class="setting-group">
+          <label>Keyboard Shortcuts</label>
+          <div class="keybinding-list">
+            {#each effectiveBindings as { action, label, bindings, isOverridden }}
+              <div class="keybinding-row">
+                <span class="keybinding-action">{label}</span>
+                <div class="keybinding-keys">
+                  {#if recordingAction === action}
+                    <span class="keybinding-badge recording">Press keys...</span>
+                  {:else}
+                    {#each bindings as binding}
+                      <button class="keybinding-badge" on:click={() => startRecording(action)}>
+                        {formatBinding(binding)}
+                      </button>
+                    {/each}
+                  {/if}
+                  {#if isOverridden}
+                    <button class="keybinding-reset" on:click={() => handleClearOverride(action)} title="Reset to default">
+                      &#8617;
+                    </button>
+                  {/if}
+                </div>
+              </div>
+            {/each}
+          </div>
+        </div>
 
         <!-- Environment Variables -->
         <div class="setting-group" data-testid="env-vars-section">
@@ -675,5 +774,72 @@
   .delete-theme-btn:hover {
     color: var(--ui-destructive, #f48771);
     background: var(--ui-destructive-hover, #5a1d1d);
+  }
+
+  .keybinding-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .keybinding-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 0;
+  }
+
+  .keybinding-action {
+    font-size: 12px;
+    color: var(--ui-text-primary, #ccc);
+  }
+
+  .keybinding-keys {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .keybinding-badge {
+    padding: 2px 8px;
+    background: var(--ui-bg-tertiary, #3c3c3c);
+    border: 1px solid var(--ui-border, #555);
+    border-radius: 4px;
+    color: var(--ui-text-primary, #ccc);
+    font-size: 11px;
+    font-family: monospace;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .keybinding-badge:hover {
+    background: var(--ui-bg-hover, #4a4a4a);
+    border-color: var(--ui-accent, #0e639c);
+  }
+
+  .keybinding-badge.recording {
+    background: var(--ui-accent, #0e639c);
+    border-color: var(--ui-accent, #0e639c);
+    color: white;
+    animation: pulse 1s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+  }
+
+  .keybinding-reset {
+    background: none;
+    border: none;
+    color: var(--ui-text-muted, #888);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0 4px;
+    border-radius: 2px;
+  }
+
+  .keybinding-reset:hover {
+    color: var(--ui-accent, #0e639c);
   }
 </style>

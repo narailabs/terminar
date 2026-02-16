@@ -122,7 +122,7 @@
   }
 
   function handleDetach(event: CustomEvent<{ paneId: string }>) {
-    workspaceStore.assignSession(event.detail.paneId, null);
+    workspaceStore.closePane(event.detail.paneId);
   }
 
   function handleKill(event: CustomEvent<{ paneId: string; sessionId: string }>) {

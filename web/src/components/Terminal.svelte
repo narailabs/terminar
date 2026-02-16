@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { writable } from 'svelte/store';
   import { Terminal } from 'xterm';
   import { FitAddon } from 'xterm-addon-fit';
   import { WebglAddon } from '@xterm/addon-webgl';
@@ -7,7 +8,7 @@
   import { SearchAddon } from 'xterm-addon-search';
   import 'xterm/css/xterm.css';
   import type { SessionManager } from '../lib/SessionManager';
-  import { xtermOptions } from '../lib/settingsStore';
+  import { xtermOptions, settingsStore } from '../lib/settingsStore';
   import { themeState, getTerminalTheme } from '../lib/themeStore';
   import { isResizing } from '../lib/resizeStore';
   import { TerminalResizeDebouncer } from '../lib/TerminalResizeDebouncer';
@@ -128,6 +129,90 @@
   // This fixes the listener accumulation bug where off() couldn't find the old listener
   let boundOutputHandler: ((sessionId: string, data: string) => void) | null = null;
   let currentAttachedSessionId: string | null = null;
+
+  // Write buffer: coalesces rapid output into a single term.write() per animation frame.
+  // Without this, high-throughput programs (Claude Code, cat large-file, etc.) flood
+  // xterm.js with many small write() calls per frame, overwhelming the rendering pipeline
+  // and causing the terminal to appear frozen or not scroll to the bottom.
+  let writeBuffer = '';
+  let writeRafId: number | null = null;
+
+  // Auto-scroll tracking: we always scroll to bottom on new output UNLESS the user
+  // has explicitly scrolled up (e.g., to read earlier output). This avoids a race
+  // condition where checking viewportY vs baseY per-write is unreliable during
+  // xterm's async parsing — baseY can update mid-parse while viewportY is stale,
+  // causing false "not at bottom" reads that skip scrolling.
+  const autoScroll = writable(true);
+  let viewportElement: Element | null = null;
+
+  // Threshold (px) for "close enough to bottom" — covers sub-pixel rounding.
+  const BOTTOM_THRESHOLD = 5;
+
+  function isAtBottom(): boolean {
+    if (!viewportElement) return true;
+    const el = viewportElement as HTMLElement;
+    return el.scrollTop >= el.scrollHeight - el.clientHeight - BOTTOM_THRESHOLD;
+  }
+
+  function initAutoScroll() {
+    viewportElement = terminalContainer?.querySelector('.xterm-viewport');
+    if (!viewportElement) return;
+
+    // --- Mouse / trackpad ---
+    viewportElement.addEventListener('wheel', ((e: WheelEvent) => {
+      if (e.deltaY < 0) {
+        // Immediately disable auto-scroll so the next flushWriteBuffer() won't
+        // call scrollToBottom() before the browser applies this wheel scroll.
+        autoScroll.set(false);
+        // After the browser applies the scroll, check if viewport is still at
+        // the bottom (e.g. tiny accidental trackpad gesture). If so, re-enable.
+        requestAnimationFrame(() => {
+          if (isAtBottom()) autoScroll.set(true);
+        });
+      } else if (e.deltaY > 0 && !$autoScroll) {
+        // User scrolling down → check if reached bottom AFTER browser applies scroll
+        requestAnimationFrame(() => {
+          if (isAtBottom()) autoScroll.set(true);
+        });
+      }
+    }) as EventListener, { passive: true });
+
+    // --- Keyboard scroll (Shift+PageUp / Shift+PageDown) ---
+    // xterm.js handles these internally; wheel events do NOT fire for them.
+    // Listen in capture phase on the container so we see the key before xterm.
+    terminalContainer.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (!e.shiftKey) return;
+      if (e.key === 'PageUp') {
+        autoScroll.set(false);
+      } else if (e.key === 'PageDown') {
+        // After xterm processes the scroll, check if viewport reached bottom
+        requestAnimationFrame(() => {
+          if (isAtBottom()) autoScroll.set(true);
+        });
+      }
+    }, true);
+  }
+
+  function bufferedWrite(data: string) {
+    writeBuffer += data;
+    if (writeRafId === null) {
+      writeRafId = requestAnimationFrame(flushWriteBuffer);
+    }
+  }
+
+  function flushWriteBuffer() {
+    writeRafId = null;
+    if (!writeBuffer || !term) return;
+
+    const data = writeBuffer;
+    writeBuffer = '';
+
+    term.write(data, () => {
+      if ($autoScroll && $settingsStore.autoScroll && term) {
+        term.scrollToBottom();
+      }
+    });
+  }
 
   // Minimum change in dimensions before we consider refitting
   // This prevents micro-adjustments that disrupt TUI apps
@@ -262,7 +347,7 @@
     // Keep isApplyingResize=true until after scroll to prevent ResizeObserver
     // re-entry from fitAddon.fit() DOM changes resetting scroll position.
     setTimeout(() => {
-      if (term) {
+      if ($autoScroll && $settingsStore.autoScroll && term) {
         term.scrollToBottom();
       }
       isApplyingResize = false;
@@ -346,11 +431,12 @@
       const listenerCount = mgr.listenerCount?.('output') ?? 'unknown';
       console.log(`[Terminal:${terminalInstanceId}] Setting up listener. Current output listeners: ${listenerCount}`);
 
-      // Create bound handler that captures the sessionId
+      // Create bound handler that captures the sessionId.
+      // Uses bufferedWrite to coalesce rapid output into fewer term.write() calls.
       const handler = (outputSessionId: string, data: string) => {
           if (sessionId === outputSessionId && term) {
               markOutputActive();
-              term.write(data);
+              bufferedWrite(data);
           }
       };
 
@@ -419,7 +505,9 @@
       // Settings for better TUI app compatibility
       allowProposedApi: true,
       scrollback: 10000,
-      scrollOnOutput: true,
+      // Note: scrollOnOutput was removed in xterm.js 5.x (silently ignored).
+      // xterm 5.x does NOT auto-scroll on new output. We scroll to bottom
+      // ourselves in flushWriteBuffer(), gated by the autoScroll flag.
       // Ensure proper text measurement and rendering
       fontWeight: 'normal',
       fontWeightBold: 'bold',
@@ -450,6 +538,9 @@
     });
 
     term.open(terminalContainer);
+
+    // Setup auto-scroll tracking (needs viewport DOM element from term.open)
+    initAutoScroll();
 
     // Load WebGL addon for GPU-accelerated rendering
     // This dramatically improves performance for wide terminals
@@ -587,6 +678,8 @@
 
   onDestroy(() => {
     console.log(`[Terminal:${terminalInstanceId}] Destroying terminal component. Session: ${currentAttachedSessionId?.slice(0, 8)}`);
+    if (writeRafId !== null) cancelAnimationFrame(writeRafId);
+    writeBuffer = '';
     if (resizeTimeout) clearTimeout(resizeTimeout);
     if (outputActivityTimeout) clearTimeout(outputActivityTimeout);
     if (resizeDebouncer) resizeDebouncer.dispose();
@@ -617,13 +710,58 @@
   });
 </script>
 
-<div class="terminal-container" bind:this={terminalContainer} on:mousedown={() => { if (term) term.focus(); }}></div>
+<div class="terminal-wrapper">
+  <div class="terminal-container" bind:this={terminalContainer} on:mousedown={() => { if (term) term.focus(); }}></div>
+  <button
+    class="scroll-to-bottom-badge"
+    class:visible={!$autoScroll}
+    on:click={() => { autoScroll.set(true); if (term) term.scrollToBottom(); }}
+  >
+    Scroll to bottom
+  </button>
+</div>
 
 <style>
+  .terminal-wrapper {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+
   .terminal-container {
     width: 100%;
     height: 100%;
     overflow: hidden;
+  }
+
+  .scroll-to-bottom-badge {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    background: var(--ui-bg-secondary, #252526);
+    color: var(--ui-text-muted, #999);
+    border: 1px solid var(--ui-border, #3c3c3c);
+    border-radius: 12px;
+    padding: 4px 14px;
+    font-size: 12px;
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s;
+    white-space: nowrap;
+  }
+
+  .scroll-to-bottom-badge.visible {
+    opacity: 0.85;
+    pointer-events: auto;
+  }
+
+  .scroll-to-bottom-badge.visible:hover {
+    opacity: 1;
+    color: var(--ui-text, #ccc);
   }
 
   /* Ensure xterm takes full space and doesn't overflow */

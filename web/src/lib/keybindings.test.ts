@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   KeyBindingRegistry,
   DEFAULT_KEYBINDINGS,
+  ACTION_LABELS,
+  formatBinding,
   type KeyBinding,
 } from './keybindings';
 
@@ -56,9 +58,10 @@ describe('KeyBindingRegistry', () => {
       expect(bindings.some(b => b.key === 'N' && b.shift)).toBe(true);
     });
 
-    it('should include Ctrl-B for sidebar.toggle', () => {
+    it('should include Cmd-B (Meta) but not Ctrl-B for sidebar.toggle', () => {
       const bindings = registry.getBindingsForAction('sidebar.toggle');
-      expect(bindings.some(b => b.key === 'b')).toBe(true);
+      expect(bindings.some(b => b.key === 'b' && b.meta)).toBe(true);
+      expect(bindings.some(b => b.key === 'b' && b.ctrl)).toBe(false);
     });
 
     it('should include bindings for pane.close', () => {
@@ -206,6 +209,169 @@ describe('KeyBindingRegistry', () => {
 
       const event = makeKeyEvent({ key: 'x', ctrlKey: true });
       expect(registry.match(event)).toBe('custom.action');
+    });
+  });
+
+  describe('formatBinding()', () => {
+    beforeEach(() => {
+      // Mock navigator.platform as Mac for consistent tests
+      vi.stubGlobal('navigator', { platform: 'MacIntel' });
+    });
+
+    it('should format Cmd+B on Mac', () => {
+      const result = formatBinding({ ctrl: false, shift: false, alt: false, meta: true, key: 'b' });
+      expect(result).toBe('Cmd+B');
+    });
+
+    it('should format Ctrl+Shift+N', () => {
+      const result = formatBinding({ ctrl: true, shift: true, alt: false, meta: false, key: 'N' });
+      expect(result).toBe('Ctrl+Shift+N');
+    });
+
+    it('should format Cmd+F on Mac', () => {
+      const result = formatBinding({ ctrl: false, shift: false, alt: false, meta: true, key: 'f' });
+      expect(result).toBe('Cmd+F');
+    });
+
+    it('should format Alt as Option on Mac', () => {
+      const result = formatBinding({ ctrl: false, shift: false, alt: true, meta: false, key: 'x' });
+      expect(result).toBe('Option+X');
+    });
+  });
+
+  describe('setOverride()', () => {
+    it('should replace default bindings for an action', () => {
+      registry.setOverride('sidebar.toggle', {
+        key: 'j',
+        ctrl: true,
+        shift: false,
+        alt: false,
+        meta: false,
+      });
+
+      const bindings = registry.getBindingsForAction('sidebar.toggle');
+      expect(bindings.length).toBe(1);
+      expect(bindings[0].key).toBe('j');
+      expect(bindings[0].ctrl).toBe(true);
+    });
+
+    it('should persist override to localStorage', () => {
+      registry.setOverride('sidebar.toggle', {
+        key: 'j',
+        ctrl: true,
+        shift: false,
+        alt: false,
+        meta: false,
+      });
+
+      expect(localStorage.setItem).toHaveBeenCalled();
+      const stored = JSON.parse(mockStorage['terminar-keybindings']);
+      expect(stored.some((b: KeyBinding) => b.key === 'j' && b.action === 'sidebar.toggle')).toBe(true);
+    });
+
+    it('should make the new binding matchable', () => {
+      registry.setOverride('sidebar.toggle', {
+        key: 'j',
+        ctrl: true,
+        shift: false,
+        alt: false,
+        meta: false,
+      });
+
+      const event = makeKeyEvent({ key: 'j', ctrlKey: true });
+      expect(registry.match(event)).toBe('sidebar.toggle');
+    });
+  });
+
+  describe('clearOverride()', () => {
+    it('should revert to default bindings', () => {
+      registry.setOverride('sidebar.toggle', {
+        key: 'j',
+        ctrl: true,
+        shift: false,
+        alt: false,
+        meta: false,
+      });
+
+      registry.clearOverride('sidebar.toggle');
+
+      const bindings = registry.getBindingsForAction('sidebar.toggle');
+      const defaultBindings = DEFAULT_KEYBINDINGS.filter(b => b.action === 'sidebar.toggle');
+      expect(bindings.length).toBe(defaultBindings.length);
+    });
+
+    it('should make default bindings matchable again', () => {
+      registry.setOverride('sidebar.toggle', {
+        key: 'j',
+        ctrl: true,
+        shift: false,
+        alt: false,
+        meta: false,
+      });
+
+      registry.clearOverride('sidebar.toggle');
+
+      // Original Meta+B should work again
+      const event = makeKeyEvent({ key: 'b', metaKey: true });
+      expect(registry.match(event)).toBe('sidebar.toggle');
+    });
+  });
+
+  describe('getEffectiveBindings()', () => {
+    it('should return all actions from ACTION_LABELS', () => {
+      const effective = registry.getEffectiveBindings();
+      const actionNames = effective.map(e => e.action);
+      for (const action of Object.keys(ACTION_LABELS)) {
+        expect(actionNames).toContain(action);
+      }
+    });
+
+    it('should mark defaults as not overridden', () => {
+      const effective = registry.getEffectiveBindings();
+      for (const entry of effective) {
+        expect(entry.isOverridden).toBe(false);
+      }
+    });
+
+    it('should mark overridden actions', () => {
+      registry.setOverride('sidebar.toggle', {
+        key: 'j',
+        ctrl: true,
+        shift: false,
+        alt: false,
+        meta: false,
+      });
+
+      const effective = registry.getEffectiveBindings();
+      const sidebar = effective.find(e => e.action === 'sidebar.toggle');
+      expect(sidebar?.isOverridden).toBe(true);
+    });
+
+    it('should include human-readable labels', () => {
+      const effective = registry.getEffectiveBindings();
+      const sidebar = effective.find(e => e.action === 'sidebar.toggle');
+      expect(sidebar?.label).toBe('Toggle Sidebar');
+    });
+  });
+
+  describe('getUserOverrides()', () => {
+    it('should return empty array with no overrides', () => {
+      expect(registry.getUserOverrides()).toEqual([]);
+    });
+
+    it('should return overridden bindings', () => {
+      registry.setOverride('sidebar.toggle', {
+        key: 'j',
+        ctrl: true,
+        shift: false,
+        alt: false,
+        meta: false,
+      });
+
+      const overrides = registry.getUserOverrides();
+      expect(overrides.length).toBe(1);
+      expect(overrides[0].action).toBe('sidebar.toggle');
+      expect(overrides[0].key).toBe('j');
     });
   });
 });
