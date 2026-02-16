@@ -318,16 +318,16 @@
       { label: 'Split Up', action: handleSplitUp },
       { label: 'Split Down', action: handleSplitVertical, shortcut: 'Cmd+Shift+O' },
     ]},
-    { type: 'separator' as const },
-    ...effectiveAvailableSessions.map(session => ({
-      label: `Assign: ${session.name || session.id.slice(0, 8)}`,
-      action: () => handleAssignSession(session.id),
-    })),
-    { type: 'separator' as const },
-    ...BUILT_IN_TERMINAL_THEMES.map(theme => ({
-      label: `Theme: ${theme.name}`,
+    ...(effectiveAvailableSessions.length > 0 ? [
+      { label: 'Assign Session', action: () => {}, children: effectiveAvailableSessions.map(session => ({
+        label: session.name || session.id.slice(0, 8),
+        action: () => handleAssignSession(session.id),
+      }))},
+    ] : []),
+    { label: 'Theme', action: () => {}, children: BUILT_IN_TERMINAL_THEMES.map(theme => ({
+      label: theme.name,
       action: () => handleSetTerminalTheme(theme.id),
-    })),
+    }))},
     { type: 'separator' as const },
     { label: 'Clear Pane', action: handleClearPane },
     { label: 'Close Pane', action: handleClosePane, shortcut: 'Cmd+W' },
