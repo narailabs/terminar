@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createEventDispatcher, onDestroy, onMount } from 'svelte';
+  import { createEventDispatcher, onDestroy } from 'svelte';
   import Terminal from './Terminal.svelte';
   import SearchBar from './SearchBar.svelte';
 
@@ -181,14 +181,14 @@
   const registry = getKeyBindingRegistry();
   const handleKeyEvent = createKeyEventHandler(registry, actionDispatch);
 
-  // Register custom key event handler on terminal mount
-  onMount(() => {
-    queueMicrotask(() => {
-      terminalRef?.registerCustomKeyEventHandler((event: KeyboardEvent) => {
-        return handleKeyEvent(event);
-      });
+  // Register custom key event handler reactively when Terminal renders.
+  // Terminal may mount after Pane's onMount (when currentSession arrives
+  // asynchronously from the server), so we can't use onMount here.
+  $: if (terminalRef) {
+    terminalRef.registerCustomKeyEventHandler((event: KeyboardEvent) => {
+      return handleKeyEvent(event);
     });
-  });
+  }
 
   let showClosePopup = false;
   let closeButtonRef: HTMLButtonElement;
