@@ -44,6 +44,18 @@
   $: exitInfo = sessionId && $exitedSessions.has(sessionId) ? $exitedSessions.get(sessionId) : undefined;
   $: exitBadgeText = exitInfo ? (exitInfo.exitCode !== null ? `[exited: ${exitInfo.exitCode}]` : '[exited]') : '';
 
+  // Terminal title set by apps via OSC 2 escape sequences (e.g. Claude, Gemini)
+  let terminalTitle = '';
+
+  function handleTitleChange(title: string) {
+    terminalTitle = title;
+  }
+
+  // Reset terminal title when session changes
+  $: if (sessionId) {
+    terminalTitle = '';
+  }
+
   // Foreground process tracking (subscribe to $foregroundStore for reactivity)
   $: foregroundProcess = sessionId ? $foregroundStore.processes.get(sessionId) ?? null : null;
   const SHELL_NAMES = new Set(['sh', 'bash', 'zsh', 'fish', 'dash', 'ksh', 'csh', 'tcsh', 'ash', 'nu', 'pwsh', 'login']);
@@ -322,7 +334,7 @@
 >
   {#if showTitleBar && sessionName}
     <div class="pane-title-bar">
-      <span class="pane-title-text">{sessionName}{#if sessionShell} · {sessionShell}{/if}{#if displayCwd} · {displayCwd}{/if}{#if processBadge} · <span class="process-badge">{processBadge}</span>{/if}</span>
+      <span class="pane-title-text">{sessionName}{#if terminalTitle} · <span class="terminal-title">{terminalTitle}</span>{/if}{#if sessionShell} · {sessionShell}{/if}{#if displayCwd} · {displayCwd}{/if}{#if processBadge} · <span class="process-badge">{processBadge}</span>{/if}</span>
       {#if sessionExited}<span class="exited-badge">{exitBadgeText}</span>{/if}
       <span class="title-bar-spacer"></span>
       <button
@@ -373,7 +385,7 @@
         on:toggleCaseSensitive={handleToggleCaseSensitive}
         on:toggleRegex={handleToggleRegex}
       />
-      <Terminal bind:this={terminalRef} activeSessionId={sessionId} {isActive} {paneId} onSearchResults={handleSearchResults} />
+      <Terminal bind:this={terminalRef} activeSessionId={sessionId} {isActive} {paneId} onSearchResults={handleSearchResults} onTitleChange={handleTitleChange} />
     {:else}
       <div class="empty-pane">
         <button class="empty-pane-btn" on:click={() => actions.createNewTerminal()}>New Terminal</button>
@@ -550,6 +562,10 @@
     font-size: 11px;
     color: #e5c07b;
     margin-left: 8px;
+  }
+
+  .terminal-title {
+    color: var(--ui-text-primary, #ccc);
   }
 
   .process-badge {
