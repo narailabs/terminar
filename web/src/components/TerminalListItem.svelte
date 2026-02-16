@@ -6,6 +6,7 @@
   export let shell: string;
   export let cwd: string;
   export let foregroundProcess: string | null = null;
+  export let terminalTitle: string = '';
   export let isActive: boolean = false;
   export let startEditing: boolean = false;
 
@@ -153,6 +154,9 @@
         </button>
       {/if}
     </div>
+    {#if terminalTitle}
+      <div class="line-2 terminal-title" title={terminalTitle}>{terminalTitle}</div>
+    {/if}
     <div class="line-2">
       <span class="shell">{shellName}</span>
       <span class="separator">·</span>
@@ -288,5 +292,16 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .terminal-title {
+    color: var(--ui-text-primary, #cccccc);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .terminal-item.active .terminal-title {
+    color: var(--ui-text-primary, white);
   }
 </style>
