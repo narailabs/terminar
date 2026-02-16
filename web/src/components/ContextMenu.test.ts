@@ -214,8 +214,9 @@ describe('Context Menu - All Items', () => {
 
     await openContextMenu(container);
 
-    expect(screen.getByText('Assign: zsh')).toBeTruthy();
-    expect(screen.getByText('Assign: node')).toBeTruthy();
+    await openSubmenu('Assign Session');
+    expect(screen.getByText('zsh')).toBeTruthy();
+    expect(screen.getByText('node')).toBeTruthy();
   });
 
   it('should close context menu on Escape', async () => {
@@ -422,7 +423,8 @@ describe('Context Menu - All Items', () => {
     });
 
     await openContextMenu(container);
-    await clickMenuItem('Assign: fish');
+    await openSubmenu('Assign Session');
+    await clickMenuItem('fish');
 
     expect(assignSpy).toHaveBeenCalledWith(paneId, 'new-session-id');
     assignSpy.mockRestore();
@@ -589,10 +591,11 @@ describe('Context Menu - Terminal Theme Override', () => {
 
     await openContextMenu(container);
 
-    // Should show built-in terminal themes
-    expect(screen.getByText('Theme: Dark')).toBeTruthy();
-    expect(screen.getByText('Theme: Light')).toBeTruthy();
-    expect(screen.getByText('Theme: Dark Green')).toBeTruthy();
+    // Should show built-in terminal themes inside Theme submenu
+    await openSubmenu('Theme');
+    expect(screen.getByText('Dark')).toBeTruthy();
+    expect(screen.getByText('Light')).toBeTruthy();
+    expect(screen.getByText('Dark Green')).toBeTruthy();
   });
 
   it('should set terminal override when theme is selected', async () => {
@@ -601,7 +604,8 @@ describe('Context Menu - Terminal Theme Override', () => {
     });
 
     await openContextMenu(container);
-    await clickMenuItem('Theme: Light');
+    await openSubmenu('Theme');
+    await clickMenuItem('Light');
 
     const state = get(themeState);
     expect(state.terminalOverrides[paneId]).toBe('light');
