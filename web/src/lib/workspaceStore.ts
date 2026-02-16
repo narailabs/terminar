@@ -210,6 +210,28 @@ function createWorkspaceStore() {
     // ==================== Pane Operations ====================
 
     /**
+     * Clear sessionIds from panes that reference sessions not in the given set.
+     * Called when the session list is received to clean up stale references.
+     */
+    clearStaleSessions(validSessionIds: Set<SessionId>) {
+      update((ws) => {
+        let changed = false;
+        for (const tab of ws.tabs) {
+          for (const pane of getAllPanes(tab.root)) {
+            if (pane.sessionId && !validSessionIds.has(pane.sessionId)) {
+              pane.sessionId = null;
+              changed = true;
+            }
+          }
+        }
+        if (changed) {
+          scheduleSave(ws);
+        }
+        return ws;
+      });
+    },
+
+    /**
      * Assign a session to a pane
      */
     assignSession(paneId: PaneId, sessionId: SessionId | null) {

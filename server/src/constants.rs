@@ -67,17 +67,14 @@ pub const DEFAULT_HISTORY_CAPACITY: usize = 10 * 1024 * 1024;
 /// during replay/persistence.
 pub const COMPRESSION_THRESHOLD: usize = 1024 * 1024; // 1 MB
 
-/// Maximum number of history files to keep per session during rotation.
-/// Oldest files are deleted first when this limit is exceeded.
-pub const MAX_HISTORY_FILES: usize = 5;
+/// Subdirectory name under ~/.terminar/ for session history files.
+pub const HISTORY_SUBDIR: &str = "sessions";
 
-/// Default directory for history persistence files.
-pub const HISTORY_DIR: &str = "/tmp/terminar-history";
+/// Filename for session metadata persistence (under ~/.terminar/).
+pub const SESSION_METADATA_FILE: &str = "sessions.json";
 
-// ==================== Persistence Constants ====================
-
-/// Default path for the session persistence file.
-pub const DEFAULT_SESSION_FILE: &str = "/tmp/terminar-sessions.json";
+/// Interval in seconds between periodic saves of session history and metadata.
+pub const PERIODIC_SAVE_INTERVAL_SECS: u64 = 60;
 
 // ==================== Network Constants ====================
 

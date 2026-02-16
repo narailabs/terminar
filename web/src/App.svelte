@@ -300,6 +300,10 @@
         }
       }
 
+      // Clear workspace panes that reference sessions no longer on the server
+      const currentSessionIds = new Set(newSessions.map(s => s.id));
+      workspaceStore.clearStaleSessions(currentSessionIds);
+
       // Helper to find first empty pane
       function findEmptyPane(node: any): string | null {
         if (node.type === 'pane') {

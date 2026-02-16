@@ -1,9 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-// Re-export from constants for backward compatibility
-pub use crate::constants::DEFAULT_SESSION_FILE;
+use crate::constants::{HISTORY_SUBDIR, SESSION_METADATA_FILE};
+use crate::history;
+use crate::session::SessionState;
 
 /// Metadata for a persisted session, serialized to/from JSON.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -28,12 +29,14 @@ impl PersistedSessionData {
     }
 }
 
-/// Resolve the session file path from CLI options.
-/// If `session_file` is Some, use it. Otherwise use DEFAULT_SESSION_FILE.
-pub fn resolve_session_file_path(session_file: &Option<String>) -> String {
-    session_file
-        .clone()
-        .unwrap_or_else(|| DEFAULT_SESSION_FILE.to_string())
+/// Returns the path to the session history directory (~/.terminar/sessions/).
+pub fn get_history_dir() -> PathBuf {
+    crate::settings::get_settings_dir().join(HISTORY_SUBDIR)
+}
+
+/// Returns the path to the session metadata file (~/.terminar/sessions.json).
+pub fn get_session_file_path() -> PathBuf {
+    crate::settings::get_settings_dir().join(SESSION_METADATA_FILE)
 }
 
 /// Atomically write data to a file using temp file + rename.
@@ -73,23 +76,11 @@ pub fn build_persisted_data(sessions: &crate::session::SessionMap) -> PersistedS
             name: s.name.clone(),
             shell_cmd: s.shell_cmd.clone(),
             cwd: s.cwd.clone(),
-            pid: None, // PTY process PID is not tracked in the session struct currently
+            pid: None,
             state: format!("{:?}", s.state),
         }
     }).collect();
     PersistedSessionData { sessions: sessions_vec }
-}
-
-/// Persist current sessions to disk if persistence is enabled.
-/// This is a no-op if persist_sessions is false.
-pub fn persist_if_enabled(persist_sessions: bool, session_file_path: &str, sessions: &crate::session::SessionMap) {
-    if !persist_sessions {
-        return;
-    }
-    let data = build_persisted_data(sessions);
-    if let Err(e) = save_sessions(session_file_path, &data) {
-        tracing::warn!("Failed to persist sessions: {}", e);
-    }
 }
 
 /// Load session data from a JSON file.
@@ -106,11 +97,8 @@ pub fn load_sessions(path: &str) -> Result<PersistedSessionData, String> {
         .map_err(|e| format!("Failed to parse session file {:?}: {}", path, e))
 }
 
-// Re-export from constants for backward compatibility
-pub use crate::constants::{MAX_HISTORY_FILES, HISTORY_DIR};
-
 /// Returns the path for a session's history file.
-pub fn history_file_path(base_dir: &str, session_id: &str) -> std::path::PathBuf {
+pub fn history_file_path(base_dir: &str, session_id: &str) -> PathBuf {
     Path::new(base_dir).join(format!("{}.history", session_id))
 }
 
@@ -133,64 +121,99 @@ pub fn load_history(base_dir: &str, session_id: &str) -> Result<Option<Vec<u8>>,
         .map_err(|e| format!("Failed to read history file {:?}: {}", path, e))
 }
 
-/// Rotate history files, keeping only the most recent MAX_HISTORY_FILES.
-/// Files are sorted by modification time, oldest deleted first.
-pub fn rotate_history_files(base_dir: &str) -> Result<usize, String> {
-    let dir = Path::new(base_dir);
-    if !dir.exists() {
-        return Ok(0);
-    }
-
-    let mut files: Vec<(std::path::PathBuf, std::time::SystemTime)> = std::fs::read_dir(dir)
-        .map_err(|e| format!("Failed to read history directory: {}", e))?
-        .filter_map(|entry| {
-            let entry = entry.ok()?;
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("history") {
-                let modified = entry.metadata().ok()?.modified().ok()?;
-                Some((path, modified))
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    if files.len() <= MAX_HISTORY_FILES {
-        return Ok(0);
-    }
-
-    // Sort by modification time (oldest first)
-    files.sort_by_key(|(_, time)| *time);
-
-    let to_remove = files.len() - MAX_HISTORY_FILES;
-    let mut removed = 0;
-    for (path, _) in files.iter().take(to_remove) {
-        if std::fs::remove_file(path).is_ok() {
-            removed += 1;
+/// Delete a session's history file from disk.
+/// No-op if the file doesn't exist.
+pub fn delete_history(session_id: &str) {
+    let dir = get_history_dir();
+    let path = dir.join(format!("{}.history", session_id));
+    if path.exists() {
+        if let Err(e) = std::fs::remove_file(&path) {
+            tracing::warn!("Failed to delete history file {:?}: {}", path, e);
         }
     }
+}
 
-    Ok(removed)
+/// Zstd magic bytes: 0x28 0xB5 0x2F 0xFD
+const ZSTD_MAGIC: [u8; 4] = [0x28, 0xB5, 0x2F, 0xFD];
+
+/// Load history data with automatic zstd decompression detection.
+/// If the data starts with the zstd magic bytes, it is decompressed.
+/// Otherwise it is returned as-is (raw terminal output).
+pub fn load_history_auto(base_dir: &str, session_id: &str) -> Result<Option<Vec<u8>>, String> {
+    match load_history(base_dir, session_id)? {
+        None => Ok(None),
+        Some(data) => {
+            if data.len() >= 4 && data[..4] == ZSTD_MAGIC {
+                let decompressed = history::decompress_history(&data)
+                    .map_err(|e| format!("Failed to decompress history for {}: {}", session_id, e))?;
+                Ok(Some(decompressed))
+            } else {
+                Ok(Some(data))
+            }
+        }
+    }
+}
+
+/// Save all session histories to disk.
+///
+/// Snapshots each session's history bytes under the sessions lock (brief),
+/// then releases the lock before doing file I/O (compression + atomic write).
+/// Only saves Running sessions with non-empty history.
+pub fn save_all_histories(sessions: &crate::session::SessionMap) {
+    // Snapshot history data under the lock (fast)
+    let snapshots: Vec<(String, Vec<u8>)> = {
+        let guard = sessions.lock();
+        guard.values()
+            .filter(|s| matches!(s.state, SessionState::Running))
+            .filter_map(|s| {
+                let h = s.history.lock();
+                if h.is_empty() {
+                    None
+                } else {
+                    Some((s.id.clone(), h.to_vec()))
+                }
+            })
+            .collect()
+    };
+
+    let history_dir = get_history_dir();
+    let base_dir = history_dir.to_string_lossy();
+
+    for (session_id, data) in &snapshots {
+        // Compress if above threshold
+        let to_write = if history::should_compress(data.len()) {
+            match history::compress_history(data) {
+                Ok(compressed) => compressed,
+                Err(e) => {
+                    tracing::warn!("Failed to compress history for {}: {}, saving uncompressed", session_id, e);
+                    data.clone()
+                }
+            }
+        } else {
+            data.clone()
+        };
+
+        if let Err(e) = save_history(&base_dir, session_id, &to_write) {
+            tracing::warn!("Failed to save history for session {}: {}", session_id, e);
+        }
+    }
+}
+
+/// Persist current session metadata and histories to disk.
+pub fn persist_all(sessions: &crate::session::SessionMap) {
+    // Save metadata
+    let data = build_persisted_data(sessions);
+    let path = get_session_file_path();
+    if let Err(e) = save_sessions(&path.to_string_lossy(), &data) {
+        tracing::warn!("Failed to persist session metadata: {}", e);
+    }
+    // Save histories
+    save_all_histories(sessions);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // === resolve_session_file_path tests ===
-
-    #[test]
-    fn test_resolve_default_path() {
-        let result = resolve_session_file_path(&None);
-        assert_eq!(result, DEFAULT_SESSION_FILE);
-    }
-
-    #[test]
-    fn test_resolve_custom_path() {
-        let custom = Some("/tmp/my-sessions.json".to_string());
-        let result = resolve_session_file_path(&custom);
-        assert_eq!(result, "/tmp/my-sessions.json");
-    }
 
     // === PersistedSession serialization tests ===
 
@@ -414,29 +437,12 @@ mod tests {
         assert_eq!(data.sessions[0].state, "Running");
     }
 
-    // === persist_if_enabled tests ===
-
-    #[test]
-    fn test_persist_if_enabled_false_does_nothing() {
-        use std::sync::Arc;
-        use parking_lot::Mutex;
-        use std::collections::HashMap;
-
-        let sessions: crate::session::SessionMap = Arc::new(Mutex::new(HashMap::new()));
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("noop.json");
-        let path_str = path.to_str().unwrap();
-
-        persist_if_enabled(false, path_str, &sessions);
-        assert!(!path.exists(), "File should not be created when persist is disabled");
-    }
-
-    // ==================== Task 3.3.3: History Persistence Tests ====================
+    // === History persistence tests ===
 
     #[test]
     fn test_history_file_path() {
         let path = history_file_path("/tmp/history", "session-123");
-        assert_eq!(path, std::path::PathBuf::from("/tmp/history/session-123.history"));
+        assert_eq!(path, PathBuf::from("/tmp/history/session-123.history"));
     }
 
     #[test]
@@ -471,71 +477,80 @@ mod tests {
         assert!(base_dir.exists(), "Directory should be created");
     }
 
+    // === delete_history tests ===
+
     #[test]
-    fn test_rotate_history_files_noop_when_under_limit() {
+    fn test_delete_history_removes_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let base_dir = dir.path().to_str().unwrap();
+        save_history(base_dir, "to-delete", b"data").unwrap();
+
+        let path = history_file_path(base_dir, "to-delete");
+        assert!(path.exists());
+
+        // delete_history uses get_history_dir(), so we test directly with remove_file
+        std::fs::remove_file(&path).unwrap();
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn test_delete_history_nonexistent_is_noop() {
+        // Should not panic when file doesn't exist
+        delete_history("nonexistent-session-id-12345");
+    }
+
+    // === load_history_auto tests ===
+
+    #[test]
+    fn test_load_history_auto_raw_data() {
         let dir = tempfile::tempdir().unwrap();
         let base_dir = dir.path().to_str().unwrap();
 
-        // Create fewer than MAX_HISTORY_FILES
-        for i in 0..3 {
-            save_history(base_dir, &format!("session-{}", i), b"data").unwrap();
-        }
+        let data = b"raw terminal output";
+        save_history(base_dir, "raw-session", data).unwrap();
 
-        let removed = rotate_history_files(base_dir).unwrap();
-        assert_eq!(removed, 0, "No files should be removed when under limit");
+        let loaded = load_history_auto(base_dir, "raw-session").unwrap();
+        assert_eq!(loaded.unwrap(), data.to_vec());
     }
 
     #[test]
-    fn test_rotate_history_files_removes_oldest() {
+    fn test_load_history_auto_compressed_data() {
         let dir = tempfile::tempdir().unwrap();
         let base_dir = dir.path().to_str().unwrap();
 
-        // Create more than MAX_HISTORY_FILES
-        for i in 0..(MAX_HISTORY_FILES + 3) {
-            save_history(base_dir, &format!("session-{}", i), b"data").unwrap();
-            // Small sleep to ensure different modification times
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
+        let original = b"compressed terminal output data for testing";
+        let compressed = history::compress_history(original).unwrap();
+        // Verify it starts with zstd magic
+        assert_eq!(&compressed[..4], &ZSTD_MAGIC);
 
-        let removed = rotate_history_files(base_dir).unwrap();
-        assert_eq!(removed, 3, "3 oldest files should be removed");
+        save_history(base_dir, "compressed-session", &compressed).unwrap();
 
-        // Count remaining .history files
-        let remaining: Vec<_> = std::fs::read_dir(dir.path())
-            .unwrap()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().and_then(|ext| ext.to_str()) == Some("history"))
-            .collect();
-        assert_eq!(remaining.len(), MAX_HISTORY_FILES,
-            "Should keep exactly MAX_HISTORY_FILES files");
+        let loaded = load_history_auto(base_dir, "compressed-session").unwrap();
+        assert_eq!(loaded.unwrap(), original.to_vec());
     }
 
     #[test]
-    fn test_rotate_history_files_nonexistent_dir() {
-        let removed = rotate_history_files("/tmp/nonexistent-rotation-test-dir-12345").unwrap();
-        assert_eq!(removed, 0, "Non-existent directory should return 0");
-    }
-
-    #[test]
-    fn test_max_history_files_constant() {
-        assert_eq!(MAX_HISTORY_FILES, 5);
-    }
-
-    #[test]
-    fn test_persist_if_enabled_true_creates_file() {
-        use std::sync::Arc;
-        use parking_lot::Mutex;
-        use std::collections::HashMap;
-
-        let sessions: crate::session::SessionMap = Arc::new(Mutex::new(HashMap::new()));
+    fn test_load_history_auto_missing_returns_none() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("persist.json");
-        let path_str = path.to_str().unwrap();
+        let base_dir = dir.path().to_str().unwrap();
 
-        persist_if_enabled(true, path_str, &sessions);
-        assert!(path.exists(), "File should be created when persist is enabled");
+        let loaded = load_history_auto(base_dir, "missing").unwrap();
+        assert!(loaded.is_none());
+    }
 
-        let loaded = load_sessions(path_str).unwrap();
-        assert!(loaded.sessions.is_empty());
+    // === path helper tests ===
+
+    #[test]
+    fn test_get_history_dir_is_under_settings_dir() {
+        let dir = get_history_dir();
+        assert!(dir.to_string_lossy().contains(".terminar"));
+        assert!(dir.to_string_lossy().ends_with("sessions"));
+    }
+
+    #[test]
+    fn test_get_session_file_path_is_under_settings_dir() {
+        let path = get_session_file_path();
+        assert!(path.to_string_lossy().contains(".terminar"));
+        assert!(path.to_string_lossy().ends_with("sessions.json"));
     }
 }

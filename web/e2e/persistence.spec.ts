@@ -2,7 +2,7 @@ import { test, expect, Page } from '@playwright/test';
 
 // Helper to focus the terminal before typing
 async function focusTerminal(page: Page) {
-  await page.locator('.terminal-container').click();
+  await page.locator('.terminal-container').first().click();
   await page.waitForTimeout(100);
 }
 
@@ -12,7 +12,7 @@ test.describe('Terminal Persistence', () => {
     await page.goto('/');
 
     // Wait for terminal
-    const terminal = page.locator('.xterm-rows');
+    const terminal = page.locator('.xterm-rows').first();
     await expect(terminal).toBeVisible({ timeout: 15000 });
 
     // 2. Run a unique command
@@ -37,7 +37,7 @@ test.describe('Terminal Persistence', () => {
 
   test('retains multiple sessions after reload', async ({ page }) => {
     await page.goto('/');
-    await expect(page.locator('.xterm-rows')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.xterm-rows').first()).toBeVisible({ timeout: 15000 });
 
     // Get initial count
     const initialCount = await page.locator('.terminal-item').count();
@@ -48,7 +48,7 @@ test.describe('Terminal Persistence', () => {
 
     // Reload
     await page.reload();
-    await expect(page.locator('.xterm-rows')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.xterm-rows').first()).toBeVisible({ timeout: 15000 });
 
     // Wait for sidebar to populate with session list from server
     await expect(page.locator('.terminal-item').first()).toBeVisible({ timeout: 10000 });

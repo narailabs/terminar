@@ -47,26 +47,6 @@ pub struct Cli {
     #[arg(long)]
     pub log_file: Option<String>,
 
-    /// Persist session metadata to disk for recovery on restart
-    #[arg(long, default_value_t = false)]
-    pub persist_sessions: bool,
-
-    /// Path to session persistence file (default: /tmp/terminar-sessions.json)
-    #[arg(long)]
-    pub session_file: Option<String>,
-
-    /// Enable zstd compression for history buffers exceeding 1MB
-    #[arg(long, default_value_t = false)]
-    pub compress_history: bool,
-
-    /// Persist terminal history to disk on session close and load on resume
-    #[arg(long, default_value_t = false)]
-    pub persist_history: bool,
-
-    /// Directory for history persistence files (default: /tmp/terminar-history)
-    #[arg(long)]
-    pub history_dir: Option<String>,
-
     /// Path to TLS certificate file (PEM format). Enables TLS when provided with --tls-key.
     #[arg(long)]
     pub tls_cert: Option<String>,
@@ -207,76 +187,6 @@ mod tests {
         let args = vec!["server", "--log-file", "/tmp/server.log"];
         let cli = Cli::try_parse_from(args).unwrap();
         assert_eq!(cli.log_file, Some("/tmp/server.log".to_string()));
-    }
-
-    #[test]
-    fn test_persist_sessions_default_false() {
-        let args = vec!["server"];
-        let cli = Cli::try_parse_from(args).unwrap();
-        assert!(!cli.persist_sessions);
-    }
-
-    #[test]
-    fn test_persist_sessions_flag() {
-        let args = vec!["server", "--persist-sessions"];
-        let cli = Cli::try_parse_from(args).unwrap();
-        assert!(cli.persist_sessions);
-    }
-
-    #[test]
-    fn test_session_file_default_none() {
-        let args = vec!["server"];
-        let cli = Cli::try_parse_from(args).unwrap();
-        assert!(cli.session_file.is_none());
-    }
-
-    #[test]
-    fn test_session_file_flag() {
-        let args = vec!["server", "--session-file", "/tmp/my-sessions.json"];
-        let cli = Cli::try_parse_from(args).unwrap();
-        assert_eq!(cli.session_file, Some("/tmp/my-sessions.json".to_string()));
-    }
-
-    #[test]
-    fn test_compress_history_default_false() {
-        let args = vec!["server"];
-        let cli = Cli::try_parse_from(args).unwrap();
-        assert!(!cli.compress_history);
-    }
-
-    #[test]
-    fn test_compress_history_flag() {
-        let args = vec!["server", "--compress-history"];
-        let cli = Cli::try_parse_from(args).unwrap();
-        assert!(cli.compress_history);
-    }
-
-    #[test]
-    fn test_persist_history_default_false() {
-        let args = vec!["server"];
-        let cli = Cli::try_parse_from(args).unwrap();
-        assert!(!cli.persist_history);
-    }
-
-    #[test]
-    fn test_persist_history_flag() {
-        let args = vec!["server", "--persist-history"];
-        let cli = Cli::try_parse_from(args).unwrap();
-        assert!(cli.persist_history);
-    }
-
-    #[test]
-    fn test_history_dir_default_none() {
-        let args = vec!["server"];
-        let cli = Cli::try_parse_from(args).unwrap();
-        assert!(cli.history_dir.is_none());
-    }
-
-    #[test]
-    fn test_history_dir_flag() {
-        let args = vec!["server", "--history-dir", "/tmp/my-history"];
-        let cli = Cli::try_parse_from(args).unwrap();
-        assert_eq!(cli.history_dir, Some("/tmp/my-history".to_string()));
     }
 
     // TLS configuration tests
