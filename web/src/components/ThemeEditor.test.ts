@@ -15,8 +15,9 @@ const localStorageMock = (() => {
 })();
 Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock });
 
-import { themeState, addCustomUITheme, addCustomTerminalTheme } from '../lib/themeStore';
+import { themeState, addCustomUITheme, addCustomTerminalTheme, updateCustomUITheme, updateCustomTerminalTheme } from '../lib/themeStore';
 import { settingsStore } from '../lib/settingsStore';
+import type { UITheme, TerminalTheme } from '../lib/themeTypes';
 
 describe('ThemeEditor', () => {
   beforeEach(() => {
@@ -150,5 +151,103 @@ describe('ThemeEditor', () => {
     expect(termTheme.background).toBe('#1e1e1e');
     expect(termTheme.cursor).toBe('#cccccc');
     expect(termTheme.selectionBackground).toBe('#264f78');
+  });
+});
+
+describe('ThemeEditor - Edit Mode', () => {
+  const editUI: UITheme = {
+    id: 'custom-edit-ui',
+    name: 'My Editable',
+    bgPrimary: '#111', bgSecondary: '#222', bgTertiary: '#333',
+    bgHover: '#444', bgActive: '#555',
+    textPrimary: '#eee', textSecondary: '#ccc', textMuted: '#999',
+    border: '#444', accent: '#0ff', accentHover: '#0ee',
+    destructive: '#f00', destructiveHover: '#e00',
+  };
+
+  const editTerm: TerminalTheme = {
+    id: 'custom-edit-term',
+    name: 'My Editable',
+    foreground: '#00ff00',
+    background: '#001100',
+    cursor: '#00ff00',
+    cursorAccent: '#001100',
+    selectionBackground: '#003300',
+    selectionForeground: '#00ff00',
+    selectionInactiveBackground: '#002200',
+    ansi: {
+      black: '#000', red: '#f00', green: '#0f0', yellow: '#ff0',
+      blue: '#00f', magenta: '#f0f', cyan: '#0ff', white: '#fff',
+      brightBlack: '#555', brightRed: '#f55', brightGreen: '#5f5', brightYellow: '#ff5',
+      brightBlue: '#55f', brightMagenta: '#f5f', brightCyan: '#5ff', brightWhite: '#fff',
+    },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorageMock.clear();
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('should show "Edit Custom Theme" header in edit mode', () => {
+    render(ThemeEditor, {
+      props: { isOpen: true, editUITheme: editUI, editTerminalTheme: editTerm },
+    });
+    expect(screen.getByText('Edit Custom Theme')).toBeTruthy();
+    expect(screen.queryByText('Create Custom Theme')).toBeFalsy();
+  });
+
+  it('should pre-populate theme name from edit props', () => {
+    render(ThemeEditor, {
+      props: { isOpen: true, editUITheme: editUI, editTerminalTheme: editTerm },
+    });
+    const input = document.querySelector('#themeName') as HTMLInputElement;
+    expect(input.value).toBe('My Editable');
+  });
+
+  it('should pre-populate color values from edit terminal theme', () => {
+    render(ThemeEditor, {
+      props: { isOpen: true, editUITheme: editUI, editTerminalTheme: editTerm },
+    });
+    const fgInput = document.querySelector('#themeEditorForeground') as HTMLInputElement;
+    const bgInput = document.querySelector('#themeEditorBackground') as HTMLInputElement;
+    const cursorInput = document.querySelector('#themeEditorCursor') as HTMLInputElement;
+    const selInput = document.querySelector('#themeEditorSelection') as HTMLInputElement;
+
+    expect(fgInput.value).toBe('#00ff00');
+    expect(bgInput.value).toBe('#001100');
+    expect(cursorInput.value).toBe('#00ff00');
+    expect(selInput.value).toBe('#003300');
+  });
+
+  it('should hide Base Theme selector in edit mode', () => {
+    render(ThemeEditor, {
+      props: { isOpen: true, editUITheme: editUI, editTerminalTheme: editTerm },
+    });
+    expect(document.querySelector('#baseTheme')).toBeFalsy();
+  });
+
+  it('should call update functions instead of add on save in edit mode', async () => {
+    const updateUISpy = vi.spyOn(await import('../lib/themeStore'), 'updateCustomUITheme');
+    const updateTermSpy = vi.spyOn(await import('../lib/themeStore'), 'updateCustomTerminalTheme');
+
+    // Add the themes first so update has something to work with
+    addCustomUITheme(editUI);
+    addCustomTerminalTheme(editTerm);
+
+    render(ThemeEditor, {
+      props: { isOpen: true, editUITheme: editUI, editTerminalTheme: editTerm },
+    });
+
+    await fireEvent.click(screen.getByText('Save'));
+
+    expect(updateUISpy).toHaveBeenCalledWith('custom-edit-ui', expect.objectContaining({ name: 'My Editable' }));
+    expect(updateTermSpy).toHaveBeenCalledWith('custom-edit-term', expect.objectContaining({ name: 'My Editable' }));
+
+    updateUISpy.mockRestore();
+    updateTermSpy.mockRestore();
   });
 });

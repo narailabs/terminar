@@ -20,6 +20,8 @@ import {
   themeState,
   setActiveUITheme,
   setActiveTerminalTheme,
+  addCustomUITheme,
+  addCustomTerminalTheme,
 } from '../lib/themeStore';
 import { BUILT_IN_UI_THEMES, BUILT_IN_TERMINAL_THEMES } from '../lib/themeTypes';
 import { settingsStore } from '../lib/settingsStore';
@@ -278,6 +280,68 @@ describe('SettingsPanel - Settings Controls', () => {
     // Check that the ThemeEditor component appeared in the DOM
     const themeEditorPanels = document.querySelectorAll('.editor-panel');
     expect(themeEditorPanels.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('shows Edit button for grouped custom themes', async () => {
+    // Add a paired custom theme
+    addCustomUITheme({
+      id: 'test-ui', name: 'Test Theme',
+      bgPrimary: '#111', bgSecondary: '#222', bgTertiary: '#333',
+      bgHover: '#444', bgActive: '#555',
+      textPrimary: '#eee', textSecondary: '#ccc', textMuted: '#999',
+      border: '#444', accent: '#0ff', accentHover: '#0ee',
+      destructive: '#f00', destructiveHover: '#e00',
+    });
+    addCustomTerminalTheme({
+      id: 'test-term', name: 'Test Theme',
+      foreground: '#0f0', background: '#000', cursor: '#0f0', cursorAccent: '#000',
+      selectionBackground: '#030', selectionForeground: '#0f0', selectionInactiveBackground: '#020',
+      ansi: {
+        black: '#000', red: '#f00', green: '#0f0', yellow: '#ff0',
+        blue: '#00f', magenta: '#f0f', cyan: '#0ff', white: '#fff',
+        brightBlack: '#555', brightRed: '#f55', brightGreen: '#5f5', brightYellow: '#ff5',
+        brightBlue: '#55f', brightMagenta: '#f5f', brightCyan: '#5ff', brightWhite: '#fff',
+      },
+    });
+
+    render(SettingsPanel, { props: { isOpen: true } });
+    const editBtn = screen.getByText('Edit');
+    expect(editBtn).toBeTruthy();
+    // Click Edit should open ThemeEditor in edit mode
+    await fireEvent.click(editBtn);
+    expect(screen.getByText('Edit Custom Theme')).toBeTruthy();
+  });
+
+  it('shows grouped custom themes as single row instead of separate UI/Terminal entries', () => {
+    addCustomUITheme({
+      id: 'grp-ui', name: 'Grouped',
+      bgPrimary: '#111', bgSecondary: '#222', bgTertiary: '#333',
+      bgHover: '#444', bgActive: '#555',
+      textPrimary: '#eee', textSecondary: '#ccc', textMuted: '#999',
+      border: '#444', accent: '#0ff', accentHover: '#0ee',
+      destructive: '#f00', destructiveHover: '#e00',
+    });
+    addCustomTerminalTheme({
+      id: 'grp-term', name: 'Grouped',
+      foreground: '#0f0', background: '#000', cursor: '#0f0', cursorAccent: '#000',
+      selectionBackground: '#030', selectionForeground: '#0f0', selectionInactiveBackground: '#020',
+      ansi: {
+        black: '#000', red: '#f00', green: '#0f0', yellow: '#ff0',
+        blue: '#00f', magenta: '#f0f', cyan: '#0ff', white: '#fff',
+        brightBlack: '#555', brightRed: '#f55', brightGreen: '#5f5', brightYellow: '#ff5',
+        brightBlue: '#55f', brightMagenta: '#f5f', brightCyan: '#5ff', brightWhite: '#fff',
+      },
+    });
+
+    render(SettingsPanel, { props: { isOpen: true } });
+    // In the custom theme list, should show "Grouped" (not "Grouped (UI)" + "Grouped (Terminal)")
+    const customList = document.querySelector('.custom-theme-list') as HTMLElement;
+    expect(customList).toBeTruthy();
+    const items = customList.querySelectorAll('.custom-theme-item');
+    const itemTexts = Array.from(items).map(el => el.querySelector('span')?.textContent);
+    expect(itemTexts).toContain('Grouped');
+    expect(itemTexts).not.toContain('Grouped (UI)');
+    expect(itemTexts).not.toContain('Grouped (Terminal)');
   });
 
   it('close button in header dispatches close event', async () => {

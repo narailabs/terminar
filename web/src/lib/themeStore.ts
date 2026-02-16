@@ -163,6 +163,20 @@ export function addCustomTerminalTheme(theme: TerminalTheme): void {
   }));
 }
 
+export function updateCustomUITheme(id: string, theme: UITheme): void {
+  themeState.update((s) => ({
+    ...s,
+    customUIThemes: s.customUIThemes.map((t) => (t.id === id ? theme : t)),
+  }));
+}
+
+export function updateCustomTerminalTheme(id: string, theme: TerminalTheme): void {
+  themeState.update((s) => ({
+    ...s,
+    customTerminalThemes: s.customTerminalThemes.map((t) => (t.id === id ? theme : t)),
+  }));
+}
+
 export function deleteCustomUITheme(id: string): void {
   themeState.update((s) => {
     const newState = {

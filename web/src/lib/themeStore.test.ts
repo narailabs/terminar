@@ -195,6 +195,47 @@ describe('themeStore', () => {
     expect(get(themeStore.themeState).activeUIThemeId).toBe('dark');
   });
 
+  it('should update a custom UI theme in place', () => {
+    const custom = {
+      id: 'update-ui',
+      name: 'Original',
+      bgPrimary: '#111', bgSecondary: '#222', bgTertiary: '#333',
+      bgHover: '#444', bgActive: '#555',
+      textPrimary: '#eee', textSecondary: '#ccc', textMuted: '#999',
+      border: '#444', accent: '#0ff', accentHover: '#0ee',
+      destructive: '#f00', destructiveHover: '#e00',
+    };
+    themeStore.addCustomUITheme(custom);
+    expect(get(themeStore.themeState).customUIThemes[0].name).toBe('Original');
+
+    themeStore.updateCustomUITheme('update-ui', { ...custom, name: 'Updated' });
+    expect(get(themeStore.themeState).customUIThemes).toHaveLength(1);
+    expect(get(themeStore.themeState).customUIThemes[0].name).toBe('Updated');
+    expect(get(themeStore.themeState).customUIThemes[0].id).toBe('update-ui');
+  });
+
+  it('should update a custom terminal theme in place', () => {
+    const custom = {
+      id: 'update-term',
+      name: 'Original',
+      foreground: '#0f0', background: '#000', cursor: '#0f0', cursorAccent: '#000',
+      selectionBackground: '#030', selectionForeground: '#0f0', selectionInactiveBackground: '#020',
+      ansi: {
+        black: '#000', red: '#f00', green: '#0f0', yellow: '#ff0',
+        blue: '#00f', magenta: '#f0f', cyan: '#0ff', white: '#fff',
+        brightBlack: '#555', brightRed: '#f55', brightGreen: '#5f5', brightYellow: '#ff5',
+        brightBlue: '#55f', brightMagenta: '#f5f', brightCyan: '#5ff', brightWhite: '#fff',
+      },
+    };
+    themeStore.addCustomTerminalTheme(custom);
+    expect(get(themeStore.themeState).customTerminalThemes[0].name).toBe('Original');
+
+    themeStore.updateCustomTerminalTheme('update-term', { ...custom, name: 'Updated', foreground: '#fff' });
+    expect(get(themeStore.themeState).customTerminalThemes).toHaveLength(1);
+    expect(get(themeStore.themeState).customTerminalThemes[0].name).toBe('Updated');
+    expect(get(themeStore.themeState).customTerminalThemes[0].foreground).toBe('#fff');
+  });
+
   it('should delete a custom terminal theme and clear overrides using it', () => {
     const custom = {
       id: 'to-delete-term',
