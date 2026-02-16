@@ -113,6 +113,14 @@ async function clickMenuItem(label: string) {
   await fireEvent.click(menuItem);
 }
 
+/** Open a submenu by hovering over the parent item wrapper. */
+async function openSubmenu(label: string) {
+  const menuItem = screen.getByText(label);
+  const wrapper = menuItem.closest('.menu-item-wrapper');
+  if (!wrapper) throw new Error(`No submenu wrapper found for "${label}"`);
+  await fireEvent.mouseEnter(wrapper);
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('Context Menu - All Items', () => {
@@ -163,10 +171,16 @@ describe('Context Menu - All Items', () => {
     expect(screen.getByText('Paste')).toBeTruthy();
     expect(screen.getByText('Select All')).toBeTruthy();
     expect(screen.getByText('Refresh')).toBeTruthy();
-    expect(screen.getByText('Split Right')).toBeTruthy();
-    expect(screen.getByText('Split Down')).toBeTruthy();
+    expect(screen.getByText('Split')).toBeTruthy();
     expect(screen.getByText('Clear Pane')).toBeTruthy();
     expect(screen.getByText('Close Pane')).toBeTruthy();
+
+    // Open the Split submenu and check all four directions
+    await openSubmenu('Split');
+    expect(screen.getByText('Split Left')).toBeTruthy();
+    expect(screen.getByText('Split Right')).toBeTruthy();
+    expect(screen.getByText('Split Up')).toBeTruthy();
+    expect(screen.getByText('Split Down')).toBeTruthy();
   });
 
   it('should show keyboard shortcuts in context menu', async () => {
@@ -179,9 +193,12 @@ describe('Context Menu - All Items', () => {
     expect(screen.getByText('Cmd+C')).toBeTruthy();
     expect(screen.getByText('Cmd+V')).toBeTruthy();
     expect(screen.getByText('Cmd+A')).toBeTruthy();
+    expect(screen.getByText('Cmd+W')).toBeTruthy();
+
+    // Split shortcuts are inside the submenu
+    await openSubmenu('Split');
     expect(screen.getByText('Cmd+Shift+E')).toBeTruthy();
     expect(screen.getByText('Cmd+Shift+O')).toBeTruthy();
-    expect(screen.getByText('Cmd+W')).toBeTruthy();
   });
 
   it('should show assign options for available sessions', async () => {
@@ -302,6 +319,7 @@ describe('Context Menu - All Items', () => {
     });
 
     await openContextMenu(container);
+    await openSubmenu('Split');
     await clickMenuItem('Split Right');
 
     expect(splitSpy).toHaveBeenCalledWith(paneId, 'horizontal');
@@ -318,10 +336,45 @@ describe('Context Menu - All Items', () => {
     });
 
     await openContextMenu(container);
+    await openSubmenu('Split');
     await clickMenuItem('Split Down');
 
     expect(splitSpy).toHaveBeenCalledWith(paneId, 'vertical');
     splitSpy.mockRestore();
+  });
+
+  // ── Split Left ──────────────────────────────────────────────────────────
+
+  it('Split Left: should split the pane before horizontally', async () => {
+    const splitBeforeSpy = vi.spyOn(workspaceStore, 'splitPaneBefore');
+
+    const { container } = render(WorkspaceView, {
+      props: { manager: mockManager, availableSessions: [] },
+    });
+
+    await openContextMenu(container);
+    await openSubmenu('Split');
+    await clickMenuItem('Split Left');
+
+    expect(splitBeforeSpy).toHaveBeenCalledWith(paneId, 'horizontal');
+    splitBeforeSpy.mockRestore();
+  });
+
+  // ── Split Up ────────────────────────────────────────────────────────────
+
+  it('Split Up: should split the pane before vertically', async () => {
+    const splitBeforeSpy = vi.spyOn(workspaceStore, 'splitPaneBefore');
+
+    const { container } = render(WorkspaceView, {
+      props: { manager: mockManager, availableSessions: [] },
+    });
+
+    await openContextMenu(container);
+    await openSubmenu('Split');
+    await clickMenuItem('Split Up');
+
+    expect(splitBeforeSpy).toHaveBeenCalledWith(paneId, 'vertical');
+    splitBeforeSpy.mockRestore();
   });
 
   // ── Clear Pane ───────────────────────────────────────────────────────────

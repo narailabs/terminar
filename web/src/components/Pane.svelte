@@ -4,6 +4,7 @@
   import SearchBar from './SearchBar.svelte';
 
   import type { SessionId, DropZone } from '../lib/workspaceTypes';
+  import { workspaceStore } from '../lib/workspaceStore';
   import { settingsStore } from '../lib/settingsStore';
   import { registerPane, unregisterPane } from '../lib/paneRegistry';
   import { searchStore } from '../lib/searchStore';
@@ -374,8 +375,25 @@
       <Terminal bind:this={terminalRef} activeSessionId={sessionId} {isActive} {paneId} onSearchResults={handleSearchResults} />
     {:else}
       <div class="empty-pane">
-        <p>Drag a session here</p>
-        <p class="hint">or right-click for options</p>
+        <button class="empty-pane-btn" on:click={() => actions.createNewTerminal()}>New Terminal</button>
+        {#if $sessionsStore.length > 0}
+          <select
+            class="empty-pane-select"
+            on:change={(e) => {
+              const val = e.currentTarget.value;
+              if (val) {
+                workspaceStore.assignSession(paneId, val);
+                e.currentTarget.value = '';
+              }
+            }}
+          >
+            <option value="">Attach existing session...</option>
+            {#each $sessionsStore as session}
+              <option value={session.id}>{session.name || session.id.slice(0, 8)}</option>
+            {/each}
+          </select>
+        {/if}
+        <p class="hint">or drag a session here</p>
       </div>
     {/if}
   </div>
@@ -559,13 +577,35 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 8px;
     height: 100%;
     color: var(--ui-text-muted, #666);
     user-select: none;
   }
 
-  .empty-pane p {
-    margin: 4px 0;
+  .empty-pane-btn {
+    padding: 6px 16px;
+    background: var(--ui-accent, #0e639c);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+
+  .empty-pane-btn:hover {
+    background: var(--ui-accent-hover, #1177bb);
+  }
+
+  .empty-pane-select {
+    padding: 4px 8px;
+    background: var(--ui-bg-secondary, #2d2d2d);
+    color: var(--ui-text-primary, #ccc);
+    border: 1px solid var(--ui-border, #454545);
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+    min-width: 180px;
   }
 
   .empty-pane .hint {

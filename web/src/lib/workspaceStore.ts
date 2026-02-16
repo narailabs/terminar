@@ -282,6 +282,34 @@ function createWorkspaceStore() {
     },
 
     /**
+     * Split a pane, placing the new pane before the target
+     */
+    splitPaneBefore(
+      paneId: PaneId,
+      direction: SplitDirection,
+      newSessionId?: SessionId
+    ): PaneId | null {
+      const newPaneId = this.splitPane(paneId, direction, newSessionId);
+      if (!newPaneId) return null;
+
+      update((ws) => {
+        const tab = ws.tabs.find((t) => t.id === ws.activeTabId);
+        if (!tab) return ws;
+
+        const parentResult = findParent(tab.root, newPaneId);
+        if (parentResult && parentResult.index > 0) {
+          const { parent, index } = parentResult;
+          [parent.children[index - 1], parent.children[index]] =
+            [parent.children[index], parent.children[index - 1]];
+        }
+        scheduleSave(ws);
+        return ws;
+      });
+
+      return newPaneId;
+    },
+
+    /**
      * Handle drop on a pane (from drag & drop)
      */
     handleDrop(
@@ -290,12 +318,10 @@ function createWorkspaceStore() {
       dropZone: DropZone
     ): PaneId | null {
       if (dropZone === 'center') {
-        // Replace session in pane
         this.assignSession(targetPaneId, sessionId);
         return targetPaneId;
       }
 
-      // Split based on drop zone
       const directionMap: Record<DropZone, SplitDirection | null> = {
         center: null,
         left: 'horizontal',
@@ -307,33 +333,11 @@ function createWorkspaceStore() {
       const direction = directionMap[dropZone];
       if (!direction) return null;
 
-      // For left/top, we need to insert before, for right/bottom insert after
-      // The splitPane function always inserts after, so we need to handle this
-      const newPaneId = this.splitPane(targetPaneId, direction, sessionId);
-
-      // For left/top drops, swap the panes
-      if ((dropZone === 'left' || dropZone === 'top') && newPaneId) {
-        update((ws) => {
-          const tab = ws.tabs.find((t) => t.id === ws.activeTabId);
-          if (!tab) return ws;
-
-          const parentResult = findParent(tab.root, newPaneId);
-          if (parentResult) {
-            const { parent, index } = parentResult;
-            if (index > 0) {
-              // Swap with previous sibling
-              [parent.children[index - 1], parent.children[index]] = [
-                parent.children[index],
-                parent.children[index - 1],
-              ];
-            }
-          }
-          scheduleSave(ws);
-          return ws;
-        });
+      if (dropZone === 'left' || dropZone === 'top') {
+        return this.splitPaneBefore(targetPaneId, direction, sessionId);
       }
 
-      return newPaneId;
+      return this.splitPane(targetPaneId, direction, sessionId);
     },
 
     /**

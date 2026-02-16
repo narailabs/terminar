@@ -3,7 +3,7 @@
 
   type MenuItem =
     | { type: 'separator' }
-    | { label: string; action: string | (() => void); shortcut?: string; separator?: boolean };
+    | { label: string; action: string | (() => void); shortcut?: string; separator?: boolean; children?: MenuItem[] };
 
   export let x: number = 0;
   export let y: number = 0;
@@ -69,9 +69,24 @@
   }
 
   // Type guard to get menu item with label
-  function asMenuItem(item: MenuItem): { label: string; action: string | (() => void); shortcut?: string } | null {
+  function asMenuItem(item: MenuItem): { label: string; action: string | (() => void); shortcut?: string; children?: MenuItem[] } | null {
     if (isSeparator(item)) return null;
-    return item as { label: string; action: string | (() => void); shortcut?: string };
+    return item as { label: string; action: string | (() => void); shortcut?: string; children?: MenuItem[] };
+  }
+
+  let openSubmenuLabel: string | null = null;
+
+  function handleSubmenuEnter(label: string) {
+    openSubmenuLabel = label;
+  }
+
+  function handleSubmenuLeave() {
+    openSubmenuLabel = null;
+  }
+
+  function handleSubmenuItemClick(child: MenuItem) {
+    handleClick(child);
+    openSubmenuLabel = null;
   }
 </script>
 
@@ -86,12 +101,44 @@
     {:else}
       {@const menuItem = asMenuItem(item)}
       {#if menuItem}
-        <button class="menu-item" on:click={() => handleClick(item)}>
-          <span class="menu-label">{menuItem.label}</span>
-          {#if menuItem.shortcut}
-            <span class="menu-shortcut">{menuItem.shortcut}</span>
-          {/if}
-        </button>
+        {#if menuItem.children && menuItem.children.length > 0}
+          <div
+            class="menu-item-wrapper"
+            on:mouseenter={() => handleSubmenuEnter(menuItem.label)}
+            on:mouseleave={handleSubmenuLeave}
+          >
+            <button class="menu-item has-submenu">
+              <span class="menu-label">{menuItem.label}</span>
+              <span class="submenu-arrow">&#x25B8;</span>
+            </button>
+            {#if openSubmenuLabel === menuItem.label}
+              <div class="submenu">
+                {#each menuItem.children as child}
+                  {#if isSeparator(child)}
+                    <div class="separator"></div>
+                  {:else}
+                    {@const subItem = asMenuItem(child)}
+                    {#if subItem}
+                      <button class="menu-item" on:click={() => handleSubmenuItemClick(child)}>
+                        <span class="menu-label">{subItem.label}</span>
+                        {#if subItem.shortcut}
+                          <span class="menu-shortcut">{subItem.shortcut}</span>
+                        {/if}
+                      </button>
+                    {/if}
+                  {/if}
+                {/each}
+              </div>
+            {/if}
+          </div>
+        {:else}
+          <button class="menu-item" on:click={() => handleClick(item)}>
+            <span class="menu-label">{menuItem.label}</span>
+            {#if menuItem.shortcut}
+              <span class="menu-shortcut">{menuItem.shortcut}</span>
+            {/if}
+          </button>
+        {/if}
       {/if}
     {/if}
   {/each}
@@ -141,6 +188,36 @@
 
   .menu-item:hover .menu-shortcut {
     color: var(--ui-text-secondary, #bbb);
+  }
+
+  .menu-item-wrapper {
+    position: relative;
+  }
+
+  .has-submenu {
+    padding-right: 12px;
+  }
+
+  .submenu-arrow {
+    font-size: 11px;
+    color: var(--ui-text-muted, #888);
+  }
+
+  .menu-item:hover .submenu-arrow {
+    color: var(--ui-text-secondary, #bbb);
+  }
+
+  .submenu {
+    position: absolute;
+    left: 100%;
+    top: 0;
+    background: var(--ui-bg-secondary, #2d2d2d);
+    border: 1px solid var(--ui-border, #454545);
+    border-radius: 4px;
+    padding: 4px 0;
+    min-width: 180px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    z-index: 1001;
   }
 
   .separator {
