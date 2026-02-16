@@ -191,6 +191,16 @@
         });
       }
     }, true);
+
+    // --- Scrollbar drag and any other scroll source ---
+    // Covers cases not caught by wheel/keydown (e.g. scrollbar drag, touch).
+    viewportElement.addEventListener('scroll', () => {
+      if (isAtBottom()) {
+        autoScroll.set(true);
+      } else {
+        autoScroll.set(false);
+      }
+    }, { passive: true });
   }
 
   function bufferedWrite(data: string) {
