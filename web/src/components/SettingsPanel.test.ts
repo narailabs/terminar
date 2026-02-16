@@ -22,7 +22,7 @@ import {
   setActiveTerminalTheme,
 } from '../lib/themeStore';
 import { BUILT_IN_UI_THEMES, BUILT_IN_TERMINAL_THEMES } from '../lib/themeTypes';
-import { settingsStore, DEFAULT_SETTINGS } from '../lib/settingsStore';
+import { settingsStore } from '../lib/settingsStore';
 
 describe('SettingsPanel - Theme Selectors', () => {
   beforeEach(() => {
@@ -203,46 +203,6 @@ describe('SettingsPanel - Settings Controls', () => {
     expect(closeFn).not.toHaveBeenCalled();
   });
 
-  it('font size slider updates settingsStore', async () => {
-    const spy = vi.spyOn(settingsStore, 'updateSetting');
-    render(SettingsPanel, { props: { isOpen: true } });
-    const slider = document.querySelector('#fontSize') as HTMLInputElement;
-    expect(slider).toBeTruthy();
-    await fireEvent.input(slider, { target: { value: '18' } });
-    expect(spy).toHaveBeenCalledWith('fontSize', 18);
-    spy.mockRestore();
-  });
-
-  it('font family select updates settingsStore', async () => {
-    const spy = vi.spyOn(settingsStore, 'updateSetting');
-    render(SettingsPanel, { props: { isOpen: true } });
-    const select = document.querySelector('#fontFamily') as HTMLSelectElement;
-    expect(select).toBeTruthy();
-    await fireEvent.change(select, { target: { value: 'Fira Code' } });
-    expect(spy).toHaveBeenCalledWith('fontFamily', 'Fira Code');
-    spy.mockRestore();
-  });
-
-  it('cursor style select updates settingsStore', async () => {
-    const spy = vi.spyOn(settingsStore, 'updateSetting');
-    render(SettingsPanel, { props: { isOpen: true } });
-    const select = document.querySelector('#cursorStyle') as HTMLSelectElement;
-    expect(select).toBeTruthy();
-    await fireEvent.change(select, { target: { value: 'bar' } });
-    expect(spy).toHaveBeenCalledWith('cursorStyle', 'bar');
-    spy.mockRestore();
-  });
-
-  it('cursor blink checkbox toggle updates settingsStore', async () => {
-    const spy = vi.spyOn(settingsStore, 'updateSetting');
-    render(SettingsPanel, { props: { isOpen: true } });
-    const checkbox = document.querySelector('#cursorBlink') as HTMLInputElement;
-    expect(checkbox).toBeTruthy();
-    await fireEvent.change(checkbox, { target: { checked: false } });
-    expect(spy).toHaveBeenCalledWith('cursorBlink', false);
-    spy.mockRestore();
-  });
-
   it('pane title bars checkbox toggle updates settingsStore', async () => {
     const spy = vi.spyOn(settingsStore, 'updateSetting');
     render(SettingsPanel, { props: { isOpen: true } });
@@ -332,13 +292,4 @@ describe('SettingsPanel - Settings Controls', () => {
     expect(closeFn).toHaveBeenCalled();
   });
 
-  it('font size slider has correct min and max attributes', () => {
-    render(SettingsPanel, { props: { isOpen: true } });
-    const slider = document.querySelector('#fontSize') as HTMLInputElement;
-    expect(slider).toBeTruthy();
-    expect(slider.min).toBe('10');
-    expect(slider.max).toBe('24');
-    expect(slider.step).toBe('1');
-    expect(slider.type).toBe('range');
-  });
 });

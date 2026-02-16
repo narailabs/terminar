@@ -10,8 +10,6 @@ import {
 const mockSettings: TerminalSettings = {
   fontSize: 14,
   fontFamily: 'monospace',
-  fontColor: '#ffffff',
-  backgroundColor: '#000000',
   cursorStyle: 'block',
   cursorBlink: true,
   lineHeight: 1.2,
