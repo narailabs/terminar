@@ -11,6 +11,7 @@
   import { broadcastTargets, broadcastEnabled } from '../lib/broadcastStore';
   import { exitedSessions } from '../lib/exitedSessionsStore';
   import { foregroundStore } from '../lib/foregroundStore';
+  import { titleStore } from '../lib/titleStore';
   import { getKeyBindingRegistry } from '../lib/keybindings';
   import { createActionDispatcher } from '../lib/actionDispatcher';
   import { createKeyEventHandler } from '../lib/keyEventHandler';
@@ -49,6 +50,9 @@
 
   function handleTitleChange(title: string) {
     terminalTitle = title;
+    if (sessionId) {
+      titleStore.setTitle(sessionId, title);
+    }
   }
 
   // Reset terminal title when session changes
@@ -371,7 +375,7 @@
   {/if}
 
   <div class="pane-content">
-    {#if sessionId && manager}
+    {#if sessionId && manager && currentSession}
       <SearchBar
         isOpen={searchIsOpen}
         currentMatch={searchCurrentMatch}

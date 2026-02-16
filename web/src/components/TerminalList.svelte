@@ -5,6 +5,7 @@
   import type { SessionInfo } from '../lib/workspaceTypes';
   import { broadcastTargets, toggleTarget, isTarget } from '../lib/broadcastStore';
   import { foregroundStore } from '../lib/foregroundStore';
+  import { titleStore } from '../lib/titleStore';
 
   export let sessions: SessionInfo[] = [];
   export let activeSessionId: string | null = null;
@@ -107,6 +108,7 @@
             shell={session.shell}
             cwd={session.cwd}
             foregroundProcess={$foregroundStore.processes.get(session.id) ?? null}
+            terminalTitle={$titleStore.titles.get(session.id) ?? ''}
             isActive={session.id === activeSessionId}
             startEditing={editingSessionId === session.id}
             on:select={handleSelect}
