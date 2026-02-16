@@ -2,7 +2,7 @@
   import { createEventDispatcher, onDestroy, onMount } from 'svelte';
   import Terminal from './Terminal.svelte';
   import SearchBar from './SearchBar.svelte';
-  import type { SessionManager, SessionInfo } from '../lib/SessionManager';
+
   import type { SessionId, DropZone } from '../lib/workspaceTypes';
   import { settingsStore } from '../lib/settingsStore';
   import { registerPane, unregisterPane } from '../lib/paneRegistry';
@@ -10,7 +10,6 @@
   import { broadcastTargets, broadcastEnabled } from '../lib/broadcastStore';
   import { exitedSessions } from '../lib/exitedSessionsStore';
   import { foregroundStore } from '../lib/foregroundStore';
-  // agentRegistry no longer needed for title bar display
   import { getKeyBindingRegistry } from '../lib/keybindings';
   import { createActionDispatcher } from '../lib/actionDispatcher';
   import { createKeyEventHandler } from '../lib/keyEventHandler';
@@ -26,10 +25,10 @@
   $: manager = $managerStore;
 
   let showTitleBar = true;
-  let sessionName = '';
 
   // Live session info from sessions store (updated by CwdChanged events)
   $: currentSession = sessionId ? $sessionsStore.find(s => s.id === sessionId) : null;
+  $: sessionName = currentSession?.name ?? '';
   $: sessionCwd = currentSession?.cwd ?? '';
   $: sessionShell = (() => {
     const sh = currentSession?.shell ?? '';
@@ -78,41 +77,10 @@
     showTitleBar = s.showPaneTitleBars;
   });
 
-  function updateSessionInfo() {
-    if (sessionId && manager) {
-      const session = manager.getLastSessionList().find((s: SessionInfo) => s.id === sessionId);
-      sessionName = session?.name ?? '';
-    } else {
-      sessionName = '';
-    }
-  }
-
-  function onSessionListUpdated() {
-    updateSessionInfo();
-  }
-
-  let prevManager: SessionManager | null = null;
-
-  // React to prop changes and manage listener lifecycle
-  $: {
-    if (prevManager && prevManager !== manager && typeof prevManager.removeListener === 'function') {
-      prevManager.removeListener('sessionList', onSessionListUpdated);
-    }
-    if (manager && manager !== prevManager && typeof manager.on === 'function') {
-      manager.on('sessionList', onSessionListUpdated);
-    }
-    prevManager = manager ?? null;
-    // Also update info when sessionId or manager changes
-    updateSessionInfo();
-  }
-
   onDestroy(() => {
     unsubSettings();
     unsubSearch();
     unregisterPane(paneId);
-    if (prevManager && typeof prevManager.removeListener === 'function') {
-      prevManager.removeListener('sessionList', onSessionListUpdated);
-    }
   });
 
   const dispatch = createEventDispatcher<{
