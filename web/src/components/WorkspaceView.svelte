@@ -7,6 +7,7 @@
   import { setTerminalOverride } from '../lib/themeStore';
   import { BUILT_IN_TERMINAL_THEMES } from '../lib/themeTypes';
   import type { TabId, PaneId, SessionId, DropZone, SplitDirection, SplitNode } from '../lib/workspaceTypes';
+  import { findPane } from '../lib/workspaceTypes';
   import { activityStore } from '../lib/activityStore';
   import { exitedSessions } from '../lib/exitedSessionsStore';
 
@@ -233,6 +234,22 @@
     }
   }
 
+  function handleRename() {
+    if (contextMenu) {
+      const tab = $workspaceStore.tabs.find(t => t.id === $workspaceStore.activeTabId);
+      if (!tab) { contextMenu = null; return; }
+      const pane = findPane(tab.root, contextMenu.paneId);
+      if (!pane?.sessionId) { contextMenu = null; return; }
+      const session = effectiveAvailableSessions.find(s => s.id === pane.sessionId);
+      const currentName = session?.name || '';
+      const newName = prompt('Rename session:', currentName);
+      if (newName !== null && newName !== currentName) {
+        actions.renameTerminal(pane.sessionId, newName);
+      }
+      contextMenu = null;
+    }
+  }
+
   function handleClearPane() {
     if (contextMenu) {
       workspaceStore.assignSession(contextMenu.paneId, null);
@@ -293,6 +310,7 @@
     { label: 'Select All', action: handleSelectAll, shortcut: 'Cmd+A' },
     { type: 'separator' as const },
     { label: 'Refresh', action: handleRefresh },
+    { label: 'Rename', action: handleRename },
     { type: 'separator' as const },
     { label: 'Split', action: () => {}, children: [
       { label: 'Split Left', action: handleSplitLeft },
