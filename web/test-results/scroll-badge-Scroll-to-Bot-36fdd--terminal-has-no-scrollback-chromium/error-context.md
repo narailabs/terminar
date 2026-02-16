@@ -1,0 +1,147 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e1]:
+  - main [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e6]:
+          - generic [ref=e9]: Connected
+          - generic [ref=e10]:
+            - button "Show keyboard shortcuts" [ref=e12] [cursor=pointer]:
+              - img [ref=e13]
+            - button "Toggle broadcast mode" [ref=e15] [cursor=pointer]:
+              - img [ref=e16]
+            - button "Open terminal settings" [ref=e18] [cursor=pointer]:
+              - img [ref=e19]
+        - generic [ref=e22]:
+          - generic [ref=e23]:
+            - tab "Terminal 1 Close tab" [selected] [ref=e25] [cursor=pointer]:
+              - generic [ref=e26]: Terminal 1
+              - button "Close tab" [ref=e27]:
+                - img [ref=e28]
+            - button "New tab" [ref=e30] [cursor=pointer]:
+              - img [ref=e31]
+          - region [ref=e34]:
+            - generic [ref=e35]:
+              - generic [ref=e36]: Terminal 1· zsh· ~· claude
+              - button "Search terminal" [ref=e37] [cursor=pointer]:
+                - img [ref=e38]
+              - button "Close pane options" [ref=e41] [cursor=pointer]: ×
+            - generic [ref=e43]:
+              - generic [ref=e47]:
+                - textbox "Terminal input" [active] [ref=e48]
+                - generic [ref=e49]:
+                  - generic [ref=e51]:
+                    - generic [ref=e53]: Claude
+                    - generic [ref=e55]: Code
+                    - generic [ref=e57]: v2.1.41
+                  - generic [ref=e58]:
+                    - generic [ref=e59]: ▐
+                    - generic [ref=e60]: ▛███▜
+                    - generic [ref=e61]: ▌
+                    - generic [ref=e63]: Opus
+                    - generic [ref=e65]: "4.6"
+                    - generic [ref=e67]: ·
+                    - generic [ref=e69]: Claude
+                    - generic [ref=e71]: Max
+                  - generic [ref=e72]:
+                    - generic [ref=e73]: ▝▜
+                    - generic [ref=e74]: █████
+                    - generic [ref=e75]: ▛▘
+                    - generic [ref=e77]: /Users/narayan
+                  - generic [ref=e78]:
+                    - generic [ref=e81]: ▘▘
+                    - generic [ref=e83]: ▝▝
+                    - generic [ref=e85]: Opus
+                    - generic [ref=e87]: "4.6"
+                    - generic [ref=e89]: is
+                    - generic [ref=e91]: here
+                    - generic [ref=e93]: ·
+                    - generic [ref=e95]: $50
+                    - generic [ref=e97]: free
+                    - generic [ref=e99]: extra
+                    - generic [ref=e101]: usage
+                    - generic [ref=e102]: ·
+                    - generic [ref=e104]: Try
+                    - generic [ref=e106]: fast
+                    - generic [ref=e108]: mode
+                    - generic [ref=e110]: or
+                    - generic [ref=e112]: use
+                    - generic [ref=e114]: it
+                    - generic [ref=e116]: when
+                    - generic [ref=e118]: you
+                    - generic [ref=e120]: hit
+                    - generic [ref=e122]: a
+                    - generic [ref=e124]: limit
+                    - generic [ref=e126]: /extra-usage
+                    - generic [ref=e128]: to
+                    - generic [ref=e130]: e…
+                  - generic [ref=e132]:
+                    - generic [ref=e133]: ❯
+                    - generic [ref=e134]: /release-notes
+                  - generic [ref=e135]:
+                    - generic [ref=e138]: ⎿
+                    - generic [ref=e139]: "Version 0.2.21:"
+                  - generic [ref=e141]: • Fuzzy matching for /commands
+                  - generic [ref=e144]: "Version 0.2.26:"
+                  - generic [ref=e146]: • New /approved-tools command for managing tool permissions
+                  - generic [ref=e148]: • Word-level diff display for improved code readability
+                  - generic [ref=e150]: • Fuzzy matching for slash commands
+                  - generic [ref=e153]: "Version 0.2.30:"
+                  - generic [ref=e155]: • Added ANSI color theme for better terminal compatibility
+                  - generic [ref=e157]: • Fixed issue where slash command arguments weren't being sent properly
+                  - generic [ref=e159]: • (Mac-only) API keys are now stored in macOS Keychain
+                  - generic [ref=e162]: "Version 0.2.31:"
+                  - generic [ref=e164]: "• Custom slash commands: Markdown files in .claude/commands/ directories now appear as custom slash commands to"
+                  - generic [ref=e166]: insert prompts into your conversation
+                  - generic [ref=e168]: "• MCP debug mode: Run with --mcp-debug flag to get more information about MCP server errors"
+                  - generic [ref=e171]: "Version 0.2.32:"
+                  - generic [ref=e173]: "• Interactive MCP setup wizard: Run \"claude mcp add\" to add MCP servers with a step-by-step interface"
+                  - generic [ref=e175]: • Fix for some PersistentShell issues
+                  - generic [ref=e178]: "Version 0.2.34:"
+                  - generic [ref=e180]: • Vim bindings for text input - enable with /vim or /config
+                  - generic [ref=e183]: "Version 0.2.36:"
+                  - generic [ref=e184]:
+                    - generic [ref=e185]: • Import MCP servers from Claude Desktop with
+                    - generic [ref=e186]: claude
+                    - generic [ref=e188]: mcp
+                    - generic [ref=e190]: add-from-claude-desktop
+                  - generic [ref=e191]:
+                    - generic [ref=e192]: • Add MCP servers as JSON strings with
+                    - generic [ref=e193]: claude
+                    - generic [ref=e195]: mcp
+                    - generic [ref=e197]: add-json
+                    - generic [ref=e199]: <n>
+                    - generic [ref=e201]: <json>
+                  - generic [ref=e204]: "Version 0.2.37:"
+              - button "Scroll to bottom" [ref=e205] [cursor=pointer]
+        - generic [ref=e206]:
+          - generic [ref=e208]: /bin/zsh
+          - generic [ref=e210]: Terminal 1
+          - generic [ref=e212]: /Users/narayan
+          - generic [ref=e215]: Connected
+          - generic [ref=e217]: 1 session
+          - generic [ref=e219]: NaN:NaN:NaN
+      - generic [ref=e220]:
+        - button "›" [ref=e221] [cursor=pointer]:
+          - generic [ref=e222]: ›
+        - generic [ref=e223]:
+          - generic [ref=e224]:
+            - heading "Terminals" [level=3] [ref=e225]
+            - generic [ref=e226]: "1"
+          - list [ref=e227]:
+            - button "Terminal 1 claude zsh · /Users/narayan" [ref=e231] [cursor=pointer]:
+              - generic [ref=e232]:
+                - generic [ref=e233]:
+                  - generic [ref=e234]: Terminal 1
+                  - generic "claude" [ref=e235]
+                - generic [ref=e236]:
+                  - generic [ref=e237]: zsh
+                  - generic [ref=e238]: ·
+                  - generic "/Users/narayan" [ref=e239]
+            - button "+ New Terminal" [ref=e240] [cursor=pointer]:
+              - generic [ref=e241]: +
+              - generic [ref=e242]: New Terminal
+  - generic [ref=e243]: ╯╯╯╯╯╯╯╯╯╯╯╯╯╯╯╯╯╯╯╯╯╯╯╯╯╯╯╯╯╯╯╯xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxllllllllllllllllllllllllllllllll
+```

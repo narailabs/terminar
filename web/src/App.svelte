@@ -18,6 +18,7 @@
   import BroadcastBar from './components/BroadcastBar.svelte';
   import { broadcastEnabled, clearTargets, setSessionManager } from './lib/broadcastStore';
   import { getEffectiveEnv } from './lib/envStore';
+  import { getKeyBindingRegistry } from './lib/keybindings';
   import { activityStore } from './lib/activityStore';
   import { markExited, removeExited } from './lib/exitedSessionsStore';
   import { foregroundStore } from './lib/foregroundStore';
@@ -125,21 +126,20 @@
     applyUIThemeCSS();
   }
 
-  // Keyboard shortcuts for sidebar toggle
+  // Global keyboard shortcuts — delegates to the centralized KeyBindingRegistry
   function handleGlobalKeydown(event: KeyboardEvent) {
-    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-    const modifier = isMac ? event.metaKey : event.ctrlKey;
+    const registry = getKeyBindingRegistry();
+    const action = registry.match(event);
+    if (!action) return;
 
-    // Ctrl/Cmd + B: Toggle sidebar
-    if (modifier && event.key === 'b') {
-      event.preventDefault();
-      sidebarOpen = !sidebarOpen;
-    }
-
-    // Ctrl/Cmd + Shift + N: New terminal (create session)
-    if (modifier && event.shiftKey && event.key === 'N') {
-      event.preventDefault();
-      createNewTerminal();
+    event.preventDefault();
+    switch (action) {
+      case 'sidebar.toggle':
+        sidebarOpen = !sidebarOpen;
+        break;
+      case 'session.new':
+        createNewTerminal();
+        break;
     }
   }
 

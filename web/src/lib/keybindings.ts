@@ -36,8 +36,7 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
   { key: 'w', ctrl: true, shift: false, alt: false, meta: false, action: 'pane.close' },
   { key: 'w', ctrl: false, shift: false, alt: false, meta: true, action: 'pane.close' },
 
-  // Sidebar
-  { key: 'b', ctrl: true, shift: false, alt: false, meta: false, action: 'sidebar.toggle' },
+  // Sidebar (Cmd+B only — Ctrl+B must reach the terminal for tmux, nano, readline)
   { key: 'b', ctrl: false, shift: false, alt: false, meta: true, action: 'sidebar.toggle' },
 
   // Splits
@@ -46,6 +45,35 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
   { key: 'V', ctrl: true, shift: true, alt: false, meta: false, action: 'split.vertical' },
   { key: 'V', ctrl: false, shift: true, alt: false, meta: true, action: 'split.vertical' },
 ];
+
+/**
+ * Human-readable labels for each action.
+ */
+export const ACTION_LABELS: Record<string, string> = {
+  'search.open': 'Search',
+  'session.new': 'New Terminal',
+  'pane.close': 'Close Pane',
+  'sidebar.toggle': 'Toggle Sidebar',
+  'split.horizontal': 'Split Right',
+  'split.vertical': 'Split Down',
+};
+
+/**
+ * Format a keybinding as a human-readable string (e.g., "Cmd+B" or "Ctrl+Shift+N").
+ * Uses "Cmd" on macOS, "Ctrl" on other platforms.
+ */
+export function formatBinding(b: { ctrl: boolean; shift: boolean; alt: boolean; meta: boolean; key: string }): string {
+  const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+  const parts: string[] = [];
+  if (b.ctrl) parts.push(isMac ? 'Ctrl' : 'Ctrl');
+  if (b.meta) parts.push(isMac ? 'Cmd' : 'Meta');
+  if (b.alt) parts.push(isMac ? 'Option' : 'Alt');
+  if (b.shift) parts.push('Shift');
+  // Capitalize single-char keys for display
+  const displayKey = b.key.length === 1 ? b.key.toUpperCase() : b.key;
+  parts.push(displayKey);
+  return parts.join('+');
+}
 
 /**
  * Generate a unique key string for a binding (excluding action) for duplicate detection.
@@ -172,6 +200,70 @@ export class KeyBindingRegistry {
     } catch (e) {
       console.warn('[KeyBindings] Failed to save user overrides:', e);
     }
+  }
+
+  /**
+   * Set a user override for an action. Replaces all default bindings for that action
+   * with the given binding, and persists to localStorage.
+   */
+  setOverride(action: string, binding: Omit<KeyBinding, 'action'>): void {
+    // Remove all existing bindings for this action
+    this.bindings = this.bindings.filter(b => b.action !== action);
+    // Add the new binding
+    const fullBinding: KeyBinding = { ...binding, action };
+    this.bindings.push(fullBinding);
+    // Persist: store only the user-overridden bindings (those differing from defaults)
+    this.persistOverrides();
+  }
+
+  /**
+   * Clear user override for an action, reverting to default bindings.
+   */
+  clearOverride(action: string): void {
+    // Remove all current bindings for this action
+    this.bindings = this.bindings.filter(b => b.action !== action);
+    // Restore defaults for this action
+    const defaults = DEFAULT_KEYBINDINGS.filter(b => b.action === action);
+    this.bindings.push(...defaults);
+    // Persist
+    this.persistOverrides();
+  }
+
+  /**
+   * Get current user overrides (bindings that differ from defaults).
+   */
+  getUserOverrides(): KeyBinding[] {
+    const defaultKeys = new Set(DEFAULT_KEYBINDINGS.map(b => bindingKey(b) + ':' + b.action));
+    return this.bindings.filter(b => !defaultKeys.has(bindingKey(b) + ':' + b.action));
+  }
+
+  /**
+   * Get a merged view of all actions with their effective bindings.
+   */
+  getEffectiveBindings(): { action: string; label: string; bindings: KeyBinding[]; isOverridden: boolean }[] {
+    const actions = Object.keys(ACTION_LABELS);
+    return actions.map(action => {
+      const bindings = this.getBindingsForAction(action);
+      const defaultBindings = DEFAULT_KEYBINDINGS.filter(b => b.action === action);
+      const isOverridden = bindings.length !== defaultBindings.length ||
+        bindings.some(b => !defaultBindings.find(d =>
+          bindingKey(d) === bindingKey(b)
+        ));
+      return {
+        action,
+        label: ACTION_LABELS[action] || action,
+        bindings,
+        isOverridden,
+      };
+    });
+  }
+
+  /**
+   * Persist current overrides to localStorage.
+   */
+  private persistOverrides(): void {
+    const overrides = this.getUserOverrides();
+    this.saveUserOverrides(overrides);
   }
 }
 

@@ -442,8 +442,8 @@ describe('Close Button Popup - Detach & Terminate', () => {
     expect(container.querySelector('.close-popup')).toBeFalsy();
   });
 
-  it('Detach: should remove session from pane without killing it', async () => {
-    const assignSpy = vi.spyOn(workspaceStore, 'assignSession');
+  it('Detach: should close pane without killing the session', async () => {
+    const closeSpy = vi.spyOn(workspaceStore, 'closePane');
 
     const { container } = render(WorkspaceView, {
       props: { manager: mockManager, availableSessions: [] },
@@ -453,9 +453,9 @@ describe('Close Button Popup - Detach & Terminate', () => {
     await fireEvent.click(closeBtn);
     await clickMenuItem('Detach');
 
-    expect(assignSpy).toHaveBeenCalledWith(paneId, null);
+    expect(closeSpy).toHaveBeenCalledWith(paneId);
     expect(mockManager.killSession).not.toHaveBeenCalled();
-    assignSpy.mockRestore();
+    closeSpy.mockRestore();
   });
 
   it('Terminate: should kill session and close pane', async () => {
