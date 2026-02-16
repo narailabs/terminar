@@ -12,6 +12,7 @@ import { writable, get } from 'svelte/store';
 
 export interface SearchState {
   isOpen: boolean;
+  paneId: string | null;
   query: string;
   currentMatch: number;  // 1-indexed, 0 means no match
   totalMatches: number;
@@ -21,6 +22,7 @@ export interface SearchState {
 
 const INITIAL_STATE: SearchState = {
   isOpen: false,
+  paneId: null,
   query: '',
   currentMatch: 0,
   totalMatches: 0,
@@ -38,8 +40,8 @@ export function createSearchStore() {
       return get({ subscribe });
     },
 
-    open() {
-      update(s => ({ ...s, isOpen: true }));
+    open(paneId?: string) {
+      update(s => ({ ...s, isOpen: true, paneId: paneId ?? s.paneId }));
     },
 
     close() {

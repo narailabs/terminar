@@ -66,12 +66,13 @@
   let searchQuery = '';
 
   const unsubSearch = searchStore.subscribe((s) => {
-    searchIsOpen = s.isOpen;
-    searchCurrentMatch = s.currentMatch;
-    searchTotalMatches = s.totalMatches;
+    const isTarget = s.paneId === paneId;
+    searchIsOpen = s.isOpen && isTarget;
+    searchCurrentMatch = isTarget ? s.currentMatch : 0;
+    searchTotalMatches = isTarget ? s.totalMatches : 0;
     searchCaseSensitive = s.caseSensitive;
     searchUseRegex = s.useRegex;
-    searchQuery = s.query;
+    searchQuery = isTarget ? s.query : '';
   });
 
   const unsubSettings = settingsStore.subscribe((s) => {
@@ -146,7 +147,7 @@
 
   // Create action dispatcher for keybinding actions
   const actionDispatch = createActionDispatcher({
-    onSearchOpen: () => searchStore.open(),
+    onSearchOpen: () => searchStore.open(paneId),
     onSearchClose: () => {
       if (searchIsOpen) {
         searchStore.close();
@@ -326,7 +327,7 @@
       <span class="title-bar-spacer"></span>
       <button
         class="title-bar-icon-btn"
-        on:click={() => searchStore.open()}
+        on:click={() => searchStore.open(paneId)}
         title="Search (Ctrl+F)"
         aria-label="Search terminal"
       >
