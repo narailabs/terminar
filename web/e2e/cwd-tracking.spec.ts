@@ -2,7 +2,7 @@ import { test, expect, Page } from '@playwright/test';
 
 // Helper to focus the terminal before typing
 async function focusTerminal(page: Page) {
-  await page.locator('.terminal-container').click();
+  await page.locator('.terminal-container').first().click();
   await page.waitForTimeout(100);
 }
 
@@ -15,7 +15,7 @@ test('sidebar updates CWD when user changes directory', async ({ page }) => {
   await page.goto('/');
 
   // Wait for terminal to connect and appear
-  await expect(page.locator('.xterm-rows')).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('.xterm-rows').first()).toBeVisible({ timeout: 15000 });
   await expect(page.locator('.terminal-item').first()).toBeVisible({ timeout: 10000 });
 
   const cwdElements = page.locator('.terminal-item .cwd');
@@ -58,7 +58,7 @@ test('sidebar updates CWD when user changes directory', async ({ page }) => {
 
 test('multiple terminals show independent CWDs', async ({ page }) => {
   await page.goto('/');
-  await expect(page.locator('.xterm-rows')).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('.xterm-rows').first()).toBeVisible({ timeout: 15000 });
   await expect(page.locator('.terminal-item').first()).toBeVisible({ timeout: 10000 });
 
   const initialCount = await page.locator('.terminal-item').count();

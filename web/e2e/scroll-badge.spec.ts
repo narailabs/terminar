@@ -2,7 +2,7 @@ import { test, expect, Page } from '@playwright/test';
 
 // Helper to focus the terminal before typing
 async function focusTerminal(page: Page) {
-  await page.locator('.terminal-container').click();
+  await page.locator('.terminal-container').first().click();
   await page.waitForTimeout(100);
 }
 
@@ -40,7 +40,7 @@ async function generateScrollback(page: Page) {
 test.describe('Scroll-to-Bottom Badge', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await expect(page.locator('.xterm-rows')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.xterm-rows').first()).toBeVisible({ timeout: 15000 });
     await focusTerminal(page);
   });
 

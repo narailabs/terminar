@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 test.describe('Terminal Layout', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await expect(page.locator('.terminal-container')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.terminal-container').first()).toBeVisible({ timeout: 15000 });
   });
 
   test('terminal area fills available space', async ({ page }) => {

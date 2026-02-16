@@ -2,7 +2,7 @@ import { test, expect, Page } from '@playwright/test';
 
 // Helper to focus the terminal before typing
 async function focusTerminal(page: Page) {
-  await page.locator('.terminal-container').click();
+  await page.locator('.terminal-container').first().click();
   await page.waitForTimeout(100);
 }
 
@@ -12,7 +12,7 @@ async function waitForAppReady(page: Page) {
   // Wait for the terminal area to be visible
   await expect(page.locator('.workspace-area')).toBeVisible({ timeout: 15000 });
   // Wait for xterm to initialize
-  await expect(page.locator('.xterm-rows')).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('.xterm-rows').first()).toBeVisible({ timeout: 10000 });
 }
 
 // Helper to get terminal list items
@@ -36,7 +36,7 @@ async function typeAndVerifyMarker(page: Page, marker: string) {
   await focusTerminal(page);
   await page.keyboard.type(`echo "${marker}"`);
   await page.keyboard.press('Enter');
-  await expect(page.locator('.xterm-rows')).toContainText(marker, { timeout: 5000 });
+  await expect(page.locator('.xterm-rows').first()).toContainText(marker, { timeout: 5000 });
 }
 
 test.describe('Multi-Terminal Sidebar', () => {
@@ -120,7 +120,7 @@ test.describe('Multi-Terminal Sidebar', () => {
     await typeAndVerifyMarker(page, marker2);
 
     // Terminal 2 should NOT show terminal 1's marker
-    const terminalContent = page.locator('.xterm-rows');
+    const terminalContent = page.locator('.xterm-rows').first();
     await expect(terminalContent).not.toContainText(marker1, { timeout: 5000 });
 
     // Switch back to terminal 1
@@ -156,14 +156,14 @@ test.describe('Multi-Terminal Sidebar', () => {
     await page.waitForTimeout(500);
 
     // History should be preserved (use longer timeout for history replay)
-    await expect(page.locator('.xterm-rows')).toContainText(marker1, { timeout: 5000 });
+    await expect(page.locator('.xterm-rows').first()).toContainText(marker1, { timeout: 5000 });
 
     // Switch to terminal 2 (last item)
     await selectTerminalByIndex(page, initialCount);
     await page.waitForTimeout(500);
 
     // Terminal 2's history should be preserved
-    await expect(page.locator('.xterm-rows')).toContainText(marker2, { timeout: 5000 });
+    await expect(page.locator('.xterm-rows').first()).toContainText(marker2, { timeout: 5000 });
   });
 
   test.skip('can cycle terminals with Ctrl+Tab', async ({ page }) => {
@@ -273,7 +273,7 @@ test.describe('Multi-Terminal Sidebar', () => {
 
     // The terminal content should change (no longer show our marker
     // since this is a different session)
-    const content = await page.locator('.xterm-rows').textContent();
+    const content = await page.locator('.xterm-rows').first().textContent();
     // Just verify we can interact with the sidebar and it responds
     expect(content).toBeDefined();
   });

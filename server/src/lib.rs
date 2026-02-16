@@ -225,10 +225,6 @@ pub struct AppState {
     pub session_name_counter: Arc<std::sync::atomic::AtomicU64>,
     /// Set of revoked API tokens that should be rejected on authentication.
     pub revoked_tokens: Arc<Mutex<HashSet<String>>>,
-    /// Whether to persist session metadata to disk on create/kill.
-    pub persist_sessions: bool,
-    /// File path for session persistence JSON data.
-    pub session_file_path: String,
     /// JWT signing key for session tokens.
     pub signing_key: Arc<Vec<u8>>,
     /// Unique server identifier for JWT claims.
@@ -406,34 +402,77 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
     let sessions: SessionMap = Arc::new(Mutex::new(HashMap::new()));
     let api_key = Uuid::new_v4().to_string();
 
-    // Resolve session persistence path
-    let session_file_path = persistence::resolve_session_file_path(&cli.session_file);
-
-    // Load persisted sessions on startup if persistence is enabled.
-    // Also scan for "Terminal N" names to continue numbering after restart.
+    // Restore persisted sessions on startup.
+    // Load session metadata and history, then create new PTY sessions
+    // with the original IDs and scrollback content.
     let mut initial_name_counter: u64 = 1;
-    if cli.persist_sessions {
-        match persistence::load_sessions(&session_file_path) {
-            Ok(data) => {
-                if !data.sessions.is_empty() {
-                    info!("Loaded {} persisted session(s) from {}", data.sessions.len(), session_file_path);
-                    // Note: We only log the metadata here. Reconnecting to orphaned PTY processes
-                    // would require tracking PIDs and checking if they are still alive, which is
-                    // a future enhancement.
-                    for s in &data.sessions {
-                        if let Some(n) = s.name.strip_prefix("Terminal ") {
-                            if let Ok(num) = n.parse::<u64>() {
-                                if num >= initial_name_counter {
-                                    initial_name_counter = num + 1;
-                                }
+    let session_file = persistence::get_session_file_path();
+    let history_dir = persistence::get_history_dir();
+    let history_dir_str = history_dir.to_string_lossy().to_string();
+    match persistence::load_sessions(&session_file.to_string_lossy()) {
+        Ok(data) => {
+            let running_sessions: Vec<_> = data.sessions.iter()
+                .filter(|s| s.state == "Running")
+                .collect();
+            if !running_sessions.is_empty() {
+                info!("Restoring {} persisted session(s)...", running_sessions.len());
+                for s in &running_sessions {
+                    // Track "Terminal N" counter
+                    if let Some(n) = s.name.strip_prefix("Terminal ") {
+                        if let Ok(num) = n.parse::<u64>() {
+                            if num >= initial_name_counter {
+                                initial_name_counter = num + 1;
                             }
                         }
                     }
+
+                    // Load history for this session
+                    let history_data = match persistence::load_history_auto(&history_dir_str, &s.id) {
+                        Ok(Some(data)) => {
+                            info!("Loaded {} bytes of history for session {}", data.len(), s.id);
+                            Some(data)
+                        }
+                        Ok(None) => {
+                            info!("No history file for session {}", s.id);
+                            None
+                        }
+                        Err(e) => {
+                            warn!("Failed to load history for session {}: {}", s.id, e);
+                            None
+                        }
+                    };
+
+                    // Validate shell and cwd before restoring
+                    let shell = handlers::session::resolve_shell(&s.shell_cmd);
+                    let cwd_candidate = handlers::session::resolve_cwd(&s.cwd);
+                    if handlers::session::validate_shell(&shell).is_some() {
+                        warn!("Skipping restore of session {} with invalid shell: {}", s.id, shell);
+                        continue;
+                    }
+                    if handlers::session::validate_cwd(&cwd_candidate).is_some() {
+                        warn!("Skipping restore of session {} with invalid cwd: {} (using home dir)", s.id, s.cwd);
+                        // Fall through with home dir
+                    }
+
+                    match handlers::session::create_session_core(
+                        Some(&s.id),
+                        &s.name,
+                        &shell,
+                        &cwd_candidate,
+                        80, 24,
+                        &HashMap::new(),
+                        &sessions,
+                        cli.mock_pty.then(|| Arc::new(MockPtyProvider)).as_ref(),
+                        history_data.as_deref(),
+                    ) {
+                        Ok(id) => info!("Restored session {} ({})", id, s.name),
+                        Err(e) => warn!("Failed to restore session {}: {}", s.id, e),
+                    }
                 }
             }
-            Err(e) => {
-                warn!("Failed to load persisted sessions from {}: {} (starting fresh)", session_file_path, e);
-            }
+        }
+        Err(e) => {
+            warn!("Failed to load persisted sessions: {} (starting fresh)", e);
         }
     }
 
@@ -484,8 +523,6 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
         messages_processed_total: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         session_name_counter: Arc::new(std::sync::atomic::AtomicU64::new(initial_name_counter)),
         revoked_tokens: Arc::new(Mutex::new(HashSet::new())),
-        persist_sessions: cli.persist_sessions,
-        session_file_path,
         signing_key: Arc::new(signing_key),
         server_id,
         password_verifier,
@@ -623,7 +660,25 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
         }
     });
 
-    // 5. Wait for shutdown signal (SIGTERM or SIGINT)
+    // 5. Start periodic session persistence task
+    let persist_sessions = sessions.clone();
+    let mut persist_shutdown_rx = shutdown_tx.subscribe();
+    let _persist_task = tokio::spawn(async move {
+        let save_interval = Duration::from_secs(constants::PERIODIC_SAVE_INTERVAL_SECS);
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(save_interval) => {
+                    persistence::persist_all(&persist_sessions);
+                }
+                _ = persist_shutdown_rx.recv() => {
+                    info!("Periodic persistence task received shutdown signal");
+                    break;
+                }
+            }
+        }
+    });
+
+    // 6. Wait for shutdown signal (SIGTERM or SIGINT)
     let shutdown_signal = async {
         #[cfg(unix)]
         {
@@ -681,6 +736,10 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
     if shutdown_result.is_err() {
         warn!("Shutdown timeout reached, forcing cleanup");
     }
+
+    // Save session histories and metadata before cleanup
+    info!("Saving session histories and metadata...");
+    persistence::persist_all(&sessions);
 
     // Clean up sessions (kill PTY processes)
     {
@@ -1532,8 +1591,6 @@ mod tests {
             messages_processed_total: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             session_name_counter: Arc::new(std::sync::atomic::AtomicU64::new(1)),
             revoked_tokens: Arc::new(Mutex::new(HashSet::new())),
-            persist_sessions: false,
-            session_file_path: "/tmp/test-sessions.json".to_string(),
             signing_key: Arc::new(jwt::generate_signing_key()),
             server_id: "test-server".to_string(),
             password_verifier: None,

@@ -4,7 +4,7 @@ use crate::constants::{SHELL_WHITELIST, ENV_BLOCKLIST, PTY_READ_BUFFER_SIZE};
 use crate::history::CircularBuffer;
 use crate::messages::{ServerMessage, SessionInfo};
 use crate::persistence;
-use crate::pty::PtyProvider;
+use crate::pty::{MockPtyProvider, PtyProvider};
 use crate::session::{Session, SessionEvent, SessionMap, SessionState};
 use crate::AppState;
 
@@ -153,80 +153,59 @@ fn build_session_list(sessions: &SessionMap) -> Vec<SessionInfo> {
     }).collect()
 }
 
-/// Handle ListSessions message.
-#[instrument(skip(tx_out, sessions))]
-pub(crate) async fn handle_list_sessions(
-    tx_out: &mpsc::Sender<ServerMessage>,
-    sessions: &SessionMap,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let list = build_session_list(sessions);
-    tx_out.send(ServerMessage::SessionList { sessions: list }).await?;
-    Ok(())
-}
-
-/// Handle CreateSession message.
+/// Core PTY session creation logic shared by handle_create_session and session restoration.
+///
+/// Creates a PTY, spawns a shell, sets up the reader thread and exit monitor,
+/// and inserts the session into the session map.
+///
+/// - `session_id`: None = generate UUID, Some = reuse ID (for restoration)
+/// - `name`: Session display name
+/// - `initial_history`: Pre-loaded scrollback to seed the history buffer
 #[allow(clippy::too_many_arguments)]
-#[instrument(skip(env, tx_out, sessions, state), fields(shell = %shell, cwd = %cwd, cols = cols, rows = rows))]
-pub(crate) async fn handle_create_session(
+pub(crate) fn create_session_core(
+    session_id: Option<&str>,
+    name: &str,
+    shell_cmd: &str,
     cwd: &str,
-    shell: &str,
-    env: &HashMap<String, String>,
     cols: u16,
     rows: u16,
-    tx_out: &mpsc::Sender<ServerMessage>,
+    env: &HashMap<String, String>,
     sessions: &SessionMap,
-    state: &AppState,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // Resolve shell - use system default if empty
-    let resolved_shell = resolve_shell(shell);
-    // Resolve cwd - use home directory if empty or "/"
-    let resolved_cwd = resolve_cwd(cwd);
-
-    // Validate shell against whitelist before spawning
-    if let Some(error_msg) = validate_shell(&resolved_shell) {
-        tx_out.send(ServerMessage::Error { message: error_msg, error_code: Some("INVALID_INPUT".to_string()) }).await?;
-        return Ok(());
-    }
-
-    // Validate working directory
-    if let Some(error_msg) = validate_cwd(&resolved_cwd) {
-        tx_out.send(ServerMessage::Error { message: error_msg, error_code: Some("INVALID_INPUT".to_string()) }).await?;
-        return Ok(());
-    }
-
-    // Clamp dimensions to valid range (1-500)
-    let cols = clamp_dimension(cols, "cols");
-    let rows = clamp_dimension(rows, "rows");
-
-    // Filter dangerous environment variables
+    mock_provider: Option<&Arc<MockPtyProvider>>,
+    initial_history: Option<&[u8]>,
+) -> Result<String, Box<dyn std::error::Error>> {
     let safe_env = filter_env(env);
 
     let master: Box<dyn portable_pty::MasterPty + Send>;
 
-    if let Some(provider) = &state.mock_provider {
+    if let Some(provider) = mock_provider {
         master = provider.create_pty(cols, rows)?;
-        let _c = provider.spawn_command(&*master, CommandBuilder::new(&resolved_shell))?;
+        let _c = provider.spawn_command(&*master, CommandBuilder::new(shell_cmd))?;
     } else {
         let pty_system = native_pty_system();
         let pair = pty_system.openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })?;
         master = pair.master;
 
-        let mut cmd = CommandBuilder::new(&resolved_shell);
-        cmd.cwd(&resolved_cwd);
-        // Set TERM and COLORTERM so shells and TUI apps (vim, Claude Code, etc.)
-        // render escape sequences correctly. xterm-256color is the standard for
-        // xterm.js-based terminals. COLORTERM=truecolor enables 24-bit color.
+        let mut cmd = CommandBuilder::new(shell_cmd);
+        cmd.cwd(cwd);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
-        for (k, v) in safe_env {
+        for (k, v) in &safe_env {
             cmd.env(k, v);
         }
         let _c = pair.slave.spawn_command(cmd)?;
     }
 
-    let id = Uuid::new_v4().to_string();
+    let id = session_id.map(|s| s.to_string()).unwrap_or_else(|| Uuid::new_v4().to_string());
     let (tx, _) = broadcast::channel(100);
     let history = Arc::new(Mutex::new(CircularBuffer::with_default_capacity()));
+
+    // Seed history buffer with pre-loaded scrollback (for restoration)
+    if let Some(data) = initial_history {
+        let mut h = history.lock();
+        h.push(data);
+    }
+
     let history_clone = history.clone();
 
     // Subscribe for exit monitoring before tx is moved into the session
@@ -347,9 +326,9 @@ pub(crate) async fn handle_create_session(
 
     let session = Session {
         id: id.clone(),
-        name: format!("Terminal {}", state.session_name_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed)),
-        shell_cmd: resolved_shell.clone(),
-        cwd: resolved_cwd.clone(),
+        name: name.to_string(),
+        shell_cmd: shell_cmd.to_string(),
+        cwd: cwd.to_string(),
         state: SessionState::Running,
         master: sync_master,
         writer: sync_writer,
@@ -366,26 +345,11 @@ pub(crate) async fn handle_create_session(
         silence_threshold_secs: 30,
     };
 
-    let list = {
+    {
         let mut guard = sessions.lock();
         guard.insert(id.clone(), session);
-        // Increment total sessions counter
-        state.sessions_total.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        info!(session_id = %id, shell = %resolved_shell, cwd = %resolved_cwd, event = "session_created", "Session lifecycle: created");
-        guard.values().map(|s| SessionInfo {
-            id: s.id.clone(),
-            name: s.name.clone(),
-            shell: s.shell_cmd.clone(),
-            cwd: s.cwd.clone(),
-            started_at: "now".to_string(),
-            state: Some(s.state.display_name().to_string()),
-            foreground_process: s.foreground_process.clone(),
-            last_activity_at: s.last_output_at.lock().map(|_| "now".to_string()),
-            exit_code: s.exit_code,
-        }).collect::<Vec<_>>()
-    };
-    // Persist session state after creation
-    persistence::persist_if_enabled(state.persist_sessions, &state.session_file_path, sessions);
+        info!(session_id = %id, shell = %shell_cmd, cwd = %cwd, event = "session_created", "Session lifecycle: created");
+    }
 
     // Spawn a task that listens for the Exited event and transitions the session state.
     // This ensures the state transition happens even if no client is attached.
@@ -402,7 +366,83 @@ pub(crate) async fn handle_create_session(
         }
     });
 
+    Ok(id)
+}
+
+/// Handle ListSessions message.
+#[instrument(skip(tx_out, sessions))]
+pub(crate) async fn handle_list_sessions(
+    tx_out: &mpsc::Sender<ServerMessage>,
+    sessions: &SessionMap,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let list = build_session_list(sessions);
     tx_out.send(ServerMessage::SessionList { sessions: list }).await?;
+    Ok(())
+}
+
+/// Handle CreateSession message.
+#[allow(clippy::too_many_arguments)]
+#[instrument(skip(env, tx_out, sessions, state), fields(shell = %shell, cwd = %cwd, cols = cols, rows = rows))]
+pub(crate) async fn handle_create_session(
+    cwd: &str,
+    shell: &str,
+    env: &HashMap<String, String>,
+    cols: u16,
+    rows: u16,
+    tx_out: &mpsc::Sender<ServerMessage>,
+    sessions: &SessionMap,
+    state: &AppState,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Resolve shell - use system default if empty
+    let resolved_shell = resolve_shell(shell);
+    // Resolve cwd - use home directory if empty or "/"
+    let resolved_cwd = resolve_cwd(cwd);
+
+    // Validate shell against whitelist before spawning
+    if let Some(error_msg) = validate_shell(&resolved_shell) {
+        tx_out.send(ServerMessage::Error { message: error_msg, error_code: Some("INVALID_INPUT".to_string()) }).await?;
+        return Ok(());
+    }
+
+    // Validate working directory
+    if let Some(error_msg) = validate_cwd(&resolved_cwd) {
+        tx_out.send(ServerMessage::Error { message: error_msg, error_code: Some("INVALID_INPUT".to_string()) }).await?;
+        return Ok(());
+    }
+
+    // Clamp dimensions to valid range (1-500)
+    let cols = clamp_dimension(cols, "cols");
+    let rows = clamp_dimension(rows, "rows");
+
+    let name = format!("Terminal {}", state.session_name_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+
+    // Map to Result<String, String> so the non-Send error is dropped before any .await
+    let result = create_session_core(
+        None,
+        &name,
+        &resolved_shell,
+        &resolved_cwd,
+        cols, rows,
+        env,
+        sessions,
+        state.mock_provider.as_ref(),
+        None,
+    ).map_err(|e| format!("Failed to create session: {}", e));
+
+    match result {
+        Ok(_id) => {
+            state.sessions_total.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let list = build_session_list(sessions);
+            tx_out.send(ServerMessage::SessionList { sessions: list }).await?;
+        }
+        Err(msg) => {
+            tx_out.send(ServerMessage::Error {
+                message: msg,
+                error_code: Some("SESSION_ERROR".to_string()),
+            }).await?;
+        }
+    }
+
     Ok(())
 }
 
@@ -436,12 +476,12 @@ pub(crate) async fn handle_rename_session(
 }
 
 /// Handle KillSession message.
-#[instrument(skip(tx_out, sessions, state), fields(session_id = %session_id))]
+#[instrument(skip(tx_out, sessions, _state), fields(session_id = %session_id))]
 pub(crate) async fn handle_kill_session(
     session_id: &str,
     tx_out: &mpsc::Sender<ServerMessage>,
     sessions: &SessionMap,
-    state: &AppState,
+    _state: &AppState,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (was_removed, list) = {
         let mut guard = sessions.lock();
@@ -462,8 +502,9 @@ pub(crate) async fn handle_kill_session(
 
     if was_removed {
         info!(session_id = %session_id, event = "session_killed", "Session lifecycle: killed");
-        // Persist session state after kill
-        persistence::persist_if_enabled(state.persist_sessions, &state.session_file_path, sessions);
+        // Delete history file and update metadata
+        persistence::delete_history(session_id);
+        persistence::persist_all(sessions);
         tx_out.send(ServerMessage::SessionClosed { session_id: session_id.to_string() }).await?;
         tx_out.send(ServerMessage::SessionList { sessions: list }).await?;
     }

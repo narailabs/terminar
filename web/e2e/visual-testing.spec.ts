@@ -42,7 +42,7 @@ test.describe('Visual Rendering Tests', () => {
     };
 
     await page.goto('/');
-    await expect(page.locator('.xterm-rows')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.xterm-rows').first()).toBeVisible({ timeout: 15000 });
     // Wait for terminal to fully initialize
     await page.waitForTimeout(500);
   });
