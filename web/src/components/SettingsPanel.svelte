@@ -1,6 +1,5 @@
 <script lang="ts">
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
-  import ColorPicker from './ColorPicker.svelte';
   import ThemeEditor from './ThemeEditor.svelte';
   import {
     addCustomUITheme,
@@ -13,8 +12,6 @@
   import { exportTheme, importTheme, type ExportedTheme } from '../lib/themeExport';
   import {
     settingsStore,
-    FONT_FAMILIES,
-    CURSOR_STYLES,
     DEFAULT_SETTINGS,
     type TerminalSettings,
   } from '../lib/settingsStore';
@@ -59,34 +56,6 @@
     if (event.target === event.currentTarget) {
       handleClose();
     }
-  }
-
-  function handleFontSizeChange(event: Event) {
-    const target = event.target as HTMLInputElement;
-    settingsStore.updateSetting('fontSize', parseInt(target.value, 10));
-  }
-
-  function handleFontFamilyChange(event: Event) {
-    const target = event.target as HTMLSelectElement;
-    settingsStore.updateSetting('fontFamily', target.value);
-  }
-
-  function handleFontColorChange(event: CustomEvent<string>) {
-    settingsStore.updateSetting('fontColor', event.detail);
-  }
-
-  function handleBackgroundColorChange(event: CustomEvent<string>) {
-    settingsStore.updateSetting('backgroundColor', event.detail);
-  }
-
-  function handleCursorStyleChange(event: Event) {
-    const target = event.target as HTMLSelectElement;
-    settingsStore.updateSetting('cursorStyle', target.value as 'block' | 'underline' | 'bar');
-  }
-
-  function handleCursorBlinkChange(event: Event) {
-    const target = event.target as HTMLInputElement;
-    settingsStore.updateSetting('cursorBlink', target.checked);
   }
 
   function handlePaneTitleBarsChange(event: Event) {
@@ -340,84 +309,6 @@
           </div>
         {/if}
 
-        <!-- Font Size -->
-        <div class="setting-group">
-          <label for="fontSize">
-            Font Size: <span class="value">{settings.fontSize}px</span>
-          </label>
-          <input
-            type="range"
-            id="fontSize"
-            min="10"
-            max="24"
-            step="1"
-            value={settings.fontSize}
-            on:input={handleFontSizeChange}
-          />
-        </div>
-
-        <!-- Font Family -->
-        <div class="setting-group">
-          <label for="fontFamily">Font Family</label>
-          <select
-            id="fontFamily"
-            value={settings.fontFamily}
-            on:change={handleFontFamilyChange}
-          >
-            {#each FONT_FAMILIES as font}
-              <option value={font}>{font}</option>
-            {/each}
-          </select>
-        </div>
-
-        <!-- Font Color -->
-        <div class="setting-group">
-          <ColorPicker
-            id="fontColor"
-            label="Font Color"
-            value={settings.fontColor}
-            on:change={handleFontColorChange}
-          />
-        </div>
-
-        <!-- Background Color -->
-        <div class="setting-group">
-          <ColorPicker
-            id="backgroundColor"
-            label="Background Color"
-            value={settings.backgroundColor}
-            on:change={handleBackgroundColorChange}
-          />
-        </div>
-
-        <!-- Cursor Style -->
-        <div class="setting-group">
-          <label for="cursorStyle">Cursor Style</label>
-          <select
-            id="cursorStyle"
-            value={settings.cursorStyle}
-            on:change={handleCursorStyleChange}
-          >
-            {#each CURSOR_STYLES as style}
-              <option value={style}>{style.charAt(0).toUpperCase() + style.slice(1)}</option>
-            {/each}
-          </select>
-        </div>
-
-        <!-- Cursor Blink -->
-        <div class="setting-group toggle-group">
-          <label for="cursorBlink">Cursor Blink</label>
-          <label class="toggle">
-            <input
-              type="checkbox"
-              id="cursorBlink"
-              checked={settings.cursorBlink}
-              on:change={handleCursorBlinkChange}
-            />
-            <span class="slider"></span>
-          </label>
-        </div>
-
         <!-- Pane Title Bars -->
         <div class="setting-group toggle-group">
           <label for="showPaneTitleBars">Pane Title Bars</label>
@@ -593,12 +484,6 @@
     font-weight: 500;
   }
 
-  .setting-group .value {
-    color: var(--ui-text-primary, #cccccc);
-    font-weight: 400;
-    margin-left: 4px;
-  }
-
   .setting-group select {
     padding: 8px 12px;
     background: var(--ui-bg-tertiary, #3c3c3c);
@@ -612,40 +497,6 @@
   .setting-group select:focus {
     outline: none;
     border-color: var(--ui-accent, #0e639c);
-  }
-
-  .setting-group input[type="range"] {
-    width: 100%;
-    height: 4px;
-    -webkit-appearance: none;
-    appearance: none;
-    background: var(--ui-bg-tertiary, #3c3c3c);
-    border-radius: 2px;
-    outline: none;
-  }
-
-  .setting-group input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 16px;
-    height: 16px;
-    background: var(--ui-accent, #0e639c);
-    border-radius: 50%;
-    cursor: pointer;
-    transition: background 0.15s;
-  }
-
-  .setting-group input[type="range"]::-webkit-slider-thumb:hover {
-    background: var(--ui-accent-hover, #1177bb);
-  }
-
-  .setting-group input[type="range"]::-moz-range-thumb {
-    width: 16px;
-    height: 16px;
-    background: var(--ui-accent, #0e639c);
-    border-radius: 50%;
-    cursor: pointer;
-    border: none;
   }
 
   .toggle-group {

@@ -7,8 +7,6 @@ import { themeState, getActiveTerminalTheme } from './themeStore';
 export interface TerminalSettings {
   fontSize: number;        // 10-24px, default 14
   fontFamily: string;      // Menlo, Monaco, Consolas, Fira Code, JetBrains Mono
-  fontColor: string;       // hex color, default #cccccc
-  backgroundColor: string; // hex color, default #1e1e1e
   cursorStyle: 'block' | 'underline' | 'bar';
   cursorBlink: boolean;    // default true
   lineHeight: number;      // 1.0-2.0, default 1.0
@@ -23,8 +21,6 @@ export interface TerminalSettings {
 export const DEFAULT_SETTINGS: TerminalSettings = {
   fontSize: 14,
   fontFamily: 'Menlo',
-  fontColor: '#cccccc',
-  backgroundColor: '#1e1e1e',
   cursorStyle: 'block',
   cursorBlink: true,
   lineHeight: 1.0,
@@ -32,82 +28,6 @@ export const DEFAULT_SETTINGS: TerminalSettings = {
   showStatusBar: true,
   autoScroll: true,
 };
-
-/**
- * ANSI color palettes from VS Code's terminalColorRegistry.ts
- * These ensure TUI apps render correctly on both light and dark backgrounds
- */
-const ANSI_COLORS_DARK = {
-  black: '#000000',
-  red: '#cd3131',
-  green: '#0DBC79',
-  yellow: '#e5e510',
-  blue: '#2472c8',
-  magenta: '#bc3fbc',
-  cyan: '#11a8cd',
-  white: '#e5e5e5',
-  brightBlack: '#666666',
-  brightRed: '#f14c4c',
-  brightGreen: '#23d18b',
-  brightYellow: '#f5f543',
-  brightBlue: '#3b8eea',
-  brightMagenta: '#d670d6',
-  brightCyan: '#29b8db',
-  brightWhite: '#e5e5e5',
-};
-
-const ANSI_COLORS_LIGHT = {
-  black: '#000000',
-  red: '#cd3131',
-  green: '#107C10',
-  yellow: '#949800',
-  blue: '#0451a5',
-  magenta: '#bc05bc',
-  cyan: '#0598bc',
-  white: '#555555',
-  brightBlack: '#666666',
-  brightRed: '#cd3131',
-  brightGreen: '#14CE14',
-  brightYellow: '#b5ba00',
-  brightBlue: '#0451a5',
-  brightMagenta: '#bc05bc',
-  brightCyan: '#0598bc',
-  brightWhite: '#a5a5a5',
-};
-
-/**
- * Calculate relative luminance of a hex color
- * Used to determine if a background is light or dark
- */
-function getLuminance(hexColor: string): number {
-  const hex = hexColor.replace('#', '');
-  const r = parseInt(hex.substring(0, 2), 16) / 255;
-  const g = parseInt(hex.substring(2, 4), 16) / 255;
-  const b = parseInt(hex.substring(4, 6), 16) / 255;
-
-  // Convert to linear RGB
-  const toLinear = (c: number) => c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-  const rLin = toLinear(r);
-  const gLin = toLinear(g);
-  const bLin = toLinear(b);
-
-  // Calculate luminance
-  return 0.2126 * rLin + 0.7152 * gLin + 0.0722 * bLin;
-}
-
-/**
- * Determine if a background color is light or dark
- */
-function isLightBackground(backgroundColor: string): boolean {
-  return getLuminance(backgroundColor) > 0.5;
-}
-
-/**
- * Get appropriate ANSI colors based on background brightness
- */
-function getAnsiColors(backgroundColor: string) {
-  return isLightBackground(backgroundColor) ? ANSI_COLORS_LIGHT : ANSI_COLORS_DARK;
-}
 
 /**
  * Available font family options
