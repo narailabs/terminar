@@ -9,6 +9,7 @@
     getActiveUITheme,
     getActiveTerminalTheme,
   } from '../lib/themeStore';
+  import type { UITheme, TerminalTheme } from '../lib/themeTypes';
   import { exportTheme, importTheme, type ExportedTheme } from '../lib/themeExport';
   import {
     settingsStore,
@@ -90,17 +91,56 @@
   }
 
   let showThemeEditor = false;
+  let editUITheme: UITheme | null = null;
+  let editTerminalTheme: TerminalTheme | null = null;
+
+  interface GroupedCustomTheme {
+    name: string;
+    uiTheme: UITheme;
+    terminalTheme: TerminalTheme;
+  }
+
+  $: groupedCustomThemes = (() => {
+    const groups: GroupedCustomTheme[] = [];
+    for (const ui of $themeState.customUIThemes) {
+      const term = $themeState.customTerminalThemes.find(t => t.name === ui.name);
+      if (term) {
+        groups.push({ name: ui.name, uiTheme: ui, terminalTheme: term });
+      }
+    }
+    return groups;
+  })();
+
+  // Custom themes that don't have a matching pair (orphaned)
+  $: orphanedUIThemes = $themeState.customUIThemes.filter(
+    ui => !$themeState.customTerminalThemes.some(t => t.name === ui.name)
+  );
+  $: orphanedTerminalThemes = $themeState.customTerminalThemes.filter(
+    t => !$themeState.customUIThemes.some(ui => ui.name === t.name)
+  );
 
   function handleCreateTheme() {
+    editUITheme = null;
+    editTerminalTheme = null;
+    showThemeEditor = true;
+  }
+
+  function handleEditTheme(uiTheme: UITheme, terminalTheme: TerminalTheme) {
+    editUITheme = uiTheme;
+    editTerminalTheme = terminalTheme;
     showThemeEditor = true;
   }
 
   function handleThemeEditorClose() {
     showThemeEditor = false;
+    editUITheme = null;
+    editTerminalTheme = null;
   }
 
   function handleThemeEditorSave() {
     showThemeEditor = false;
+    editUITheme = null;
+    editTerminalTheme = null;
   }
 
   function handleExportTheme() {
@@ -288,21 +328,34 @@
           <button class="theme-action-btn" on:click={handleImportTheme}>Import</button>
         </div>
 
-        <!-- Custom Theme Deletion -->
-        {#if $themeState.customUIThemes.length > 0 || $themeState.customTerminalThemes.length > 0}
+        <!-- Custom Themes -->
+        {#if groupedCustomThemes.length > 0 || orphanedUIThemes.length > 0 || orphanedTerminalThemes.length > 0}
           <div class="setting-group">
             <label>Custom Themes</label>
             <div class="custom-theme-list">
-              {#each $themeState.customUIThemes as theme}
+              {#each groupedCustomThemes as group}
                 <div class="custom-theme-item">
-                  <span>{theme.name} (UI)</span>
-                  <button class="delete-theme-btn" on:click={() => handleDeleteUITheme(theme.id)}>×</button>
+                  <span>{group.name}</span>
+                  <div class="custom-theme-actions">
+                    <button class="edit-theme-btn" on:click={() => handleEditTheme(group.uiTheme, group.terminalTheme)}>Edit</button>
+                    <button class="delete-theme-btn" on:click={() => { handleDeleteUITheme(group.uiTheme.id); handleDeleteTerminalTheme(group.terminalTheme.id); }}>×</button>
+                  </div>
                 </div>
               {/each}
-              {#each $themeState.customTerminalThemes as theme}
+              {#each orphanedUIThemes as theme}
+                <div class="custom-theme-item">
+                  <span>{theme.name} (UI)</span>
+                  <div class="custom-theme-actions">
+                    <button class="delete-theme-btn" on:click={() => handleDeleteUITheme(theme.id)}>×</button>
+                  </div>
+                </div>
+              {/each}
+              {#each orphanedTerminalThemes as theme}
                 <div class="custom-theme-item">
                   <span>{theme.name} (Terminal)</span>
-                  <button class="delete-theme-btn" on:click={() => handleDeleteTerminalTheme(theme.id)}>×</button>
+                  <div class="custom-theme-actions">
+                    <button class="delete-theme-btn" on:click={() => handleDeleteTerminalTheme(theme.id)}>×</button>
+                  </div>
                 </div>
               {/each}
             </div>
@@ -398,7 +451,7 @@
   </div>
 {/if}
 
-<ThemeEditor isOpen={showThemeEditor} on:close={handleThemeEditorClose} on:save={handleThemeEditorSave} />
+<ThemeEditor isOpen={showThemeEditor} {editUITheme} {editTerminalTheme} on:close={handleThemeEditorClose} on:save={handleThemeEditorSave} />
 
 <style>
   .modal-backdrop {
@@ -610,6 +663,27 @@
     border-radius: 4px;
     font-size: 12px;
     color: var(--ui-text-primary, #ccc);
+  }
+
+  .custom-theme-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .edit-theme-btn {
+    background: none;
+    border: none;
+    color: var(--ui-text-muted, #888);
+    cursor: pointer;
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 2px;
+  }
+
+  .edit-theme-btn:hover {
+    color: var(--ui-accent, #0e639c);
+    background: var(--ui-bg-hover, #4a4a4a);
   }
 
   .delete-theme-btn {

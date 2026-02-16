@@ -4,6 +4,8 @@
   import {
     addCustomUITheme,
     addCustomTerminalTheme,
+    updateCustomUITheme,
+    updateCustomTerminalTheme,
   } from '../lib/themeStore';
   import {
     settingsStore,
@@ -20,8 +22,12 @@
   } from '../lib/themeTypes';
 
   export let isOpen: boolean = false;
+  export let editUITheme: UITheme | null = null;
+  export let editTerminalTheme: TerminalTheme | null = null;
 
   const dispatch = createEventDispatcher<{ close: void; save: void }>();
+
+  $: isEditMode = editUITheme !== null && editTerminalTheme !== null;
 
   let themeName = '';
   let baseThemeId = 'dark';
@@ -46,9 +52,17 @@
     selectionBackground = baseTerm.selectionBackground;
   }
 
-  // Initialize colors when editor opens or base theme changes
+  // Initialize colors when editor opens
   $: if (isOpen) {
-    initColorsFromBase();
+    if (editTerminalTheme) {
+      themeName = editTerminalTheme.name;
+      foreground = editTerminalTheme.foreground;
+      background = editTerminalTheme.background;
+      cursor = editTerminalTheme.cursor;
+      selectionBackground = editTerminalTheme.selectionBackground;
+    } else {
+      initColorsFromBase();
+    }
   }
 
   // When base theme changes while editor is open, re-initialize
@@ -71,29 +85,49 @@
   function handleSave() {
     if (!themeName.trim()) return;
 
-    const baseUI = BUILT_IN_UI_THEMES.find(t => t.id === baseThemeId) ?? BUILT_IN_UI_THEMES[0];
-    const baseTerm = BUILT_IN_TERMINAL_THEMES.find(t => t.id === baseThemeId) ?? BUILT_IN_TERMINAL_THEMES[0];
+    if (isEditMode && editUITheme && editTerminalTheme) {
+      const updatedUI: UITheme = {
+        ...editUITheme,
+        name: themeName.trim(),
+      };
 
-    const customUI: UITheme = {
-      ...baseUI,
-      id: generateId(),
-      name: themeName.trim(),
-    };
+      const updatedTerm: TerminalTheme = {
+        ...editTerminalTheme,
+        name: themeName.trim(),
+        foreground,
+        background,
+        cursor,
+        cursorAccent: background,
+        selectionBackground,
+      };
 
-    const customTerm: TerminalTheme = {
-      ...baseTerm,
-      id: generateId(),
-      name: themeName.trim(),
-      foreground,
-      background,
-      cursor,
-      cursorAccent: background,
-      selectionBackground,
-      ansi: { ...baseTerm.ansi },
-    };
+      updateCustomUITheme(editUITheme.id, updatedUI);
+      updateCustomTerminalTheme(editTerminalTheme.id, updatedTerm);
+    } else {
+      const baseUI = BUILT_IN_UI_THEMES.find(t => t.id === baseThemeId) ?? BUILT_IN_UI_THEMES[0];
+      const baseTerm = BUILT_IN_TERMINAL_THEMES.find(t => t.id === baseThemeId) ?? BUILT_IN_TERMINAL_THEMES[0];
 
-    addCustomUITheme(customUI);
-    addCustomTerminalTheme(customTerm);
+      const customUI: UITheme = {
+        ...baseUI,
+        id: generateId(),
+        name: themeName.trim(),
+      };
+
+      const customTerm: TerminalTheme = {
+        ...baseTerm,
+        id: generateId(),
+        name: themeName.trim(),
+        foreground,
+        background,
+        cursor,
+        cursorAccent: background,
+        selectionBackground,
+        ansi: { ...baseTerm.ansi },
+      };
+
+      addCustomUITheme(customUI);
+      addCustomTerminalTheme(customTerm);
+    }
 
     themeName = '';
     baseThemeId = 'dark';
@@ -154,7 +188,7 @@
   <div class="modal-backdrop" on:click={handleBackdropClick} role="dialog" aria-modal="true">
     <div class="editor-panel">
       <div class="panel-header">
-        <h2>Create Custom Theme</h2>
+        <h2>{isEditMode ? 'Edit Custom Theme' : 'Create Custom Theme'}</h2>
       </div>
 
       <div class="panel-content">
@@ -168,14 +202,16 @@
           />
         </div>
 
-        <div class="field">
-          <label for="baseTheme">Base Theme</label>
-          <select id="baseTheme" value={baseThemeId} on:change={handleBaseThemeChange}>
-            {#each BUILT_IN_UI_THEMES as theme}
-              <option value={theme.id}>{theme.name}</option>
-            {/each}
-          </select>
-        </div>
+        {#if !isEditMode}
+          <div class="field">
+            <label for="baseTheme">Base Theme</label>
+            <select id="baseTheme" value={baseThemeId} on:change={handleBaseThemeChange}>
+              {#each BUILT_IN_UI_THEMES as theme}
+                <option value={theme.id}>{theme.name}</option>
+              {/each}
+            </select>
+          </div>
+        {/if}
 
         <div class="section-label">Terminal Colors</div>
 
