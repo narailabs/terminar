@@ -27,10 +27,11 @@
 
   // Helper: collect all sessionIds from a split tree
   function collectSessionIds(node: SplitNode): string[] {
+    if (!node) return [];
     if (node.type === 'pane') {
       return node.sessionId ? [node.sessionId] : [];
     }
-    return node.children.flatMap(collectSessionIds);
+    return (node.children || []).flatMap(collectSessionIds);
   }
 
   // Compute tab indicator maps from stores (reactive)

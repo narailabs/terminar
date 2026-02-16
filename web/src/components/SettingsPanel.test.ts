@@ -22,6 +22,7 @@ import {
   setActiveTerminalTheme,
 } from '../lib/themeStore';
 import { BUILT_IN_UI_THEMES, BUILT_IN_TERMINAL_THEMES } from '../lib/themeTypes';
+import { settingsStore, DEFAULT_SETTINGS } from '../lib/settingsStore';
 
 describe('SettingsPanel - Theme Selectors', () => {
   beforeEach(() => {
@@ -154,5 +155,190 @@ describe('SettingsPanel - Scrolling Layout', () => {
     expect(headerIdx).toBeGreaterThanOrEqual(0);
     expect(contentIdx).toBeGreaterThan(headerIdx);
     expect(footerIdx).toBeGreaterThan(contentIdx);
+  });
+});
+
+describe('SettingsPanel - Settings Controls', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorageMock.clear();
+    setActiveUITheme('dark');
+    setActiveTerminalTheme('dark');
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('Escape key dispatches close event', async () => {
+    const closeFn = vi.fn();
+    render(SettingsPanel, {
+      props: { isOpen: true },
+      events: { close: closeFn },
+    });
+    await fireEvent.keyDown(document, { key: 'Escape' });
+    expect(closeFn).toHaveBeenCalled();
+  });
+
+  it('backdrop click closes panel', async () => {
+    const closeFn = vi.fn();
+    render(SettingsPanel, {
+      props: { isOpen: true },
+      events: { close: closeFn },
+    });
+    const backdrop = document.querySelector('.modal-backdrop');
+    // Click the backdrop itself (not a child element)
+    await fireEvent.click(backdrop!);
+    expect(closeFn).toHaveBeenCalled();
+  });
+
+  it('clicking inside settings panel does not close via backdrop', async () => {
+    const closeFn = vi.fn();
+    render(SettingsPanel, {
+      props: { isOpen: true },
+      events: { close: closeFn },
+    });
+    const panel = document.querySelector('.settings-panel');
+    await fireEvent.click(panel!);
+    expect(closeFn).not.toHaveBeenCalled();
+  });
+
+  it('font size slider updates settingsStore', async () => {
+    const spy = vi.spyOn(settingsStore, 'updateSetting');
+    render(SettingsPanel, { props: { isOpen: true } });
+    const slider = document.querySelector('#fontSize') as HTMLInputElement;
+    expect(slider).toBeTruthy();
+    await fireEvent.input(slider, { target: { value: '18' } });
+    expect(spy).toHaveBeenCalledWith('fontSize', 18);
+    spy.mockRestore();
+  });
+
+  it('font family select updates settingsStore', async () => {
+    const spy = vi.spyOn(settingsStore, 'updateSetting');
+    render(SettingsPanel, { props: { isOpen: true } });
+    const select = document.querySelector('#fontFamily') as HTMLSelectElement;
+    expect(select).toBeTruthy();
+    await fireEvent.change(select, { target: { value: 'Fira Code' } });
+    expect(spy).toHaveBeenCalledWith('fontFamily', 'Fira Code');
+    spy.mockRestore();
+  });
+
+  it('cursor style select updates settingsStore', async () => {
+    const spy = vi.spyOn(settingsStore, 'updateSetting');
+    render(SettingsPanel, { props: { isOpen: true } });
+    const select = document.querySelector('#cursorStyle') as HTMLSelectElement;
+    expect(select).toBeTruthy();
+    await fireEvent.change(select, { target: { value: 'bar' } });
+    expect(spy).toHaveBeenCalledWith('cursorStyle', 'bar');
+    spy.mockRestore();
+  });
+
+  it('cursor blink checkbox toggle updates settingsStore', async () => {
+    const spy = vi.spyOn(settingsStore, 'updateSetting');
+    render(SettingsPanel, { props: { isOpen: true } });
+    const checkbox = document.querySelector('#cursorBlink') as HTMLInputElement;
+    expect(checkbox).toBeTruthy();
+    await fireEvent.change(checkbox, { target: { checked: false } });
+    expect(spy).toHaveBeenCalledWith('cursorBlink', false);
+    spy.mockRestore();
+  });
+
+  it('pane title bars checkbox toggle updates settingsStore', async () => {
+    const spy = vi.spyOn(settingsStore, 'updateSetting');
+    render(SettingsPanel, { props: { isOpen: true } });
+    const checkbox = document.querySelector('#showPaneTitleBars') as HTMLInputElement;
+    expect(checkbox).toBeTruthy();
+    await fireEvent.change(checkbox, { target: { checked: false } });
+    expect(spy).toHaveBeenCalledWith('showPaneTitleBars', false);
+    spy.mockRestore();
+  });
+
+  it('status bar checkbox toggle updates settingsStore', async () => {
+    const spy = vi.spyOn(settingsStore, 'updateSetting');
+    render(SettingsPanel, { props: { isOpen: true } });
+    const checkbox = document.querySelector('#showStatusBar') as HTMLInputElement;
+    expect(checkbox).toBeTruthy();
+    await fireEvent.change(checkbox, { target: { checked: false } });
+    expect(spy).toHaveBeenCalledWith('showStatusBar', false);
+    spy.mockRestore();
+  });
+
+  it('auto-scroll checkbox toggle updates settingsStore', async () => {
+    const spy = vi.spyOn(settingsStore, 'updateSetting');
+    render(SettingsPanel, { props: { isOpen: true } });
+    const checkbox = document.querySelector('#autoScroll') as HTMLInputElement;
+    expect(checkbox).toBeTruthy();
+    await fireEvent.change(checkbox, { target: { checked: false } });
+    expect(spy).toHaveBeenCalledWith('autoScroll', false);
+    spy.mockRestore();
+  });
+
+  it('Reset button calls settingsStore.reset()', async () => {
+    const spy = vi.spyOn(settingsStore, 'reset');
+    render(SettingsPanel, { props: { isOpen: true } });
+    const resetBtn = screen.getByText('Reset to Defaults');
+    expect(resetBtn).toBeTruthy();
+    await fireEvent.click(resetBtn);
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('keybinding badge shows "Press keys..." when recording', async () => {
+    render(SettingsPanel, { props: { isOpen: true } });
+    // Find the first keybinding badge button and click it to start recording
+    const badges = document.querySelectorAll('.keybinding-badge');
+    expect(badges.length).toBeGreaterThan(0);
+    await fireEvent.click(badges[0]);
+    // After clicking, should show "Press keys..." with .recording class
+    const recordingBadge = document.querySelector('.keybinding-badge.recording');
+    expect(recordingBadge).toBeTruthy();
+    expect(recordingBadge!.textContent).toContain('Press keys...');
+  });
+
+  it('Escape cancels keybinding recording', async () => {
+    render(SettingsPanel, { props: { isOpen: true } });
+    // Start recording by clicking a keybinding badge
+    const badges = document.querySelectorAll('.keybinding-badge');
+    expect(badges.length).toBeGreaterThan(0);
+    await fireEvent.click(badges[0]);
+    // Verify recording started
+    expect(document.querySelector('.keybinding-badge.recording')).toBeTruthy();
+    // Press Escape to cancel
+    await fireEvent.keyDown(document, { key: 'Escape' });
+    // Recording badge should be gone
+    expect(document.querySelector('.keybinding-badge.recording')).toBeFalsy();
+  });
+
+  it('Create Theme button exists and clicking shows ThemeEditor', async () => {
+    render(SettingsPanel, { props: { isOpen: true } });
+    const createBtn = screen.getByText('Create Theme');
+    expect(createBtn).toBeTruthy();
+    await fireEvent.click(createBtn);
+    // ThemeEditor renders a modal with its own backdrop when open
+    // Check that the ThemeEditor component appeared in the DOM
+    const themeEditorPanels = document.querySelectorAll('.editor-panel');
+    expect(themeEditorPanels.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('close button in header dispatches close event', async () => {
+    const closeFn = vi.fn();
+    render(SettingsPanel, {
+      props: { isOpen: true },
+      events: { close: closeFn },
+    });
+    const closeBtn = document.querySelector('.close-btn') as HTMLButtonElement;
+    expect(closeBtn).toBeTruthy();
+    await fireEvent.click(closeBtn);
+    expect(closeFn).toHaveBeenCalled();
+  });
+
+  it('font size slider has correct min and max attributes', () => {
+    render(SettingsPanel, { props: { isOpen: true } });
+    const slider = document.querySelector('#fontSize') as HTMLInputElement;
+    expect(slider).toBeTruthy();
+    expect(slider.min).toBe('10');
+    expect(slider.max).toBe('24');
+    expect(slider.step).toBe('1');
+    expect(slider.type).toBe('range');
   });
 });

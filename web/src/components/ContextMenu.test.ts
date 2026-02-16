@@ -392,6 +392,10 @@ describe('Close Button Popup - Detach & Terminate', () => {
   let mockManager: ReturnType<typeof createMockManager>;
   let paneId: string;
 
+  const testSessions = [
+    { id: 'session-1', name: 'bash', shell: '/bin/bash', cwd: '/tmp', started_at: '2024-01-01T00:00:00Z' },
+  ];
+
   beforeEach(() => {
     vi.clearAllMocks();
     mockManager = createMockManager();
@@ -406,7 +410,7 @@ describe('Close Button Popup - Detach & Terminate', () => {
 
   it('should show close button (x) in the pane title bar', () => {
     render(WorkspaceView, {
-      props: { manager: mockManager, availableSessions: [] },
+      props: { manager: mockManager, availableSessions: [], initialSessions: testSessions },
     });
 
     const closeBtn = document.querySelector('.close-btn');
@@ -416,7 +420,7 @@ describe('Close Button Popup - Detach & Terminate', () => {
 
   it('should show popup with Detach and Terminate when close button is clicked', async () => {
     render(WorkspaceView, {
-      props: { manager: mockManager, availableSessions: [] },
+      props: { manager: mockManager, availableSessions: [], initialSessions: testSessions },
     });
 
     const closeBtn = document.querySelector('.close-btn')!;
@@ -430,7 +434,7 @@ describe('Close Button Popup - Detach & Terminate', () => {
 
   it('should toggle popup off when close button is clicked again', async () => {
     const { container } = render(WorkspaceView, {
-      props: { manager: mockManager, availableSessions: [] },
+      props: { manager: mockManager, availableSessions: [], initialSessions: testSessions },
     });
 
     const closeBtn = container.querySelector('.close-btn')!;
@@ -446,7 +450,7 @@ describe('Close Button Popup - Detach & Terminate', () => {
     const closeSpy = vi.spyOn(workspaceStore, 'closePane');
 
     const { container } = render(WorkspaceView, {
-      props: { manager: mockManager, availableSessions: [] },
+      props: { manager: mockManager, availableSessions: [], initialSessions: testSessions },
     });
 
     const closeBtn = container.querySelector('.close-btn')!;
@@ -462,7 +466,7 @@ describe('Close Button Popup - Detach & Terminate', () => {
     const closeSpy = vi.spyOn(workspaceStore, 'closePane');
 
     const { container } = render(WorkspaceView, {
-      props: { manager: mockManager, availableSessions: [] },
+      props: { manager: mockManager, availableSessions: [], initialSessions: testSessions },
     });
 
     const closeBtn = container.querySelector('.close-btn')!;
@@ -476,7 +480,7 @@ describe('Close Button Popup - Detach & Terminate', () => {
 
   it('should close popup when Escape is pressed', async () => {
     const { container } = render(WorkspaceView, {
-      props: { manager: mockManager, availableSessions: [] },
+      props: { manager: mockManager, availableSessions: [], initialSessions: testSessions },
     });
 
     const closeBtn = container.querySelector('.close-btn')!;
@@ -492,7 +496,7 @@ describe('Close Button Popup - Detach & Terminate', () => {
 
   it('should close popup when clicking outside', async () => {
     const { container } = render(WorkspaceView, {
-      props: { manager: mockManager, availableSessions: [] },
+      props: { manager: mockManager, availableSessions: [], initialSessions: testSessions },
     });
 
     const closeBtn = container.querySelector('.close-btn')!;
