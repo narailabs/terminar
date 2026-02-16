@@ -146,14 +146,6 @@
   const autoScroll = writable(true);
   let viewportElement: Element | null = null;
 
-  // Flag to suppress the generic scroll listener during term.write() calls.
-  // TUI apps (Gemini CLI, etc.) send cursor-positioning escape sequences that
-  // cause xterm to scroll the viewport to follow the cursor. Without this flag,
-  // the scroll listener sees we're no longer at bottom and disables auto-scroll,
-  // so the write callback skips scrollToBottom() and the terminal stays stuck
-  // at the cursor position (e.g., scrolled back up to a logo/spinner area).
-  let isWriting = false;
-
   // Threshold (px) for "close enough to bottom" — covers sub-pixel rounding.
   const BOTTOM_THRESHOLD = 5;
 
@@ -175,13 +167,9 @@
         autoScroll.set(false);
         // After the browser applies the scroll, check if viewport is still at
         // the bottom (e.g. tiny accidental trackpad gesture). If so, re-enable.
-        // Skip during active output: scrollToBottom() was likely just called,
-        // so isAtBottom() would return true and immediately undo the user's scroll-up.
-        if (!isOutputActive) {
-          requestAnimationFrame(() => {
-            if (isAtBottom()) autoScroll.set(true);
-          });
-        }
+        requestAnimationFrame(() => {
+          if (isAtBottom()) autoScroll.set(true);
+        });
       } else if (e.deltaY > 0 && !$autoScroll) {
         // User scrolling down → check if reached bottom AFTER browser applies scroll
         requestAnimationFrame(() => {
@@ -207,14 +195,7 @@
 
     // --- Scrollbar drag and any other scroll source ---
     // Covers cases not caught by wheel/keydown (e.g. scrollbar drag, touch).
-    // Suppressed during output to prevent a race condition:
-    //   term.write() callback sets isWriting=false, but xterm renders asynchronously
-    //   in a later frame. That rendering changes scrollHeight, firing scroll events
-    //   in the gap between writes where isWriting is false. isOutputActive covers
-    //   the entire output burst (stays true 500ms after last data), preventing
-    //   these spurious scroll events from disabling auto-scroll.
     viewportElement.addEventListener('scroll', () => {
-      if (isWriting || isOutputActive) return;
       if (isAtBottom()) {
         autoScroll.set(true);
       } else {
@@ -223,17 +204,9 @@
     }, { passive: true });
   }
 
-  // Serialize writes: only one term.write() in-flight at a time.
-  // Without this, concurrent writes make `isWriting` unreliable: write #1's
-  // callback sets isWriting=false while write #2 is still processing, opening
-  // a window where scroll events can incorrectly disable auto-scroll.
-  // Serializing also improves performance — data accumulates during the in-flight
-  // write and gets flushed in one large batch instead of many small writes.
-  let writeInFlight = false;
-
   function bufferedWrite(data: string) {
     writeBuffer += data;
-    if (writeRafId === null && !writeInFlight) {
+    if (writeRafId === null) {
       writeRafId = requestAnimationFrame(flushWriteBuffer);
     }
   }
@@ -245,17 +218,9 @@
     const data = writeBuffer;
     writeBuffer = '';
 
-    writeInFlight = true;
-    isWriting = true;
     term.write(data, () => {
-      isWriting = false;
-      writeInFlight = false;
       if ($autoScroll && $settingsStore.autoScroll && term) {
         term.scrollToBottom();
-      }
-      // If more data accumulated during this write, schedule next flush
-      if (writeBuffer && writeRafId === null) {
-        writeRafId = requestAnimationFrame(flushWriteBuffer);
       }
     });
   }
