@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render } from '@testing-library/svelte';
+import { render, fireEvent } from '@testing-library/svelte';
 import TerminalComp from './Terminal.svelte';
 
 // Use hoisted to have access to mock instances in tests
@@ -90,6 +90,17 @@ vi.mock('xterm', () => ({ Terminal: TerminalMock }));
 vi.mock('xterm-addon-fit', () => ({ FitAddon: FitAddonMock }));
 vi.mock('@xterm/addon-webgl', () => ({ WebglAddon: vi.fn() }));
 vi.mock('xterm-addon-unicode11', () => ({ Unicode11Addon: vi.fn() }));
+vi.mock('xterm-addon-search', () => ({
+  SearchAddon: vi.fn().mockImplementation(function() {
+    return {
+      dispose: vi.fn(),
+      findNext: vi.fn(),
+      findPrevious: vi.fn(),
+      clearDecorations: vi.fn(),
+      onDidChangeResults: vi.fn(),
+    };
+  }),
+}));
 
 // Mock ResizeObserver
 global.ResizeObserver = class {
@@ -263,5 +274,131 @@ describe('Terminal - No Width/Column Limiting', () => {
         listenerCount: vi.fn().mockReturnValue(0),
       };
     }
+  });
+});
+
+describe('Terminal - Session Management', () => {
+  let mockManager: any;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockManager = {
+      on: vi.fn(),
+      off: vi.fn(),
+      sendInput: vi.fn(),
+      resize: vi.fn(),
+      attach: vi.fn(),
+      listenerCount: vi.fn().mockReturnValue(0),
+    };
+  });
+
+  it('should clear and reset terminal when session switches', async () => {
+    const { rerender } = render(TerminalComp, { _managerProp: mockManager, activeSessionId: 'sess-1' });
+
+    // Wait for initial sizing to complete (triggers session attach)
+    await flushRAF();
+
+    // Clear mocks to isolate session switch behavior
+    vi.clearAllMocks();
+
+    // Switch session
+    await rerender({ _managerProp: mockManager, activeSessionId: 'sess-2' });
+
+    // Wait for reactive update to process
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(mockTerm.clear).toHaveBeenCalled();
+    expect(mockTerm.reset).toHaveBeenCalled();
+  });
+
+  it('should focus terminal when isActive transitions to true', async () => {
+    const { rerender } = render(TerminalComp, { _managerProp: mockManager, activeSessionId: 'sess-1', isActive: false });
+
+    // Wait for initial sizing
+    await flushRAF();
+
+    // Clear mocks to isolate focus behavior
+    vi.clearAllMocks();
+
+    // Transition isActive from false to true
+    await rerender({ _managerProp: mockManager, activeSessionId: 'sess-1', isActive: true });
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(mockTerm.focus).toHaveBeenCalled();
+  });
+
+  it('should not send input when isActive is false', async () => {
+    render(TerminalComp, { _managerProp: mockManager, activeSessionId: 'sess-1', isActive: false });
+
+    const onDataCallback = mockTerm.onData.mock.calls[0][0];
+    onDataCallback('ls\n');
+
+    expect(mockManager.sendInput).not.toHaveBeenCalled();
+  });
+
+  it('should batch multiple rapid outputs through bufferedWrite via RAF', async () => {
+    render(TerminalComp, { _managerProp: mockManager, activeSessionId: 'sess-1' });
+
+    // Wait for initial sizing to complete so output listener is active
+    await flushRAF();
+
+    // Find the output callback registered on the manager
+    const outputCallback = mockManager.on.mock.calls.find(
+      (c: [string, (...args: unknown[]) => void]) => c[0] === 'output'
+    );
+    expect(outputCallback).toBeTruthy();
+
+    // Clear mocks to isolate write behavior
+    mockTerm.write.mockClear();
+
+    // Send multiple rapid outputs before any RAF fires
+    outputCallback![1]('sess-1', 'line 1\n');
+    outputCallback![1]('sess-1', 'line 2\n');
+    outputCallback![1]('sess-1', 'line 3\n');
+
+    // Before RAF, term.write should NOT have been called yet
+    expect(mockTerm.write).not.toHaveBeenCalled();
+
+    // Flush RAF to trigger the batched write
+    await flushRAF();
+
+    // All three outputs should be coalesced into a single term.write call
+    expect(mockTerm.write).toHaveBeenCalledTimes(1);
+    expect(mockTerm.write.mock.calls[0][0]).toBe('line 1\nline 2\nline 3\n');
+  });
+});
+
+describe('Terminal - Auto-scroll Badge', () => {
+  let mockManager: any;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockManager = {
+      on: vi.fn(),
+      off: vi.fn(),
+      sendInput: vi.fn(),
+      resize: vi.fn(),
+      attach: vi.fn(),
+      listenerCount: vi.fn().mockReturnValue(0),
+    };
+  });
+
+  it('should have scroll-to-bottom badge hidden by default', () => {
+    const { container } = render(TerminalComp, { _managerProp: mockManager, activeSessionId: 'sess-1' });
+
+    const badge = container.querySelector('.scroll-to-bottom-badge');
+    expect(badge).toBeTruthy();
+    expect(badge?.classList.contains('visible')).toBe(false);
+  });
+
+  it('clicking scroll-to-bottom badge calls scrollToBottom', async () => {
+    const { container } = render(TerminalComp, { _managerProp: mockManager, activeSessionId: 'sess-1' });
+
+    const badge = container.querySelector('.scroll-to-bottom-badge')!;
+    expect(badge).toBeTruthy();
+
+    await fireEvent.click(badge);
+
+    expect(mockTerm.scrollToBottom).toHaveBeenCalled();
   });
 });

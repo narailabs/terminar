@@ -246,10 +246,12 @@
   // Focus xterm when this pane becomes active so keyboard input works immediately.
   // Track previous value to only focus on transition to active (not on every reactive tick).
   let wasActive = false;
-  $: if (isActive && term && !wasActive && !isNonTerminalFocused()) {
-    term.focus();
+  $: {
+    if (isActive && term && !wasActive && !isNonTerminalFocused()) {
+      term.focus();
+    }
+    wasActive = isActive;
   }
-  $: wasActive = isActive;
 
   // Subscribe to resize state - when resize ends and we have a pending fit, do it
   $: if (!$isResizing && pendingFit && term && fitAddon && resizeDebouncer) {

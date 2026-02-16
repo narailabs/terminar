@@ -9,9 +9,10 @@
 
   export let manager: SessionManager | null = null;
   export let availableSessions: { id: string; name?: string }[] = [];
+  export let initialSessions: SessionInfo[] = [];
 
   const managerStore = writable<SessionManager | null>(manager);
-  const sessionsStore = writable<SessionInfo[]>([]);
+  const sessionsStore = writable<SessionInfo[]>(initialSessions);
   setManagerContext(managerStore);
   setSessionsContext(sessionsStore);
   setActionsContext({
@@ -22,6 +23,7 @@
   });
 
   $: managerStore.set(manager);
+  $: sessionsStore.set(initialSessions);
 </script>
 
 <WorkspaceView {manager} {availableSessions} />

@@ -113,7 +113,7 @@
       const parsed = new URL(url);
       return parsed.hostname === 'localhost' ||
              parsed.hostname === '127.0.0.1' ||
-             parsed.hostname === '::1';
+             parsed.hostname === '[::1]';
     } catch {
       return false;
     }
@@ -716,8 +716,9 @@
 
     // Find the first pane's sessionId (simple approach)
     function findFirstPaneSession(node: any): string | null {
+      if (!node) return null;
       if (node.type === 'pane') return node.sessionId || null;
-      for (const child of node.children) {
+      for (const child of (node.children || [])) {
         const found = findFirstPaneSession(child);
         if (found) return found;
       }
