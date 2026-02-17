@@ -187,6 +187,11 @@ impl UserServerManager {
         Ok(socket_path)
     }
 
+    /// Return the number of currently tracked per-user servers.
+    pub async fn active_server_count(&self) -> usize {
+        self.servers.lock().await.len()
+    }
+
     /// Shut down servers that have been idle longer than `idle_timeout`.
     ///
     /// Called periodically by the gateway's background task.
