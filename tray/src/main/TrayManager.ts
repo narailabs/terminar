@@ -206,11 +206,7 @@ export class TrayManager {
     switch (id) {
       case 'open-webui': {
         const config = this.configStore.load();
-        const url =
-          config.tls_mode === 'off'
-            ? `http://localhost:${config.gateway_port}`
-            : `https://localhost:${config.tls_port}`;
-        void shell.openExternal(url);
+        void shell.openExternal(`http://localhost:${config.gateway_port}`);
         break;
       }
 
