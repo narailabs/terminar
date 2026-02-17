@@ -203,14 +203,18 @@
 
     // --- Scrollbar drag and any other scroll source ---
     // Covers cases not caught by wheel/keydown (e.g. scrollbar drag, touch).
+    //
+    // WARNING: DO NOT add isOutputActive guards or any other conditional logic
+    // here. This simple form has been broken and restored multiple times.
+    // The wheel handler above already handles scroll-up/down for mouse/trackpad
+    // regardless of output state. This listener must remain unconditional so
+    // that scrollbar drags and touch scrolls also work during active output.
+    // Adding guards (e.g. `if (isOutputActive) return`) causes scroll-up to
+    // stop working while commands are running. See git history for proof.
     viewportElement.addEventListener('scroll', () => {
       if (isAtBottom()) {
         autoScroll.set(true);
-      } else if (!isOutputActive) {
-        // Only disable auto-scroll from user-initiated scrolls.
-        // TUI apps (gemini-cli, etc.) send cursor-positioning escape sequences
-        // that cause xterm to scroll the viewport internally during term.write().
-        // Without this guard, those internal scrolls falsely disable auto-scroll.
+      } else {
         autoScroll.set(false);
       }
     }, { passive: true });
@@ -236,6 +240,10 @@
       }
     });
   }
+
+  // Minimum change in dimensions before we consider refitting
+  // This prevents micro-adjustments that disrupt TUI apps
+  const MIN_SIZE_CHANGE = 2;
 
   // How long to wait after output before marking output as inactive (ms)
   // TUI apps send rapid escape sequences - we need to let them finish
@@ -319,9 +327,13 @@
     const dims = getProposedDimensions();
     if (!dims) return;
 
-    // Skip if dimensions haven't changed at all (unless immediate)
-    if (!immediate && dims.cols === lastCols && dims.rows === lastRows) {
-      return;
+    // Skip if dimensions haven't changed significantly (unless immediate)
+    if (!immediate) {
+      const colChange = Math.abs(dims.cols - lastCols);
+      const rowChange = Math.abs(dims.rows - lastRows);
+      if (colChange < MIN_SIZE_CHANGE && rowChange < MIN_SIZE_CHANGE) {
+        return;
+      }
     }
 
     resizeDebouncer.resize(dims.cols, dims.rows, immediate);
