@@ -135,8 +135,11 @@
   // Without this, high-throughput programs (Claude Code, cat large-file, etc.) flood
   // xterm.js with many small write() calls per frame, overwhelming the rendering pipeline
   // and causing the terminal to appear frozen or not scroll to the bottom.
+  const WRITE_CHUNK_SIZE = 128 * 1024; // 128KB max per term.write() call
+  const MAX_BUFFER_SIZE = 2 * 1024 * 1024; // 2MB cap to prevent unbounded memory growth
   let writeBuffer = '';
   let writeRafId: number | null = null;
+  let writePending = false;
 
   // Auto-scroll tracking: we always scroll to bottom on new output UNLESS the user
   // has explicitly scrolled up (e.g., to read earlier output). This avoids a race
@@ -222,7 +225,15 @@
 
   function bufferedWrite(data: string) {
     writeBuffer += data;
-    if (writeRafId === null) {
+    // Cap buffer to prevent unbounded memory growth during heavy output
+    if (writeBuffer.length > MAX_BUFFER_SIZE) {
+      writeBuffer = writeBuffer.slice(-MAX_BUFFER_SIZE);
+    }
+    scheduleFlush();
+  }
+
+  function scheduleFlush() {
+    if (writeRafId === null && !writePending && writeBuffer) {
       writeRafId = requestAnimationFrame(flushWriteBuffer);
     }
   }
@@ -231,13 +242,22 @@
     writeRafId = null;
     if (!writeBuffer || !term) return;
 
-    const data = writeBuffer;
-    writeBuffer = '';
+    // Take at most WRITE_CHUNK_SIZE from the front of the buffer
+    const chunk = writeBuffer.length <= WRITE_CHUNK_SIZE
+      ? writeBuffer
+      : writeBuffer.slice(0, WRITE_CHUNK_SIZE);
+    writeBuffer = writeBuffer.length <= WRITE_CHUNK_SIZE
+      ? ''
+      : writeBuffer.slice(WRITE_CHUNK_SIZE);
 
-    term.write(data, () => {
+    writePending = true;
+    term.write(chunk, () => {
+      writePending = false;
       if ($autoScroll && $settingsStore.autoScroll && term) {
         term.scrollToBottom();
       }
+      // If there's more data in the buffer, schedule another flush
+      scheduleFlush();
     });
   }
 
@@ -717,6 +737,7 @@
     console.log(`[Terminal:${terminalInstanceId}] Destroying terminal component. Session: ${currentAttachedSessionId?.slice(0, 8)}`);
     if (writeRafId !== null) cancelAnimationFrame(writeRafId);
     writeBuffer = '';
+    writePending = false;
     if (resizeTimeout) clearTimeout(resizeTimeout);
     if (outputActivityTimeout) clearTimeout(outputActivityTimeout);
     if (resizeDebouncer) resizeDebouncer.dispose();
