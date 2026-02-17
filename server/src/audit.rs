@@ -7,6 +7,10 @@
 //! - **Verbose**: Connection open/close, reconnection attempts, token refreshes
 
 use serde::{Serialize, Deserialize};
+use std::path::PathBuf;
+use tokio::fs::OpenOptions;
+use tokio::io::AsyncWriteExt;
+use tokio::sync::mpsc;
 
 /// Verbosity level for audit logging.
 ///
@@ -140,6 +144,90 @@ impl Default for AuditEvent {
     }
 }
 
+/// Async audit logger that writes JSON-lines to a file via a background task.
+///
+/// Events are sent through an mpsc channel and written by a background tokio task
+/// using a buffered writer. The logger filters events based on the configured level.
+pub struct AuditLogger {
+    sender: mpsc::UnboundedSender<AuditEvent>,
+    flush_tx: mpsc::Sender<tokio::sync::oneshot::Sender<()>>,
+}
+
+impl AuditLogger {
+    /// Create a new AuditLogger that writes to the given file path.
+    ///
+    /// Events below the configured `level` are silently dropped.
+    /// The file is opened in append mode and created if it doesn't exist.
+    pub async fn new(path: PathBuf, level: AuditLevel) -> std::io::Result<Self> {
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .await?;
+
+        let (sender, mut receiver) = mpsc::unbounded_channel::<AuditEvent>();
+        let (flush_tx, mut flush_rx) = mpsc::channel::<tokio::sync::oneshot::Sender<()>>(1);
+
+        tokio::spawn(async move {
+            let mut writer = tokio::io::BufWriter::new(file);
+            loop {
+                tokio::select! {
+                    biased; // Process events before flushes
+
+                    msg = receiver.recv() => {
+                        match msg {
+                            Some(event) => {
+                                if level.should_log(&event.event.level()) {
+                                    if let Ok(json) = serde_json::to_string(&event) {
+                                        let _ = writer.write_all(json.as_bytes()).await;
+                                        let _ = writer.write_all(b"\n").await;
+                                    }
+                                }
+                            }
+                            None => break, // Channel closed
+                        }
+                    }
+                    msg = flush_rx.recv() => {
+                        match msg {
+                            Some(done) => {
+                                // Drain any pending events before flushing
+                                while let Ok(event) = receiver.try_recv() {
+                                    if level.should_log(&event.event.level()) {
+                                        if let Ok(json) = serde_json::to_string(&event) {
+                                            let _ = writer.write_all(json.as_bytes()).await;
+                                            let _ = writer.write_all(b"\n").await;
+                                        }
+                                    }
+                                }
+                                let _ = writer.flush().await;
+                                let _ = done.send(());
+                            }
+                            None => break, // Flush channel closed
+                        }
+                    }
+                }
+            }
+            // Flush any remaining data before exiting
+            let _ = writer.flush().await;
+        });
+
+        Ok(Self { sender, flush_tx })
+    }
+
+    /// Log an audit event. This is non-blocking; the event is sent to the
+    /// background writer task via an unbounded channel.
+    pub fn log(&self, event: AuditEvent) {
+        let _ = self.sender.send(event);
+    }
+
+    /// Flush all buffered events to disk. Returns when the flush is complete.
+    pub async fn flush(&self) {
+        let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+        let _ = self.flush_tx.send(done_tx).await;
+        let _ = done_rx.await;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -242,5 +330,107 @@ mod tests {
 
         let deserialized: AuditLevel = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized, AuditLevel::Auth);
+    }
+
+    #[tokio::test]
+    async fn test_audit_logger_writes_to_file() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let log_path = tmp.path().join("audit.log");
+        let logger = AuditLogger::new(log_path.clone(), AuditLevel::Verbose).await.unwrap();
+
+        logger.log(AuditEvent {
+            timestamp: "2026-02-16T10:30:00Z".to_string(),
+            event: AuditEventType::AuthSuccess,
+            level: AuditLevel::Auth,
+            username: Some("test".to_string()),
+            ..Default::default()
+        });
+
+        logger.flush().await;
+
+        let contents = std::fs::read_to_string(&log_path).unwrap();
+        assert!(contents.contains("auth_success"));
+        assert!(contents.contains("test"));
+    }
+
+    #[tokio::test]
+    async fn test_audit_logger_respects_level_filter() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let log_path = tmp.path().join("audit.log");
+        let logger = AuditLogger::new(log_path.clone(), AuditLevel::Auth).await.unwrap();
+
+        // This is a "verbose" level event -- should NOT be logged at "auth" level
+        logger.log(AuditEvent {
+            timestamp: "2026-02-16T10:30:00Z".to_string(),
+            event: AuditEventType::ConnectionOpened,
+            level: AuditLevel::Verbose,
+            ..Default::default()
+        });
+
+        logger.flush().await;
+
+        let contents = std::fs::read_to_string(&log_path).unwrap_or_default();
+        assert!(!contents.contains("connection_opened"));
+    }
+
+    #[tokio::test]
+    async fn test_audit_logger_writes_multiple_events() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let log_path = tmp.path().join("audit.log");
+        let logger = AuditLogger::new(log_path.clone(), AuditLevel::Verbose).await.unwrap();
+
+        logger.log(AuditEvent {
+            timestamp: "2026-02-16T10:30:00Z".to_string(),
+            event: AuditEventType::AuthSuccess,
+            level: AuditLevel::Auth,
+            username: Some("alice".to_string()),
+            ..Default::default()
+        });
+
+        logger.log(AuditEvent {
+            timestamp: "2026-02-16T10:31:00Z".to_string(),
+            event: AuditEventType::SessionCreated,
+            level: AuditLevel::Standard,
+            session_id: Some("sess-123".to_string()),
+            ..Default::default()
+        });
+
+        logger.flush().await;
+
+        let contents = std::fs::read_to_string(&log_path).unwrap();
+        let lines: Vec<&str> = contents.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].contains("auth_success"));
+        assert!(lines[1].contains("session_created"));
+    }
+
+    #[tokio::test]
+    async fn test_audit_logger_auth_level_logs_auth_but_not_standard() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let log_path = tmp.path().join("audit.log");
+        let logger = AuditLogger::new(log_path.clone(), AuditLevel::Auth).await.unwrap();
+
+        // Auth event -- should be logged
+        logger.log(AuditEvent {
+            timestamp: "2026-02-16T10:30:00Z".to_string(),
+            event: AuditEventType::AuthFailure,
+            level: AuditLevel::Auth,
+            ..Default::default()
+        });
+
+        // Standard event -- should NOT be logged
+        logger.log(AuditEvent {
+            timestamp: "2026-02-16T10:31:00Z".to_string(),
+            event: AuditEventType::SessionCreated,
+            level: AuditLevel::Standard,
+            ..Default::default()
+        });
+
+        logger.flush().await;
+
+        let contents = std::fs::read_to_string(&log_path).unwrap();
+        let lines: Vec<&str> = contents.lines().collect();
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].contains("auth_failure"));
     }
 }
