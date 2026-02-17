@@ -53,7 +53,7 @@ export class HealthPoller extends EventEmitter {
    *   connection error  -> Stopped
    */
   async pollOnce(port: number): Promise<GatewayHealth> {
-    const url = `http://localhost:${port}/health`;
+    const url = `http://127.0.0.1:${port}/health`;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 2000);
 
