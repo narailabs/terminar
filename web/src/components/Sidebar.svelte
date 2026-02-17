@@ -75,7 +75,7 @@
   }
 
   .sidebar:not(.open) {
-    width: 24px;
+    width: 16px;
   }
 
   .sidebar.open {
@@ -83,7 +83,7 @@
   }
 
   .toggle-btn {
-    width: 24px;
+    width: 16px;
     height: 100%;
     background: none;
     border: none;
