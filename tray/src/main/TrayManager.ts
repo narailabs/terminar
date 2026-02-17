@@ -5,7 +5,6 @@ import {
   Tray,
   Menu,
   nativeImage,
-  shell,
   app,
 } from 'electron';
 import path from 'path';
@@ -14,6 +13,7 @@ import { computeMenuSpec } from './menuSpec.js';
 import { ConfigStore } from './ConfigStore.js';
 import { HealthPoller } from './HealthPoller.js';
 import { ServiceManager } from './ServiceManager.js';
+import { WebUIManager } from './WebUIManager.js';
 import { runElevated } from './elevation.js';
 import type { WindowManager } from './WindowManager.js';
 
@@ -26,6 +26,7 @@ export class TrayManager {
   private serviceManager: ServiceManager;
   private healthPoller: HealthPoller;
   private windowManager: WindowManager;
+  private webUIManager: WebUIManager;
 
   constructor(
     configStore: ConfigStore,
@@ -37,6 +38,7 @@ export class TrayManager {
     this.serviceManager = serviceManager;
     this.healthPoller = healthPoller;
     this.windowManager = windowManager;
+    this.webUIManager = new WebUIManager();
 
     this.createTray();
   }
@@ -205,8 +207,7 @@ export class TrayManager {
     console.log(`[tray] menu event: ${id}`);
     switch (id) {
       case 'open-webui': {
-        const config = this.configStore.load();
-        void shell.openExternal(`http://localhost:${config.gateway_port}`);
+        void this.webUIManager.open();
         break;
       }
 
@@ -292,6 +293,7 @@ export class TrayManager {
       }
 
       case 'quit': {
+        this.webUIManager.shutdown();
         app.quit();
         break;
       }

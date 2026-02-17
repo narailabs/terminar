@@ -101,13 +101,15 @@ Tray App (tray/) ──HTTP health──► terminar-gateway/server
 
 ```bash
 pnpm dev                     # Start server + web (USE THIS BY DEFAULT)
+pnpm dev:tray                # Start server + web + tray (all frontends)
+pnpm dev:all                 # Start server + web + tray + electron (everything)
 pnpm dev:mock                # ONLY when user explicitly requests mock
 pnpm build                   # Build server (release) + web
 pnpm test                    # Test server + web
 pnpm test:server             # Test server only
 pnpm test:web                # Test web only
 pnpm test:extension          # Test extension only
-pnpm tray:dev                # Run tray app (Electron dev)
+pnpm tray:dev                # Run tray app only (Electron dev)
 pnpm tray:test               # Test tray app (unit + e2e)
 ```
 
