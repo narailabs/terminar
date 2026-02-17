@@ -5,7 +5,7 @@ import type { TerminalSettings } from './settingsStore';
  * Handles GET/PUT requests to the server with localStorage fallback
  */
 
-let baseUrl = 'http://localhost:3000';
+let baseUrl = 'http://localhost:6749';
 
 /**
  * Configure the API base URL

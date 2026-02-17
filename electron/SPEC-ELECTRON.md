@@ -227,7 +227,7 @@ File    Edit    View    Session    Help
 │ │ [+ New Session] │ │                                     │ │
 │ └─────────────────┘ └─────────────────────────────────────┘ │
 ├─────────────────────────────────────────────────────────────┤
-│ Connected to localhost:3000 | 2 sessions | RAM: 45MB       │
+│ Connected to localhost:6749 | 2 sessions | RAM: 45MB       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -240,7 +240,7 @@ File    Edit    View    Session    Help
 │                                     │
 │  Server URL:                        │
 │  ┌─────────────────────────────┐   │
-│  │ ws://localhost:3000         │   │
+│  │ ws://localhost:6749         │   │
 │  └─────────────────────────────┘   │
 │                                     │
 │  ○ Token Authentication             │
@@ -285,7 +285,7 @@ File    Edit    View    Session    Help
 │  └─ Quick Switch: [Cmd+Tab_________]                        │
 │                                                              │
 │  CONNECTION                                                  │
-│  ├─ Default server: [ws://localhost:3000]                   │
+│  ├─ Default server: [ws://localhost:6749]                   │
 │  ├─ ☑ Auto-reconnect                                        │
 │  └─ Reconnect delay: [5___] seconds                         │
 │                                                              │
@@ -582,7 +582,7 @@ export async function deleteToken(server: string): Promise<boolean> {
     "scrollback": 10000
   },
   "connection": {
-    "defaultServer": "ws://localhost:3000",
+    "defaultServer": "ws://localhost:6749",
     "autoReconnect": true,
     "reconnectDelay": 5,
     "savedServers": []

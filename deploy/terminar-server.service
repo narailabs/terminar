@@ -11,12 +11,12 @@
 #   5. Enable and start: sudo systemctl enable --now terminar-server
 #
 # Configuration via environment file (/etc/terminar-server/env):
-#   TERMINAR_PORT=3000
+#   TERMINAR_PORT=6749
 #   TERMINAR_LOG_LEVEL=info
 #   TERMINAR_LOG_FILE=/var/log/terminar-server/server.log
 #   TERMINAR_LOG_JSON=true
 #   TERMINAR_PERSIST_SESSIONS=true
-#   TERMINAR_CORS_ORIGINS=http://localhost:3000,http://localhost:5173
+#   TERMINAR_CORS_ORIGINS=http://localhost:6749,http://localhost:5173
 
 [Unit]
 Description=termiNar Server - Terminal session multiplexer
@@ -31,7 +31,7 @@ Group=terminar
 
 # Binary path - override in env file if installed elsewhere
 ExecStart=/usr/local/bin/terminar-server \
-    --port ${TERMINAR_PORT:-3000} \
+    --port ${TERMINAR_PORT:-6749} \
     --log-level ${TERMINAR_LOG_LEVEL:-info}
 
 # Environment configuration

@@ -149,7 +149,7 @@ describe('App Component - Local Server (Auto-connect)', () => {
   });
 
   it('should auto-connect when server is localhost', async () => {
-    render(App, { props: { serverWsUrl: 'ws://localhost:3000/ws' } });
+    render(App, { props: { serverWsUrl: 'ws://localhost:6749/ws' } });
 
     // Wait for async initialization (settings loading) to complete
     await waitFor(() => {
@@ -169,7 +169,7 @@ describe('App Component - Local Server (Auto-connect)', () => {
   });
 
   it('should not show token input for local server', async () => {
-    render(App, { props: { serverWsUrl: 'ws://localhost:3000/ws' } });
+    render(App, { props: { serverWsUrl: 'ws://localhost:6749/ws' } });
 
     // Wait for async initialization then check UI
     await waitFor(() => {
@@ -229,7 +229,7 @@ describe('App - Workspace Loading', () => {
     });
 
     // Render with local props to trigger connectLocal which calls loadWorkspace
-    render(App, { props: { serverWsUrl: 'ws://localhost:3000/ws', serverHttpUrl: 'http://localhost:3000' } });
+    render(App, { props: { serverWsUrl: 'ws://localhost:6749/ws', serverHttpUrl: 'http://localhost:6749' } });
 
     await waitFor(() => {
       expect(WebSocketSessionManager).toHaveBeenCalled();
@@ -250,7 +250,7 @@ describe('App - Workspace Loading', () => {
       status: 500,
     });
 
-    render(App, { props: { serverWsUrl: 'ws://localhost:3000/ws', serverHttpUrl: 'http://localhost:3000' } });
+    render(App, { props: { serverWsUrl: 'ws://localhost:6749/ws', serverHttpUrl: 'http://localhost:6749' } });
 
     await waitFor(() => {
       expect(WebSocketSessionManager).toHaveBeenCalled();
@@ -268,7 +268,7 @@ describe('App - Workspace Loading', () => {
   it('loadWorkspace returns null on network error', async () => {
     mockFetch.mockRejectedValueOnce(new Error('Network error'));
 
-    render(App, { props: { serverWsUrl: 'ws://localhost:3000/ws', serverHttpUrl: 'http://localhost:3000' } });
+    render(App, { props: { serverWsUrl: 'ws://localhost:6749/ws', serverHttpUrl: 'http://localhost:6749' } });
 
     await waitFor(() => {
       expect(WebSocketSessionManager).toHaveBeenCalled();
@@ -297,10 +297,10 @@ describe('App - Local Server Connection Flow', () => {
   });
 
   it('connectLocal creates WebSocketSessionManager and calls connect then listSessions', async () => {
-    render(App, { props: { serverWsUrl: 'ws://localhost:3000/ws', serverHttpUrl: 'http://localhost:3000' } });
+    render(App, { props: { serverWsUrl: 'ws://localhost:6749/ws', serverHttpUrl: 'http://localhost:6749' } });
 
     await waitFor(() => {
-      expect(WebSocketSessionManager).toHaveBeenCalledWith('ws://localhost:3000/ws');
+      expect(WebSocketSessionManager).toHaveBeenCalledWith('ws://localhost:6749/ws');
     });
 
     const managerInstance = vi.mocked(WebSocketSessionManager).mock.results[0]?.value;
@@ -321,7 +321,7 @@ describe('App - Local Server Connection Flow', () => {
       json: async () => ({ workspace: workspacePayload }),
     });
 
-    render(App, { props: { serverWsUrl: 'ws://localhost:3000/ws', serverHttpUrl: 'http://localhost:3000' } });
+    render(App, { props: { serverWsUrl: 'ws://localhost:6749/ws', serverHttpUrl: 'http://localhost:6749' } });
 
     await waitFor(() => {
       expect(WebSocketSessionManager).toHaveBeenCalled();
@@ -329,7 +329,7 @@ describe('App - Local Server Connection Flow', () => {
 
     await waitFor(() => {
       const workspaceCalls = mockFetch.mock.calls.filter(
-        (call: any[]) => typeof call[0] === 'string' && call[0] === 'http://localhost:3000/workspace'
+        (call: any[]) => typeof call[0] === 'string' && call[0] === 'http://localhost:6749/workspace'
       );
       expect(workspaceCalls.length).toBeGreaterThanOrEqual(1);
     });
@@ -540,7 +540,7 @@ describe('App - Logout', () => {
 
   it('logout clears cookies, disconnects manager, and resets connection state', async () => {
     // Render with local to auto-connect (gets us to connected state)
-    render(App, { props: { serverWsUrl: 'ws://localhost:3000/ws', serverHttpUrl: 'http://localhost:3000' } });
+    render(App, { props: { serverWsUrl: 'ws://localhost:6749/ws', serverHttpUrl: 'http://localhost:6749' } });
 
     await waitFor(() => {
       expect(WebSocketSessionManager).toHaveBeenCalled();
@@ -579,7 +579,7 @@ describe('App - Terminal Management', () => {
     Object.defineProperty(window, 'innerWidth', { value: 1200, writable: true });
     Object.defineProperty(window, 'innerHeight', { value: 800, writable: true });
 
-    render(App, { props: { serverWsUrl: 'ws://localhost:3000/ws', serverHttpUrl: 'http://localhost:3000' } });
+    render(App, { props: { serverWsUrl: 'ws://localhost:6749/ws', serverHttpUrl: 'http://localhost:6749' } });
 
     await waitFor(() => {
       expect(WebSocketSessionManager).toHaveBeenCalled();
@@ -617,7 +617,7 @@ describe('App - Terminal Management', () => {
     Object.defineProperty(window, 'innerWidth', { value: 200, writable: true });
     Object.defineProperty(window, 'innerHeight', { value: 100, writable: true });
 
-    render(App, { props: { serverWsUrl: 'ws://localhost:3000/ws', serverHttpUrl: 'http://localhost:3000' } });
+    render(App, { props: { serverWsUrl: 'ws://localhost:6749/ws', serverHttpUrl: 'http://localhost:6749' } });
 
     await waitFor(() => {
       expect(WebSocketSessionManager).toHaveBeenCalled();
@@ -666,7 +666,7 @@ describe('App - Manager Events', () => {
   it('sessionExited callback calls markExited', async () => {
     const { markExited } = await import('./lib/exitedSessionsStore');
 
-    render(App, { props: { serverWsUrl: 'ws://localhost:3000/ws', serverHttpUrl: 'http://localhost:3000' } });
+    render(App, { props: { serverWsUrl: 'ws://localhost:6749/ws', serverHttpUrl: 'http://localhost:6749' } });
 
     await waitFor(() => {
       expect(WebSocketSessionManager).toHaveBeenCalled();
@@ -684,7 +684,7 @@ describe('App - Manager Events', () => {
   it('foregroundChanged callback calls foregroundStore.setForeground', async () => {
     const { foregroundStore } = await import('./lib/foregroundStore');
 
-    render(App, { props: { serverWsUrl: 'ws://localhost:3000/ws', serverHttpUrl: 'http://localhost:3000' } });
+    render(App, { props: { serverWsUrl: 'ws://localhost:6749/ws', serverHttpUrl: 'http://localhost:6749' } });
 
     await waitFor(() => {
       expect(WebSocketSessionManager).toHaveBeenCalled();
@@ -700,7 +700,7 @@ describe('App - Manager Events', () => {
   });
 
   it('stateChange callback updates connectionState', async () => {
-    render(App, { props: { serverWsUrl: 'ws://localhost:3000/ws', serverHttpUrl: 'http://localhost:3000' } });
+    render(App, { props: { serverWsUrl: 'ws://localhost:6749/ws', serverHttpUrl: 'http://localhost:6749' } });
 
     await waitFor(() => {
       expect(WebSocketSessionManager).toHaveBeenCalled();
@@ -720,7 +720,7 @@ describe('App - Manager Events', () => {
   it('sessionActivity callback calls activityStore.setActivity', async () => {
     const { activityStore } = await import('./lib/activityStore');
 
-    render(App, { props: { serverWsUrl: 'ws://localhost:3000/ws', serverHttpUrl: 'http://localhost:3000' } });
+    render(App, { props: { serverWsUrl: 'ws://localhost:6749/ws', serverHttpUrl: 'http://localhost:6749' } });
 
     await waitFor(() => {
       expect(WebSocketSessionManager).toHaveBeenCalled();
@@ -736,7 +736,7 @@ describe('App - Manager Events', () => {
   });
 
   it('all expected event handlers are registered on the manager', async () => {
-    render(App, { props: { serverWsUrl: 'ws://localhost:3000/ws', serverHttpUrl: 'http://localhost:3000' } });
+    render(App, { props: { serverWsUrl: 'ws://localhost:6749/ws', serverHttpUrl: 'http://localhost:6749' } });
 
     await waitFor(() => {
       expect(WebSocketSessionManager).toHaveBeenCalled();

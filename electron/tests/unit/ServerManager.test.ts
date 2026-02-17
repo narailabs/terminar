@@ -73,7 +73,7 @@ describe('ServerManager', () => {
       const startPromise = manager.start();
       // Simulate server becoming healthy
       setTimeout(() => {
-        mockChildProcess.stdout.emit('data', Buffer.from('Server started on port 3000'));
+        mockChildProcess.stdout.emit('data', Buffer.from('Server started on port 6749'));
       }, 10);
 
       await startPromise;
@@ -251,19 +251,19 @@ describe('ServerManager', () => {
 
   describe('getPort', () => {
     it('should return the configured port', () => {
-      expect(manager.getPort()).toBe(3000);
+      expect(manager.getPort()).toBe(6749);
     });
   });
 
   describe('getWsUrl', () => {
     it('should return the WebSocket URL', () => {
-      expect(manager.getWsUrl()).toBe('ws://localhost:3000/ws');
+      expect(manager.getWsUrl()).toBe('ws://localhost:6749/ws');
     });
   });
 
   describe('getHttpUrl', () => {
     it('should return the HTTP URL', () => {
-      expect(manager.getHttpUrl()).toBe('http://localhost:3000');
+      expect(manager.getHttpUrl()).toBe('http://localhost:6749');
     });
   });
 });

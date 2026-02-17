@@ -3483,7 +3483,7 @@ mod tests {
 
     #[test]
     fn test_validate_origin_accepts_whitelisted() {
-        assert!(validate_websocket_origin(Some("http://localhost:3000"), &[]));
+        assert!(validate_websocket_origin(Some("http://localhost:6749"), &[]));
     }
 
     #[test]

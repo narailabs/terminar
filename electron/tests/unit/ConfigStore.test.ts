@@ -84,7 +84,7 @@ describe('ConfigStore', () => {
 
     it('should have connection configuration with localhost default', () => {
       expect(DEFAULT_CONFIG.connection).toEqual({
-        defaultServer: 'ws://localhost:3000',
+        defaultServer: 'ws://localhost:6749',
         autoReconnect: true,
         reconnectDelay: 5,
         savedServers: [],
@@ -209,7 +209,7 @@ describe('ConfigStore', () => {
       expect(config.window.width).toBe(1200);
       expect(config.general.minimizeToTray).toBe(true);
       expect(config.terminal.fontSize).toBe(14);
-      expect(config.connection.defaultServer).toBe('ws://localhost:3000');
+      expect(config.connection.defaultServer).toBe('ws://localhost:6749');
       expect(config.shortcuts.showHide).toBe('CommandOrControl+Shift+T');
     });
 
@@ -295,7 +295,7 @@ describe('ConfigStore', () => {
 
     it('should have correctly typed connection config', () => {
       const connectionConfig: ConnectionConfig = {
-        defaultServer: 'ws://localhost:3000',
+        defaultServer: 'ws://localhost:6749',
         autoReconnect: true,
         reconnectDelay: 5,
         savedServers: [],

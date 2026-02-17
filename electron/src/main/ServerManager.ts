@@ -20,7 +20,7 @@ export type ServerStatus = 'stopped' | 'starting' | 'running' | 'stopping';
 export class ServerManager extends EventEmitter {
   private process: ChildProcess | null = null;
   private status: ServerStatus = 'stopped';
-  private port = 3000;
+  private port = 6749;
   private stopping = false;
 
   /**

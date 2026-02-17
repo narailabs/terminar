@@ -10,7 +10,7 @@ use clap::Parser;
 #[command(name = "terminar-gateway", version, about = "Multi-user gateway for termiNar")]
 pub struct GatewayConfig {
     /// Port to listen on for HTTP/WebSocket connections
-    #[arg(short, long, default_value_t = 3000)]
+    #[arg(short, long, default_value_t = 6749)]
     pub port: u16,
 
     /// Path to TLS certificate file (PEM format)
@@ -65,7 +65,7 @@ mod tests {
     fn test_gateway_default_config() {
         let args = vec!["terminar-gateway"];
         let config = GatewayConfig::try_parse_from(args).unwrap();
-        assert_eq!(config.port, 3000);
+        assert_eq!(config.port, 6749);
         assert_eq!(config.tls_port, 8444);
         assert!(config.auto_tls);
         assert_eq!(config.server_bin, "terminar-server");

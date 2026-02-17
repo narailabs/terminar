@@ -812,10 +812,10 @@ fn test_websocket_origin_validation_empty_origin() {
 fn test_websocket_origin_validation_localhost_allowed() {
     // localhost origins should be allowed by default
     assert!(terminar_server::validate_websocket_origin(
-        Some("http://localhost:3000"), &[]
+        Some("http://localhost:6749"), &[]
     ));
     assert!(terminar_server::validate_websocket_origin(
-        Some("http://127.0.0.1:3000"), &[]
+        Some("http://127.0.0.1:6749"), &[]
     ));
 }
 

@@ -27,7 +27,7 @@ A VS Code extension backed by a Rust server that provides persistent terminal se
 **Communication paths:**
 
 - **VS Code Extension <-> Server**: Unix Domain Socket at `/tmp/vscode-terminar-<uid>.sock` using 4-byte big-endian length-prefixed JSON framing.
-- **Web Frontend <-> Server**: WebSocket on the HTTP port (default 3000) for real-time I/O, plus REST endpoints for health, metrics, pairing, and token management.
+- **Web Frontend <-> Server**: WebSocket on the HTTP port (default 6749) for real-time I/O, plus REST endpoints for health, metrics, pairing, and token management.
 - **PTY Sessions**: The server spawns and manages pseudo-terminal processes (bash, zsh, fish) that persist independently of any client.
 
 ## Quick Start
@@ -78,7 +78,7 @@ pnpm run compile
 
 ```bash
 cd server
-cargo run -- --port 3000
+cargo run -- --port 6749
 ```
 
 ### 6. Run tests
@@ -104,7 +104,7 @@ terminar-server [OPTIONS] [COMMAND]
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-p, --port <PORT>` | `3000` | HTTP/WebSocket listen port |
+| `-p, --port <PORT>` | `6749` | HTTP/WebSocket listen port |
 | `-s, --socket <PATH>` | `/tmp/vscode-terminar-<uid>.sock` | Unix Domain Socket path |
 | `-l, --log-level <LEVEL>` | `info` | Log level: `trace`, `debug`, `info`, `warn`, `error` |
 | `--log-json` | `false` | Output logs in structured JSON format |
@@ -187,7 +187,7 @@ Build and run the server in a container:
 docker build -t terminar-server -f Dockerfile 
 
 # Run
-docker run -p 3000:3000 terminar-server
+docker run -p 6749:6749 terminar-server
 ```
 
 See the [Dockerfile](./Dockerfile) for details.
@@ -216,7 +216,7 @@ The server writes a token to `~/.terminar/token` on startup. The extension reads
 
 ### Port already in use
 
-If port 3000 is occupied, start the server on a different port:
+If port 6749 is occupied, start the server on a different port:
 
 ```bash
 terminar-server --port 8080
@@ -224,7 +224,7 @@ terminar-server --port 8080
 
 ### WebSocket connection rejected
 
-The server validates WebSocket origins against a whitelist. By default, only localhost origins on common development ports (3000, 3001, 5173, 8080) are allowed. Add custom origins with:
+The server validates WebSocket origins against a whitelist. By default, only localhost origins on common development ports (6749, 3001, 5173, 8080) are allowed. Add custom origins with:
 
 ```bash
 terminar-server --cors-origin http://your-app.example.com

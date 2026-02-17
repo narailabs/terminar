@@ -32,7 +32,7 @@ vi.mock('../../src/main/ServerManager.js', () => ({
   ServerManager: vi.fn().mockImplementation(() => ({
     start: vi.fn().mockResolvedValue(undefined),
     stop: vi.fn(),
-    getPort: vi.fn().mockReturnValue(3000),
+    getPort: vi.fn().mockReturnValue(6749),
     on: vi.fn(),
   })),
 }));

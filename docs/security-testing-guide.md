@@ -66,12 +66,12 @@ When TLS is enabled, the HTTP port automatically redirects to HTTPS (except `/he
 cargo run --bin terminar-server -- --no-auth --auto-tls
 
 # HTTP request should get 307 redirect to HTTPS
-curl -v http://localhost:3000/ 2>&1 | grep "< HTTP\|< Location"
+curl -v http://localhost:6749/ 2>&1 | grep "< HTTP\|< Location"
 # Expected: HTTP/1.1 307 Temporary Redirect
 #           Location: https://localhost:8444/
 
 # /health is exempt (for load balancers)
-curl http://localhost:3000/health
+curl http://localhost:6749/health
 # Expected: 200 OK
 ```
 
@@ -304,16 +304,16 @@ document.cookie  // Should NOT show terminar_token or terminar_refresh
 # After authenticating via the web UI, test the HTTP endpoints:
 
 # Create session cookie (POST /auth/session)
-curl -v -X POST http://localhost:3000/auth/session \
+curl -v -X POST http://localhost:6749/auth/session \
   -H "Content-Type: application/json" \
   -d '{"token":"<your-jwt-token>"}' 2>&1 | grep "Set-Cookie"
 
 # Refresh token (POST /auth/refresh) - uses cookie automatically
-curl -v -X POST http://localhost:3000/auth/refresh \
+curl -v -X POST http://localhost:6749/auth/refresh \
   -b "terminar_refresh=<refresh-token>" 2>&1 | grep "Set-Cookie"
 
 # Logout (POST /auth/logout) - clears cookies and revokes refresh token
-curl -v -X POST http://localhost:3000/auth/logout \
+curl -v -X POST http://localhost:6749/auth/logout \
   -b "terminar_token=<access-token>;terminar_refresh=<refresh-token>" \
   2>&1 | grep "Set-Cookie\|terminar"
 # Expected: cookies cleared with Max-Age=0
@@ -454,7 +454,7 @@ curl -k https://localhost:8444/health
 curl -k -I https://localhost:8444/health 2>&1 | grep -E "X-Content-Type|X-Frame|Content-Security|Referrer|Strict-Transport"
 
 # 5. Check HTTP→HTTPS redirect
-curl -v http://localhost:3000/ 2>&1 | grep "307\|308\|Location"
+curl -v http://localhost:6749/ 2>&1 | grep "307\|308\|Location"
 
 # 6. Open web UI, authenticate, check cookies in DevTools
 

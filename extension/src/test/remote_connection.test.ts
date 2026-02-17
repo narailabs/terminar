@@ -27,13 +27,13 @@ suite('Remote Connection - exchangePairingCode', () => {
 suite('Remote Connection - WebSocketSessionManager', () => {
 
     test('WebSocketSessionManager constructor accepts url and token', () => {
-        const mgr = new WebSocketSessionManager('ws://localhost:3000/ws', 'test-token');
+        const mgr = new WebSocketSessionManager('ws://localhost:6749/ws', 'test-token');
         assert.ok(mgr, 'Should create manager instance');
         assert.strictEqual(mgr.getState(), 'disconnected');
     });
 
     test('WebSocketSessionManager has required methods', () => {
-        const mgr = new WebSocketSessionManager('ws://localhost:3000/ws', 'test-token');
+        const mgr = new WebSocketSessionManager('ws://localhost:6749/ws', 'test-token');
         assert.strictEqual(typeof mgr.connect, 'function');
         assert.strictEqual(typeof mgr.disconnect, 'function');
         assert.strictEqual(typeof mgr.listSessions, 'function');
@@ -45,7 +45,7 @@ suite('Remote Connection - WebSocketSessionManager', () => {
     });
 
     test('WebSocketSessionManager emits events', () => {
-        const mgr = new WebSocketSessionManager('ws://localhost:3000/ws', 'test-token');
+        const mgr = new WebSocketSessionManager('ws://localhost:6749/ws', 'test-token');
 
         // Verify it is an EventEmitter with the expected event methods
         assert.strictEqual(typeof mgr.on, 'function');
@@ -59,14 +59,14 @@ suite('Remote Connection - WebSocketSessionManager', () => {
     });
 
     test('disconnect can be called on a non-connected manager', () => {
-        const mgr = new WebSocketSessionManager('ws://localhost:3000/ws', 'test-token');
+        const mgr = new WebSocketSessionManager('ws://localhost:6749/ws', 'test-token');
         // Should not throw
         mgr.disconnect();
         assert.strictEqual(mgr.getState(), 'disconnected');
     });
 
     test('getLastSessionList returns empty array initially', () => {
-        const mgr = new WebSocketSessionManager('ws://localhost:3000/ws', 'test-token');
+        const mgr = new WebSocketSessionManager('ws://localhost:6749/ws', 'test-token');
         assert.deepStrictEqual(mgr.getLastSessionList(), []);
     });
 });
@@ -99,12 +99,12 @@ suite('Remote Connection - Input Validation', () => {
 
         (vscode.window as any).showInputBox = () => {
             callCount++;
-            if (callCount === 1) return Promise.resolve('localhost:3000');
+            if (callCount === 1) return Promise.resolve('localhost:6749');
             return Promise.resolve(undefined); // User cancelled pairing code
         };
 
         const host = await vscode.window.showInputBox({ prompt: 'Host' });
-        assert.strictEqual(host, 'localhost:3000');
+        assert.strictEqual(host, 'localhost:6749');
 
         const code = await vscode.window.showInputBox({ prompt: 'Code' });
         assert.strictEqual(code, undefined, 'Cancelled code input should return undefined');
