@@ -56,7 +56,7 @@ use session::SessionState;
 use axum::{
     extract::{ws::{Message, WebSocket, WebSocketUpgrade}, State, Request, Json, ConnectInfo},
     http::StatusCode,
-    response::IntoResponse,
+    response::{IntoResponse, Redirect},
     routing::{get, post, put},
     middleware::{self, Next},
     Router,
@@ -170,6 +170,32 @@ fn check_silence(sessions: &SessionMap) {
     }
 }
 
+/// Builds a router that redirects all HTTP requests to HTTPS.
+///
+/// The `/health` endpoint is still served over HTTP for load balancer checks.
+/// All other requests get a 301 Permanent Redirect to the HTTPS equivalent.
+fn build_http_redirect_router(tls_port: u16) -> Router {
+    Router::new()
+        .route("/health", get(|| async {
+            Json(serde_json::json!({"status": "ok"}))
+        }))
+        .fallback(move |req: Request| async move {
+            let host = req.headers()
+                .get("host")
+                .and_then(|h| h.to_str().ok())
+                .unwrap_or("localhost");
+            // Strip existing port from host if present
+            let hostname = host.split(':').next().unwrap_or(host);
+            let uri = req.uri();
+            let redirect_url = if tls_port == 443 {
+                format!("https://{}{}", hostname, uri)
+            } else {
+                format!("https://{}:{}{}", hostname, tls_port, uri)
+            };
+            Redirect::permanent(&redirect_url)
+        })
+}
+
 /// Creates a CORS layer based on CLI configuration
 fn create_cors_layer(origins: &[String]) -> CorsLayer {
     if origins.is_empty() {
@@ -236,6 +262,10 @@ pub struct AppState {
     pub password_verifier: Option<Arc<dyn auth::PasswordVerifier>>,
     /// Maximum failed auth attempts per IP before hard lockout.
     pub max_auth_attempts: usize,
+    /// Optional audit logger for security event tracking.
+    pub audit_logger: Option<Arc<audit::AuditLogger>>,
+    /// Trusted proxy IP — only trust X-Forwarded-For from this address.
+    pub trusted_proxy: Option<String>,
 }
 
 /// Request body for the `POST /pair/exchange` endpoint.
@@ -329,6 +359,20 @@ pub fn validate_websocket_origin(origin: Option<&str>, custom_origins: &[String]
     }
 }
 
+/// Returns true if the process is running as root (UID 0).
+///
+/// Used by `--user-mode` to refuse running as root as a safety measure.
+/// Per-user servers should always run as the target user, never as root.
+#[cfg(unix)]
+pub fn is_running_as_root() -> bool {
+    unsafe { libc::getuid() == 0 }
+}
+
+#[cfg(not(unix))]
+pub fn is_running_as_root() -> bool {
+    false
+}
+
 /// Connects to a running server via Unix socket and requests a pairing code.
 ///
 /// This is used by the `pair` CLI subcommand. It sends a `PairRequest` message
@@ -395,6 +439,14 @@ fn write_token_file(token: &str) -> std::io::Result<()> {
 /// persisted sessions, writes the API token file, starts both HTTP and Unix socket
 /// listeners, and waits for SIGTERM/SIGINT for graceful shutdown.
 pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    // User-mode safety check: refuse to run as root
+    if cli.user_mode {
+        if is_running_as_root() {
+            return Err("Refusing to run in --user-mode as root. This is a safety check.".into());
+        }
+        info!("Running in user-mode (auth delegated to gateway)");
+    }
+
     // Initialize logging with CLI-configured options (JSON, file, level)
     // The guard must be held for the lifetime of the server to flush file logs
     let _log_guard = logging::init_logging(&cli);
@@ -480,9 +532,12 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
     }
 
     // Write token to file for automatic client authentication
-    match write_token_file(&api_key) {
-        Ok(()) => info!("Token written to {:?}", get_token_file_path()),
-        Err(e) => warn!("Failed to write token file: {} (clients will need manual auth)", e),
+    // In user-mode, skip token file writing (gateway handles auth)
+    if !cli.user_mode {
+        match write_token_file(&api_key) {
+            Ok(()) => info!("Token written to {:?}", get_token_file_path()),
+            Err(e) => warn!("Failed to write token file: {} (clients will need manual auth)", e),
+        }
     }
 
     let mock_provider = if cli.mock_pty {
@@ -506,19 +561,22 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
         });
     let server_id = uuid::Uuid::new_v4().to_string();
 
+    // In user-mode, auth is delegated to the gateway — skip password verifier
+    let skip_auth = cli.no_auth || cli.user_mode;
+
     // Create platform-specific password verifier (PAM on macOS/Linux, LogonUser on Windows)
-    let password_verifier: Option<Arc<dyn auth::PasswordVerifier>> = if cli.no_auth {
+    let password_verifier: Option<Arc<dyn auth::PasswordVerifier>> = if skip_auth {
         None
     } else {
         auth::create_platform_verifier("login").map(|v| Arc::from(v) as Arc<dyn auth::PasswordVerifier>)
     };
 
-    let state = AppState {
+    let mut state = AppState {
         sessions: sessions.clone(),
         api_key,
         pairing_codes: Arc::new(Mutex::new(HashMap::new())),
         pairing_attempts: Arc::new(Mutex::new(HashMap::new())),
-        no_auth: cli.no_auth,
+        no_auth: skip_auth,
         mock_provider,
         shutdown_tx: shutdown_tx.clone(),
         start_time: Instant::now(),
@@ -530,7 +588,28 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
         server_id,
         password_verifier,
         max_auth_attempts: cli.max_auth_attempts,
+        trusted_proxy: cli.trusted_proxy.clone(),
+        audit_logger: None, // Will be replaced after async init
     };
+
+    // Initialize audit logger
+    let audit_level = audit::AuditLevel::from_str(&cli.audit_level);
+    if audit_level != audit::AuditLevel::Off {
+        let audit_path = std::path::PathBuf::from(
+            std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string())
+        ).join(".terminar").join("audit.log");
+        match audit::AuditLogger::new(audit_path.clone(), audit_level).await {
+            Ok(logger) => {
+                info!("Audit logging enabled, writing to {:?}", audit_path);
+                state.audit_logger = Some(Arc::new(logger));
+            }
+            Err(e) => {
+                warn!("Failed to initialize audit logger: {} (audit logging disabled)", e);
+            }
+        }
+    } else {
+        info!("Audit logging disabled");
+    }
 
     // Resolve TLS configuration: explicit cert/key > auto-TLS > none
     let home_dir = std::path::PathBuf::from(
@@ -584,40 +663,62 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
 
     let addr = format!("0.0.0.0:{}", cli.port);
     let listener_http = tokio::net::TcpListener::bind(&addr).await?;
-    info!("Web Interface listening on http://{}", addr);
 
     // Create a cancellation token for graceful shutdown
-    let server_shutdown_tx = shutdown_tx.clone();
-    let mut server_shutdown_rx = server_shutdown_tx.subscribe();
-
-    // Clone the app for the TLS server before moving into the HTTP server task
-    let tls_app = app.clone();
-
-    let server_task = tokio::spawn(async move {
-        // Use into_make_service_with_connect_info to make client addresses available to handlers
-        let server = axum::serve(
-            listener_http,
-            app.into_make_service_with_connect_info::<SocketAddr>()
-        );
-        tokio::select! {
-            result = server => {
-                if let Err(e) = result {
-                    error!("HTTP server error: {}", e);
-                }
-            }
-            _ = server_shutdown_rx.recv() => {
-                info!("HTTP server received shutdown signal");
-            }
-        }
-    });
+    let mut server_shutdown_rx = shutdown_tx.subscribe();
 
     // 1b. Start TLS/HTTPS Server (if configured)
-    let tls_task = if let Some(ref tls_cfg) = tls_config {
+    // When TLS is configured, the HTTP port serves redirects to HTTPS
+    // and the full app runs only on the TLS port.
+    let (server_task, tls_task) = if let Some(ref tls_cfg) = tls_config {
+        let tls_port = tls_cfg.port;
         let tls_shutdown_rx = shutdown_tx.subscribe();
-        Some(tls::spawn_tls_server(tls_cfg, tls_app, tls_shutdown_rx)
-            .map_err(|e| -> Box<dyn std::error::Error> { Box::new(e) })?)
+        let tls_task = tls::spawn_tls_server(tls_cfg, app, tls_shutdown_rx)
+            .map_err(|e| -> Box<dyn std::error::Error> { Box::new(e) })?;
+
+        // Serve redirect router on the HTTP port
+        let redirect_app = build_http_redirect_router(tls_port);
+        info!("HTTP listener on http://{} (redirecting to HTTPS port {})", addr, tls_port);
+
+        let server_task = tokio::spawn(async move {
+            let server = axum::serve(
+                listener_http,
+                redirect_app.into_make_service_with_connect_info::<SocketAddr>()
+            );
+            tokio::select! {
+                result = server => {
+                    if let Err(e) = result {
+                        error!("HTTP redirect server error: {}", e);
+                    }
+                }
+                _ = server_shutdown_rx.recv() => {
+                    info!("HTTP redirect server received shutdown signal");
+                }
+            }
+        });
+
+        (server_task, Some(tls_task))
     } else {
-        None
+        // No TLS: serve the full app on the HTTP port
+        info!("Web Interface listening on http://{}", addr);
+
+        let server_task = tokio::spawn(async move {
+            let server = axum::serve(
+                listener_http,
+                app.into_make_service_with_connect_info::<SocketAddr>()
+            );
+            tokio::select! {
+                result = server => {
+                    if let Err(e) = result {
+                        error!("HTTP server error: {}", e);
+                    }
+                }
+                _ = server_shutdown_rx.recv() => {
+                    info!("HTTP server received shutdown signal");
+                }
+            }
+        });
+        (server_task, None)
     };
 
     // 2. Start Unix Socket Server
@@ -627,6 +728,9 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
     }
     let listener_unix = UnixListener::bind(socket_path)?;
     info!("Unix Socket listening on {}", socket_path);
+
+    // Save audit logger reference before state is moved into spawned tasks
+    let audit_logger_for_shutdown = state.audit_logger.clone();
 
     let sessions_unix = sessions.clone();
     let mut unix_shutdown_rx = shutdown_tx.subscribe();
@@ -768,6 +872,12 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
         warn!("Shutdown timeout reached, forcing cleanup");
     }
 
+    // Flush audit log before shutdown
+    if let Some(ref logger) = audit_logger_for_shutdown {
+        info!("Flushing audit log...");
+        logger.flush().await;
+    }
+
     // Save session histories and metadata before cleanup
     info!("Saving session histories and metadata...");
     persistence::persist_all(&sessions);
@@ -853,16 +963,46 @@ async fn auth_middleware(
     }
 }
 
+/// Extract the real client IP address from a request, safely handling X-Forwarded-For.
+///
+/// Only trusts the X-Forwarded-For header when the request comes from the configured
+/// trusted proxy IP. This prevents IP spoofing from untrusted clients.
+fn extract_client_ip(
+    xff_header: Option<&str>,
+    trusted_proxy: Option<&str>,
+    peer_ip: Option<&str>,
+) -> String {
+    if let Some(proxy_ip) = trusted_proxy {
+        if peer_ip == Some(proxy_ip) {
+            // Only trust X-Forwarded-For if request came from the trusted proxy
+            if let Some(xff) = xff_header {
+                if let Some(client_ip) = xff.split(',').next() {
+                    let trimmed = client_ip.trim();
+                    if !trimmed.is_empty() {
+                        return trimmed.to_string();
+                    }
+                }
+            }
+        }
+    }
+    // Fallback to peer IP
+    peer_ip.unwrap_or("unknown").to_string()
+}
+
 async fn exchange_handler(
     State(state): State<AppState>,
+    connect_info: Option<ConnectInfo<SocketAddr>>,
     req: Request,
 ) -> impl IntoResponse {
-    // Extract client IP from headers (X-Forwarded-For) or use "unknown"
-    let client_ip = req.headers()
+    let peer_ip = connect_info.map(|ci| ci.0.ip().to_string());
+    let xff = req.headers()
         .get("x-forwarded-for")
-        .and_then(|h| h.to_str().ok())
-        .map(|s| s.split(',').next().unwrap_or("unknown").trim().to_string())
-        .unwrap_or_else(|| "unknown".to_string());
+        .and_then(|h| h.to_str().ok());
+    let client_ip = extract_client_ip(
+        xff,
+        state.trusted_proxy.as_deref(),
+        peer_ip.as_deref(),
+    );
 
     let now = Instant::now();
 
@@ -1145,6 +1285,9 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
                         auth_attempts += 1;
                         if auth_attempts > MAX_WS_AUTH_ATTEMPTS {
                             warn!("WebSocket auth rate limit exceeded ({} attempts)", auth_attempts);
+                            if let Some(ref logger) = state.audit_logger {
+                                logger.log(audit::AuditEvent::auth_rate_limited("websocket", auth_attempts));
+                            }
                             let err_msg = ServerMessage::Error {
                                 message: "Too many authentication attempts".to_string(),
                                 error_code: Some("RATE_LIMIT_EXCEEDED".to_string()),
@@ -1360,6 +1503,9 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
             Ok(Some(true)) => true,
             Ok(Some(false)) => {
                 warn!("WebSocket authentication failed");
+                if let Some(ref logger) = state.audit_logger {
+                    logger.log(audit::AuditEvent::auth_failure(None, "websocket", "unknown", "authentication failed"));
+                }
                 let _ = sender.close().await;
                 return;
             }
@@ -1373,6 +1519,9 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
             return;
         }
         info!("WebSocket client authenticated successfully");
+        if let Some(ref logger) = state.audit_logger {
+            logger.log(audit::AuditEvent::auth_success("unknown", "websocket", "unknown", "websocket"));
+        }
     }
 
     // Determine client_id for workspace persistence.
@@ -1669,6 +1818,8 @@ mod tests {
             server_id: "test-server".to_string(),
             password_verifier: None,
             max_auth_attempts: 5,
+            trusted_proxy: None,
+            audit_logger: None,
         };
 
         let (_, rx) = mpsc::channel(32);
@@ -3727,5 +3878,112 @@ mod tests {
             },
             other => panic!("Expected SessionList, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn test_ws_auth_rate_limit_constant() {
+        // Verify the rate limit constant is wired correctly
+        assert_eq!(MAX_WS_AUTH_ATTEMPTS, 5);
+        // The constant should match what's expected by the protocol
+        assert!(MAX_WS_AUTH_ATTEMPTS > 0, "Must allow at least one attempt");
+        assert!(MAX_WS_AUTH_ATTEMPTS <= 10, "Should not allow too many attempts");
+    }
+
+    #[test]
+    fn test_extract_client_ip_trusted_proxy_matches() {
+        let ip = extract_client_ip(
+            Some("203.0.113.50, 70.41.3.18"),
+            Some("10.0.0.1"),
+            Some("10.0.0.1"),
+        );
+        assert_eq!(ip, "203.0.113.50");
+    }
+
+    #[test]
+    fn test_extract_client_ip_trusted_proxy_no_match() {
+        let ip = extract_client_ip(
+            Some("203.0.113.50, 70.41.3.18"),
+            Some("10.0.0.1"),
+            Some("192.168.1.100"),
+        );
+        assert_eq!(ip, "192.168.1.100");
+    }
+
+    #[test]
+    fn test_extract_client_ip_no_trusted_proxy() {
+        let ip = extract_client_ip(
+            Some("203.0.113.50"),
+            None,
+            Some("192.168.1.100"),
+        );
+        assert_eq!(ip, "192.168.1.100");
+    }
+
+    #[test]
+    fn test_extract_client_ip_no_xff_header() {
+        let ip = extract_client_ip(
+            None,
+            Some("10.0.0.1"),
+            Some("10.0.0.1"),
+        );
+        assert_eq!(ip, "10.0.0.1");
+    }
+
+    #[test]
+    fn test_extract_client_ip_no_peer_ip() {
+        let ip = extract_client_ip(None, None, None);
+        assert_eq!(ip, "unknown");
+    }
+
+    #[test]
+    fn test_extract_client_ip_single_xff() {
+        let ip = extract_client_ip(
+            Some("203.0.113.50"),
+            Some("10.0.0.1"),
+            Some("10.0.0.1"),
+        );
+        assert_eq!(ip, "203.0.113.50");
+    }
+
+    #[tokio::test]
+    async fn test_http_redirect_to_https() {
+        use axum::body::Body;
+        use axum::http::Request as HttpRequest;
+        use tower::ServiceExt;
+        let app = build_http_redirect_router(8444);
+        let response = app.clone().oneshot(
+            HttpRequest::builder().uri("/ws").header("host", "example.com:3000")
+                .body(Body::empty()).unwrap(),
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
+        let location = response.headers().get("location").unwrap().to_str().unwrap();
+        assert_eq!(location, "https://example.com:8444/ws");
+    }
+
+    #[tokio::test]
+    async fn test_http_redirect_standard_port() {
+        use axum::body::Body;
+        use axum::http::Request as HttpRequest;
+        use tower::ServiceExt;
+        let app = build_http_redirect_router(443);
+        let response = app.clone().oneshot(
+            HttpRequest::builder().uri("/test").header("host", "example.com")
+                .body(Body::empty()).unwrap(),
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
+        let location = response.headers().get("location").unwrap().to_str().unwrap();
+        assert_eq!(location, "https://example.com/test");
+    }
+
+    #[tokio::test]
+    async fn test_http_redirect_health_still_works() {
+        use axum::body::Body;
+        use axum::http::Request as HttpRequest;
+        use tower::ServiceExt;
+        let app = build_http_redirect_router(8444);
+        let response = app.clone().oneshot(
+            HttpRequest::builder().uri("/health").body(Body::empty()).unwrap(),
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
     }
 }
