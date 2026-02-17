@@ -1,0 +1,37 @@
+# Log rotation configuration for terminar audit logs
+#
+# Installation:
+#   Copy to /etc/logrotate.d/terminar-audit
+#
+# The audit logger writes JSONL events to ~/.terminar/audit.log
+# when the server is started with --audit-level (auth|standard|verbose).
+#
+# Each line is a self-contained JSON object, so copytruncate is safe:
+# the logger appends atomically and the reader (or external tools)
+# can parse rotated files line-by-line.
+
+/home/*/.terminar/audit.log {
+    # Rotate daily
+    daily
+
+    # Keep 30 days of audit logs
+    rotate 30
+
+    # Compress rotated logs (gzip by default)
+    compress
+
+    # Delay compression by one rotation cycle so the most recent
+    # rotated file is still plaintext (useful for quick inspection)
+    delaycompress
+
+    # Do not error if log file is missing (user may not have audit enabled)
+    missingok
+
+    # Do not rotate if log file is empty
+    notifempty
+
+    # Use copytruncate to avoid requiring the server to reopen the
+    # audit log file. The AuditLogger uses a BufWriter that continues
+    # writing to the same file descriptor after truncation.
+    copytruncate
+}
