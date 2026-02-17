@@ -62,6 +62,10 @@ pub struct Cli {
     /// Maximum failed auth attempts per IP before hard lockout (default: 5)
     #[arg(long, default_value_t = 5)]
     pub max_auth_attempts: usize,
+
+    /// Auto-generate self-signed TLS certificate on startup
+    #[arg(long, default_value_t = false)]
+    pub auto_tls: bool,
 }
 
 /// Available CLI subcommands.
@@ -254,5 +258,19 @@ mod tests {
         let cli = Cli::try_parse_from(args).unwrap();
         assert!(cli.tls_cert.is_none());
         assert!(cli.tls_key.is_some());
+    }
+
+    #[test]
+    fn test_auto_tls_default_false() {
+        let args = vec!["server"];
+        let cli = Cli::try_parse_from(args).unwrap();
+        assert!(!cli.auto_tls);
+    }
+
+    #[test]
+    fn test_auto_tls_flag() {
+        let args = vec!["server", "--auto-tls"];
+        let cli = Cli::try_parse_from(args).unwrap();
+        assert!(cli.auto_tls);
     }
 }

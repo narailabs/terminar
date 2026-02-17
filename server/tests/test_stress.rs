@@ -34,6 +34,7 @@ async fn spawn_stress_server(name: &str) -> (String, tokio::task::JoinHandle<()>
         tls_key: None,
         tls_port: 8444,
         max_auth_attempts: 5,
+        auto_tls: false,
     };
 
     let socket_path = cli.socket.clone().unwrap();

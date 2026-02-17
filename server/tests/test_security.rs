@@ -35,6 +35,7 @@ async fn spawn_auth_server(name: &str) -> (String, tokio::task::JoinHandle<()>) 
         tls_key: None,
         tls_port: 8444,
         max_auth_attempts: 5,
+        auto_tls: false,
     };
 
     let socket_path = cli.socket.clone().unwrap();
@@ -66,6 +67,7 @@ async fn spawn_noauth_server(name: &str) -> (String, tokio::task::JoinHandle<()>
         tls_key: None,
         tls_port: 8444,
         max_auth_attempts: 5,
+        auto_tls: false,
     };
 
     let socket_path = cli.socket.clone().unwrap();
@@ -529,6 +531,7 @@ async fn test_health_endpoint_unauthenticated() {
         tls_key: None,
         tls_port: 8444,
         max_auth_attempts: 5,
+        auto_tls: false,
     };
 
     let socket_path = cli.socket.clone().unwrap();
@@ -574,6 +577,7 @@ async fn test_metrics_endpoint_requires_auth() {
         tls_key: None,
         tls_port: 8444,
         max_auth_attempts: 5,
+        auto_tls: false,
     };
 
     let socket_path = cli.socket.clone().unwrap();
@@ -615,6 +619,7 @@ async fn test_pair_exchange_rate_limiting() {
         tls_key: None,
         tls_port: 8444,
         max_auth_attempts: 5,
+        auto_tls: false,
     };
 
     let socket_path = cli.socket.clone().unwrap();

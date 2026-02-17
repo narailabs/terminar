@@ -38,6 +38,7 @@ async fn spawn_unix_server(name: &str) -> (String, u16, tokio::task::JoinHandle<
         tls_key: None,
         tls_port: 8444,
         max_auth_attempts: 5,
+        auto_tls: false,
     };
 
     let sp = socket_path.clone();
