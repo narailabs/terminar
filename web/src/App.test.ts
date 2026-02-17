@@ -370,7 +370,7 @@ describe('App - Token Auth Connection Flow', () => {
 
     await waitFor(() => {
       expect(WebSocketSessionManager).toHaveBeenCalledWith(
-        'ws://remote.server.com:3000/ws',
+        'wss://remote.server.com:3000/ws',
         'my-secret-token-123'
       );
     });
@@ -451,7 +451,7 @@ describe('App - Pairing Code Exchange', () => {
     // After successful exchange, it should call connect() which creates a manager
     await waitFor(() => {
       expect(WebSocketSessionManager).toHaveBeenCalledWith(
-        'ws://remote.server.com:3000/ws',
+        'wss://remote.server.com:3000/ws',
         'paired-token-xyz'
       );
     });
