@@ -92,6 +92,10 @@ pub enum ClientMessage {
     AuthToken {
         token: String,
     },
+    /// Exchange a refresh token for a new access token + refresh token pair.
+    RefreshToken {
+        refresh_token: String,
+    },
     /// Save workspace data (session layout, splits, tabs, etc.).
     SaveWorkspace {
         workspace: serde_json::Value,
@@ -538,6 +542,56 @@ mod tests {
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains(r#""type":"auth_token""#));
+    }
+
+    #[test]
+    fn test_client_message_refresh_token() {
+        let msg = ClientMessage::RefreshToken {
+            refresh_token: "eyJhbGciOiJIUzI1NiJ9.refresh.sig".into(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains(r#""type":"refresh_token""#));
+        assert!(json.contains(r#""refresh_token":"eyJhbGciOiJIUzI1NiJ9.refresh.sig""#));
+
+        let deserialized: ClientMessage = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            ClientMessage::RefreshToken { refresh_token } => {
+                assert_eq!(refresh_token, "eyJhbGciOiJIUzI1NiJ9.refresh.sig");
+            },
+            _ => panic!("Expected RefreshToken"),
+        }
+    }
+
+    #[test]
+    fn test_server_message_auth_ok_with_refresh_token() {
+        let msg = ServerMessage::AuthOk {
+            token: "access.jwt".into(),
+            expires: "900s".into(),
+            protocol_version: Some("0.2.0".into()),
+            refresh_token: Some("refresh.jwt".into()),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains(r#""refresh_token":"refresh.jwt""#));
+
+        let deserialized: ServerMessage = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            ServerMessage::AuthOk { refresh_token, .. } => {
+                assert_eq!(refresh_token, Some("refresh.jwt".into()));
+            },
+            _ => panic!("Expected AuthOk"),
+        }
+    }
+
+    #[test]
+    fn test_server_message_auth_ok_without_refresh_token() {
+        let msg = ServerMessage::AuthOk {
+            token: "access.jwt".into(),
+            expires: "900s".into(),
+            protocol_version: None,
+            refresh_token: None,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(!json.contains("refresh_token"), "None refresh_token should be omitted");
     }
 
     #[test]
