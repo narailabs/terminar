@@ -11,6 +11,7 @@ pub mod config;
 pub mod connection;
 pub mod constants;
 pub mod error;
+pub mod gateway;
 pub mod handlers;
 pub mod history;
 pub mod jwt;
@@ -19,6 +20,7 @@ pub mod messages;
 pub mod persistence;
 pub mod process;
 pub mod pty;
+pub mod security_headers;
 pub mod session;
 pub mod settings;
 pub mod tls;
@@ -40,7 +42,7 @@ use tracing::{info, error, warn, info_span, Instrument};
 use std::time::{Instant, Duration};
 
 use constants::{
-    RATE_LIMIT_WINDOW_SECS,
+    RATE_LIMIT_WINDOW_SECS, MAX_WS_AUTH_ATTEMPTS,
     DEFAULT_CORS_ORIGINS, SHUTDOWN_TIMEOUT_SECS,
 };
 
@@ -536,6 +538,10 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
     // 1. Start HTTP/WebSocket Server
     let cors_layer = create_cors_layer(&cli.cors_origins);
 
+    let security_headers_state = security_headers::SecurityHeadersState {
+        tls_enabled: tls_config.is_some(),
+    };
+
     let app = Router::new()
         .route("/ws", get(ws_handler))
         .route("/health", get(health_handler))
@@ -549,6 +555,10 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
         .route("/workspace", put(put_workspace_handler))
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
         .layer(cors_layer)
+        .layer(middleware::from_fn_with_state(
+            security_headers_state,
+            security_headers::security_headers_middleware,
+        ))
         .with_state(state.clone());
 
     let addr = format!("0.0.0.0:{}", cli.port);
