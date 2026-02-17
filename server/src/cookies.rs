@@ -44,7 +44,7 @@ pub fn extract_cookie(headers: &HeaderMap, name: &str) -> Option<String> {
             cookies.split(';')
                 .map(|s| s.trim())
                 .find(|s| s.starts_with(&format!("{}=", name)))
-                .map(|s| s[name.len() + 1..].to_string())
+                .and_then(|s| s.splitn(2, '=').nth(1).map(|v| v.to_string()))
         })
 }
 

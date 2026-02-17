@@ -114,7 +114,7 @@ async fn server_to_client(
         // Forward as WebSocket text frame
         match String::from_utf8(payload) {
             Ok(json) => {
-                if client_tx.send(Message::Text(json.into())).await.is_err() {
+                if client_tx.send(Message::Text(json)).await.is_err() {
                     break;
                 }
             }

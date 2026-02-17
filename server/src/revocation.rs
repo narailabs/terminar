@@ -139,7 +139,7 @@ impl RevocationStore {
 
         let entry = RevocationEntry {
             token_id: token_id.to_string(),
-            revoked_at: format!("{}Z", now_secs),
+            revoked_at: crate::audit::unix_secs_to_iso8601(now_secs),
             reason: reason.to_string(),
             exp,
         };
@@ -161,6 +161,11 @@ impl RevocationStore {
     /// Returns the number of revoked tokens currently tracked.
     pub fn len(&self) -> usize {
         self.revoked.lock().len()
+    }
+
+    /// Returns true if no tokens are currently revoked.
+    pub fn is_empty(&self) -> bool {
+        self.revoked.lock().is_empty()
     }
 }
 

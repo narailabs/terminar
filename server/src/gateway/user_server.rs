@@ -12,6 +12,38 @@ use tokio::process::Command;
 use tokio::sync::Mutex;
 use tracing::{info, warn, error};
 
+/// Validate a username before using it in paths or commands.
+///
+/// Rejects:
+/// - Empty usernames
+/// - Usernames containing `/`, `\`, or null bytes
+/// - Usernames starting with `.` or `-`
+/// - Usernames longer than 32 characters
+fn validate_username(username: &str) -> Result<(), String> {
+    if username.is_empty() {
+        return Err("username must not be empty".to_string());
+    }
+    if username.len() > 32 {
+        return Err(format!(
+            "username '{}' exceeds maximum length of 32 characters",
+            username
+        ));
+    }
+    if username.starts_with('.') || username.starts_with('-') {
+        return Err(format!(
+            "username '{}' must not start with '.' or '-'",
+            username
+        ));
+    }
+    if username.contains('/') || username.contains('\\') || username.contains('\0') {
+        return Err(format!(
+            "username '{}' contains forbidden characters (/, \\, or null)",
+            username
+        ));
+    }
+    Ok(())
+}
+
 /// Information about a running per-user server instance.
 pub struct UserServerInfo {
     /// Path to the Unix domain socket this server listens on.
@@ -48,6 +80,8 @@ impl UserServerManager {
     ///
     /// Returns a `Command` configured to run:
     ///   `sudo -u <username> <server_bin> --user-mode --socket <socket_dir>/<username>.sock`
+    ///
+    /// The caller must validate the username before calling this function.
     pub fn build_spawn_command(&self, username: &str) -> Command {
         let socket_path = format!("{}/{}.sock", self.socket_dir, username);
         let mut cmd = Command::new("sudo");
@@ -61,6 +95,8 @@ impl UserServerManager {
     }
 
     /// Return the socket path for a given username.
+    ///
+    /// The caller must validate the username before calling this function.
     pub fn socket_path_for(&self, username: &str) -> String {
         format!("{}/{}.sock", self.socket_dir, username)
     }
@@ -71,6 +107,9 @@ impl UserServerManager {
     /// `last_active` timestamp and return the socket path. Otherwise,
     /// spawn a new server and wait for its socket to appear.
     pub async fn ensure_server(&self, username: &str) -> Result<String, String> {
+        // Validate the username before constructing any paths or commands
+        validate_username(username)?;
+
         let socket_path = self.socket_path_for(username);
 
         // Check if we already have a running server for this user
@@ -81,7 +120,7 @@ impl UserServerManager {
                     info.last_active = Instant::now();
                     return Ok(info.socket_path.clone());
                 }
-                // Socket gone — server must have crashed, remove stale entry
+                // Socket gone -- server must have crashed, remove stale entry
                 warn!(username, "per-user server socket missing, respawning");
                 servers.remove(username);
             }
@@ -90,7 +129,7 @@ impl UserServerManager {
         // Spawn a new server
         info!(username, socket_path = %socket_path, "spawning per-user server");
         let mut cmd = self.build_spawn_command(username);
-        let child = cmd.spawn().map_err(|e| {
+        let mut child = cmd.spawn().map_err(|e| {
             format!("failed to spawn server for user {}: {}", username, e)
         })?;
 
@@ -111,6 +150,30 @@ impl UserServerManager {
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
+
+        // Spawn a background task to reap the child process when it exits.
+        // This prevents zombie processes and logs unexpected exits.
+        let username_for_reaper = username.to_string();
+        tokio::spawn(async move {
+            match child.wait().await {
+                Ok(status) => {
+                    warn!(
+                        username = %username_for_reaper,
+                        pid,
+                        status = %status,
+                        "per-user server process exited"
+                    );
+                }
+                Err(e) => {
+                    error!(
+                        username = %username_for_reaper,
+                        pid,
+                        "failed to wait on per-user server process: {}",
+                        e
+                    );
+                }
+            }
+        });
 
         // Track the new server
         let info = UserServerInfo {
@@ -139,11 +202,18 @@ impl UserServerManager {
                     pid = info.pid,
                     "shutting down idle per-user server"
                 );
-                // Send SIGTERM to the server process
+                // Send SIGTERM to the server process using nix for safety
                 #[cfg(unix)]
                 {
-                    unsafe {
-                        libc::kill(info.pid as i32, libc::SIGTERM);
+                    use nix::sys::signal::{kill, Signal};
+                    use nix::unistd::Pid;
+                    if let Err(e) = kill(Pid::from_raw(info.pid as i32), Signal::SIGTERM) {
+                        warn!(
+                            username,
+                            pid = info.pid,
+                            "failed to send SIGTERM to per-user server: {}",
+                            e
+                        );
                     }
                 }
                 // Clean up the socket file
@@ -161,6 +231,59 @@ impl UserServerManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_validate_username_valid() {
+        assert!(validate_username("alice").is_ok());
+        assert!(validate_username("bob_123").is_ok());
+        assert!(validate_username("user.name").is_ok());
+        assert!(validate_username("a").is_ok());
+    }
+
+    #[test]
+    fn test_validate_username_empty() {
+        assert!(validate_username("").is_err());
+        assert!(validate_username("").unwrap_err().contains("empty"));
+    }
+
+    #[test]
+    fn test_validate_username_too_long() {
+        let long_name = "a".repeat(33);
+        assert!(validate_username(&long_name).is_err());
+        assert!(validate_username(&long_name).unwrap_err().contains("32"));
+    }
+
+    #[test]
+    fn test_validate_username_starts_with_dot() {
+        assert!(validate_username(".hidden").is_err());
+    }
+
+    #[test]
+    fn test_validate_username_starts_with_dash() {
+        assert!(validate_username("-flag").is_err());
+    }
+
+    #[test]
+    fn test_validate_username_contains_slash() {
+        assert!(validate_username("../etc").is_err());
+        assert!(validate_username("user/name").is_err());
+    }
+
+    #[test]
+    fn test_validate_username_contains_backslash() {
+        assert!(validate_username("user\\name").is_err());
+    }
+
+    #[test]
+    fn test_validate_username_contains_null() {
+        assert!(validate_username("user\0name").is_err());
+    }
+
+    #[test]
+    fn test_validate_username_32_chars_ok() {
+        let name = "a".repeat(32);
+        assert!(validate_username(&name).is_ok());
+    }
 
     #[test]
     fn test_user_server_spawn_command() {

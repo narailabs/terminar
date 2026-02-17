@@ -240,7 +240,8 @@ pub struct AppState {
     pub pairing_codes: Arc<Mutex<HashMap<String, (String, Instant)>>>,
     /// Rate limiting for pairing attempts: IP address -> list of attempt timestamps.
     pub pairing_attempts: Arc<Mutex<HashMap<String, Vec<Instant>>>>,
-    /// When true, all authentication checks are bypassed (development only).
+    /// When true, all authentication checks are bypassed. Set in --no-auth
+    /// (development) and --user-mode (production, where the gateway handles auth).
     pub no_auth: bool,
     /// Optional mock PTY provider for testing without real terminal processes.
     pub mock_provider: Option<Arc<MockPtyProvider>>,
@@ -254,7 +255,10 @@ pub struct AppState {
     pub messages_processed_total: Arc<std::sync::atomic::AtomicU64>,
     /// Monotonically increasing counter for auto-naming sessions ("Terminal 1", "Terminal 2", etc.).
     pub session_name_counter: Arc<std::sync::atomic::AtomicU64>,
-    /// Set of revoked API tokens that should be rejected on authentication.
+    /// Set of revoked API key tokens (keyed by full token string) that should be
+    /// rejected on authentication. This is ONLY for legacy API key tokens which
+    /// don't have a `jti` claim. All JWT revocations should use `revocation_store`
+    /// instead, which persists revocations to disk and keys by `jti`.
     pub revoked_tokens: Arc<Mutex<HashSet<String>>>,
     /// JWT signing key for session tokens.
     pub signing_key: Arc<Vec<u8>>,
@@ -625,7 +629,7 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
     }
 
     // Initialize audit logger
-    let audit_level = audit::AuditLevel::from_str(&cli.audit_level);
+    let audit_level: audit::AuditLevel = cli.audit_level.parse().unwrap_or(audit::AuditLevel::Standard);
     if audit_level != audit::AuditLevel::Off {
         let audit_path = std::path::PathBuf::from(
             std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string())
@@ -974,8 +978,7 @@ async fn auth_middleware(
         || req.uri().path() == "/health"
         || req.uri().path() == "/settings"
         || req.uri().path() == "/workspace"
-        || req.uri().path() == "/auth/session"
-        || req.uri().path() == "/auth/logout" {
+        || req.uri().path() == "/auth/session" {
         return next.run(req).await;
     }
 
@@ -992,18 +995,34 @@ async fn auth_middleware(
 
     let token = auth_header.map(|s| s.to_string()).or(query_token);
 
+    // Try API key auth (Bearer token or query param)
     match token {
         Some(val) if val == state.api_key => {
             // Check if token has been revoked
             if state.revoked_tokens.lock().contains(&val) {
                 return (StatusCode::UNAUTHORIZED, "Token has been revoked").into_response();
             }
-            next.run(req).await
+            return next.run(req).await;
         }
-        _ => {
-            (StatusCode::UNAUTHORIZED, "Unauthorized").into_response()
+        _ => {}
+    }
+
+    // Try cookie-based JWT auth (terminar_access cookie)
+    if let Some(access_token) = cookies::extract_cookie(req.headers(), "terminar_access") {
+        if let Ok(claims) = jwt::validate_access_token(&state.signing_key, &access_token) {
+            // Check revocation via persistent store (by jti) or ephemeral set
+            let revoked = if let Some(ref store) = state.revocation_store {
+                store.is_revoked(&claims.jti)
+            } else {
+                state.revoked_tokens.lock().contains(&access_token)
+            };
+            if !revoked {
+                return next.run(req).await;
+            }
         }
     }
+
+    (StatusCode::UNAUTHORIZED, "Unauthorized").into_response()
 }
 
 /// Extract the real client IP address from a request, safely handling X-Forwarded-For.
@@ -1124,7 +1143,23 @@ async fn revoke_handler(
     Json(payload): Json<RevokeRequest>,
 ) -> impl IntoResponse {
     info!("Revoking token: {}...", &payload.token[..std::cmp::min(8, payload.token.len())]);
-    state.revoked_tokens.lock().insert(payload.token);
+
+    // Try to decode the token as a JWT to extract jti for persistent revocation
+    if let Some(ref store) = state.revocation_store {
+        if let Ok(claims) = jwt::validate_token(&state.signing_key, &payload.token) {
+            store.revoke(&claims.jti, "manual", Some(claims.exp));
+            if let Some(ref logger) = state.audit_logger {
+                logger.log(audit::AuditEvent::token_revoked(&claims.jti, "manual"));
+            }
+        } else {
+            // Not a valid JWT — treat as legacy API key token
+            state.revoked_tokens.lock().insert(payload.token);
+        }
+    } else {
+        // No revocation store — fall back to ephemeral in-memory set
+        state.revoked_tokens.lock().insert(payload.token);
+    }
+
     (StatusCode::OK, Json(RevokeResponse { status: "revoked".to_string() }))
 }
 
@@ -1134,25 +1169,40 @@ async fn refresh_handler(
 ) -> impl IntoResponse {
     match jwt::validate_refresh_token(&state.signing_key, &payload.refresh_token) {
         Ok(claims) => {
-            // Check if the refresh token has been revoked
-            if state.revoked_tokens.lock().contains(&payload.refresh_token) {
+            // Check if the refresh token has been revoked (persistent store by jti,
+            // falling back to ephemeral set for legacy tokens without jti)
+            if let Some(ref store) = state.revocation_store {
+                if store.is_revoked(&claims.jti) {
+                    warn!("Attempted reuse of revoked refresh token jti={}", claims.jti);
+                    return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "Token revoked"}))).into_response();
+                }
+            } else if state.revoked_tokens.lock().contains(&payload.refresh_token) {
                 return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "Token revoked"}))).into_response();
             }
 
-            // Issue new access token (15 min) and rotate refresh token (7 days)
+            // Issue new access token and rotate refresh token
             let access = jwt::issue_access_token(
                 &state.signing_key, &claims.sub, &state.server_id,
-                Duration::from_secs(900),
+                Duration::from_secs(constants::ACCESS_TOKEN_EXPIRY_SECS),
             );
             let refresh = jwt::issue_refresh_token(
                 &state.signing_key, &claims.sub, &state.server_id,
-                Duration::from_secs(604800),
+                Duration::from_secs(constants::REFRESH_TOKEN_EXPIRY_SECS),
             );
 
             match (access, refresh) {
                 (Ok(access_token), Ok(refresh_token)) => {
                     // Revoke old refresh token
-                    state.revoked_tokens.lock().insert(payload.refresh_token);
+                    if let Some(ref store) = state.revocation_store {
+                        store.revoke(&claims.jti, "rotation", Some(claims.exp));
+                        if let Some(ref logger) = state.audit_logger {
+                            logger.log(audit::AuditEvent::token_revoked(
+                                &claims.jti, "rotation",
+                            ));
+                        }
+                    } else {
+                        state.revoked_tokens.lock().insert(payload.refresh_token);
+                    }
 
                     info!("Refreshed tokens for user: {}", claims.sub);
                     (StatusCode::OK, Json(serde_json::json!({
@@ -1237,7 +1287,21 @@ async fn logout_handler(
     // Extract and revoke the refresh token from the cookie
     if let Some(refresh_token) = cookies::extract_cookie(&headers, "terminar_refresh") {
         if !refresh_token.is_empty() {
-            state.revoked_tokens.lock().insert(refresh_token);
+            if let Some(ref store) = state.revocation_store {
+                // Decode the refresh token to extract jti for persistent revocation
+                if let Ok(claims) = jwt::validate_refresh_token(&state.signing_key, &refresh_token) {
+                    store.revoke(&claims.jti, "logout", Some(claims.exp));
+                    if let Some(ref logger) = state.audit_logger {
+                        logger.log(audit::AuditEvent::token_revoked(&claims.jti, "logout"));
+                    }
+                } else {
+                    // Token is invalid/expired — fall back to ephemeral revocation
+                    state.revoked_tokens.lock().insert(refresh_token);
+                }
+            } else {
+                // No revocation store — fall back to ephemeral in-memory set
+                state.revoked_tokens.lock().insert(refresh_token);
+            }
         }
     }
 

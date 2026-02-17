@@ -36,7 +36,6 @@ vi.mock('./lib/envStore', () => ({
 // Mock exitedSessionsStore
 vi.mock('./lib/exitedSessionsStore', () => ({
   markExited: vi.fn(),
-  removeExited: vi.fn(),
   exitedSessions: { subscribe: vi.fn((fn: any) => { fn(new Map()); return () => {}; }) },
 }));
 
@@ -790,7 +789,86 @@ describe('App - isLocalServer Detection', () => {
     expect(screen.getByText('SSH Key')).toBeTruthy();
     expect(screen.getByText('Pairing Code')).toBeTruthy();
 
-    // Should NOT auto-connect
+    // Should NOT auto-connect synchronously (connectWithCookie runs async after settings init)
     expect(WebSocketSessionManager).not.toHaveBeenCalled();
+  });
+});
+
+// ====================================================================
+// Cookie-based Auto-Reconnection (connectWithCookie)
+// ====================================================================
+
+describe('App - connectWithCookie', () => {
+  beforeEach(() => {
+    vi.mocked(WebSocketSessionManager).mockClear();
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ workspace: null }) });
+  });
+
+  it('falls back to login page when cookie auth fails (no server)', async () => {
+    // Make connect() reject to simulate no server
+    vi.mocked(WebSocketSessionManager).mockImplementation(function () {
+      return {
+        connect: vi.fn().mockRejectedValue(new Error('Connection refused')),
+        listSessions: vi.fn(),
+        createSession: vi.fn(),
+        attach: vi.fn(),
+        on: vi.fn(),
+        off: vi.fn(),
+        authenticateWithPassword: vi.fn(),
+        authenticateWithToken: vi.fn(),
+        authenticateWithPubkey: vi.fn(),
+        getJwtToken: vi.fn(),
+        disconnect: vi.fn(),
+      };
+    } as any);
+
+    render(App, { props: remoteServerProps });
+
+    // Wait for onMount to settle (initializeSettings + connectWithCookie)
+    await waitFor(() => {
+      expect(WebSocketSessionManager).toHaveBeenCalled();
+    });
+
+    // Wait for the cookie auth to fail and clean up
+    await new Promise(r => setTimeout(r, 100));
+
+    // The login page should still be visible (cookie auth failed silently)
+    expect(screen.getByText(/termiNar/)).toBeTruthy();
+    expect(screen.getByText('Token')).toBeTruthy();
+    expect(screen.getByText('SSH Key')).toBeTruthy();
+  });
+
+  it('cleans up wsManager on failure to prevent resource leaks', async () => {
+    // Make connect() reject to simulate failure
+    const mockDisconnect = vi.fn();
+    vi.mocked(WebSocketSessionManager).mockImplementation(function () {
+      return {
+        connect: vi.fn().mockRejectedValue(new Error('Connection refused')),
+        listSessions: vi.fn(),
+        createSession: vi.fn(),
+        attach: vi.fn(),
+        on: vi.fn(),
+        off: vi.fn(),
+        authenticateWithPassword: vi.fn(),
+        authenticateWithToken: vi.fn(),
+        authenticateWithPubkey: vi.fn(),
+        getJwtToken: vi.fn(),
+        disconnect: mockDisconnect,
+      };
+    } as any);
+
+    render(App, { props: remoteServerProps });
+
+    // Wait for connectWithCookie to be called and fail
+    await waitFor(() => {
+      expect(WebSocketSessionManager).toHaveBeenCalled();
+    });
+
+    // Wait for the cookie auth to fail
+    await new Promise(r => setTimeout(r, 100));
+
+    // disconnect() must have been called to clean up the beforeunload listener
+    expect(mockDisconnect).toHaveBeenCalled();
   });
 });

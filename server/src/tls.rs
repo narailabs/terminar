@@ -204,7 +204,7 @@ pub fn ensure_tls_cert(tls_dir: &Path) -> Result<GeneratedCert, TlsError> {
         let cert_pem = std::fs::read(&cert_path)
             .map_err(|e| TlsError::CertReadError(format!("{}", e)))?;
         let fingerprint = compute_cert_fingerprint(&cert_pem)
-            .map_err(|e| TlsError::ConfigError(e))?;
+            .map_err(TlsError::ConfigError)?;
 
         return Ok(GeneratedCert {
             cert_path: cert_path.to_str().unwrap().to_string(),
