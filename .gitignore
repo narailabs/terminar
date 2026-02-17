@@ -15,6 +15,7 @@ electron/dist/
 
 # Web build output
 web/dist/
+web/coverage/
 
 # VS Code extension packaging
 *.vsix
