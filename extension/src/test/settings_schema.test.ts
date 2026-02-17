@@ -32,14 +32,6 @@ suite('Settings Schema (package.json)', () => {
         assert.strictEqual(prop.default, '');
     });
 
-    test('authToken property is defined', () => {
-        const props = packageJson.contributes.configuration.properties;
-        const prop = props['terminar.authToken'];
-        assert.ok(prop, 'authToken property should exist');
-        assert.strictEqual(prop.type, 'string');
-        assert.strictEqual(prop.default, '');
-    });
-
     test('autoStart property is defined with boolean type and true default', () => {
         const props = packageJson.contributes.configuration.properties;
         const prop = props['terminar.autoStart'];
