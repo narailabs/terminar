@@ -168,12 +168,12 @@
   }
 
   .list-container::-webkit-scrollbar-thumb {
-    background: var(--ui-bg-tertiary, #424242);
+    background: var(--ui-scrollbar-thumb, rgba(121,121,121,0.4));
     border-radius: 4px;
   }
 
   .list-container::-webkit-scrollbar-thumb:hover {
-    background: #4f4f4f;
+    background: var(--ui-scrollbar-thumb-hover, rgba(121,121,121,0.7));
   }
 
   .session-row {

@@ -34,6 +34,7 @@ describe('themeStore', () => {
 
   it('should initialize with dark theme as default', () => {
     const state = get(themeStore.themeState);
+    expect(state.uiMode).toBe('dark');
     expect(state.activeUIThemeId).toBe('dark');
     expect(state.activeTerminalThemeId).toBe('dark');
   });
@@ -116,10 +117,10 @@ describe('themeStore', () => {
   // ── Resolved theme helpers ───────────────────────────────────────────────
 
   it('getActiveUITheme should return the resolved UITheme object', () => {
-    themeStore.setActiveUITheme('dark-green');
+    themeStore.setActiveUITheme('light');
     const theme = themeStore.getActiveUITheme();
-    expect(theme.id).toBe('dark-green');
-    expect(theme.name).toBe('Dark Green');
+    expect(theme.id).toBe('light');
+    expect(theme.name).toBe('Light');
   });
 
   it('getActiveTerminalTheme should return the resolved TerminalTheme object', () => {
@@ -274,6 +275,7 @@ describe('themeStore', () => {
 
   it('should restore state from localStorage on init', async () => {
     const saved = {
+      uiMode: 'light' as const,
       activeUIThemeId: 'light',
       activeTerminalThemeId: 'dark-green',
       terminalOverrides: { 'p1': 'dark' },
@@ -285,8 +287,120 @@ describe('themeStore', () => {
     vi.resetModules();
     const freshStore = await import('./themeStore');
     const state = get(freshStore.themeState);
+    expect(state.uiMode).toBe('light');
     expect(state.activeUIThemeId).toBe('light');
     expect(state.activeTerminalThemeId).toBe('dark-green');
     expect(state.terminalOverrides['p1']).toBe('dark');
+  });
+
+  // ── UI Mode ─────────────────────────────────────────────────────────────
+
+  it('setUIMode should update uiMode and activeUIThemeId', () => {
+    themeStore.setUIMode('light');
+    const state = get(themeStore.themeState);
+    expect(state.uiMode).toBe('light');
+    expect(state.activeUIThemeId).toBe('light');
+  });
+
+  it('setUIMode dark should set activeUIThemeId to dark', () => {
+    themeStore.setUIMode('dark');
+    const state = get(themeStore.themeState);
+    expect(state.uiMode).toBe('dark');
+    expect(state.activeUIThemeId).toBe('dark');
+  });
+
+  it('setUIMode auto should resolve based on matchMedia', () => {
+    // Mock matchMedia for auto mode
+    const matchMediaMock = vi.fn().mockReturnValue({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() });
+    vi.stubGlobal('matchMedia', matchMediaMock);
+
+    themeStore.setUIMode('auto');
+    const state = get(themeStore.themeState);
+    expect(state.uiMode).toBe('auto');
+    // matches=false → light
+    expect(state.activeUIThemeId).toBe('light');
+
+    vi.unstubAllGlobals();
+  });
+
+  it('setUIMode auto should resolve to dark when OS prefers dark', () => {
+    const matchMediaMock = vi.fn().mockReturnValue({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() });
+    vi.stubGlobal('matchMedia', matchMediaMock);
+
+    themeStore.setUIMode('auto');
+    const state = get(themeStore.themeState);
+    expect(state.uiMode).toBe('auto');
+    expect(state.activeUIThemeId).toBe('dark');
+
+    vi.unstubAllGlobals();
+  });
+
+  it('getResolvedUIMode should return light or dark for auto', () => {
+    const matchMediaMock = vi.fn().mockReturnValue({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() });
+    vi.stubGlobal('matchMedia', matchMediaMock);
+
+    themeStore.setUIMode('auto');
+    const resolved = themeStore.getResolvedUIMode();
+    expect(resolved).toBe('light');
+
+    vi.unstubAllGlobals();
+  });
+
+  it('getResolvedUIMode should return the mode for non-auto', () => {
+    themeStore.setUIMode('dark');
+    expect(themeStore.getResolvedUIMode()).toBe('dark');
+    themeStore.setUIMode('light');
+    expect(themeStore.getResolvedUIMode()).toBe('light');
+  });
+
+  // ── Migration ─────────────────────────────────────────────────────────
+
+  it('should migrate old state without uiMode to dark', async () => {
+    const saved = {
+      activeUIThemeId: 'dark',
+      activeTerminalThemeId: 'dark',
+      terminalOverrides: {},
+      customUIThemes: [],
+      customTerminalThemes: [],
+    };
+    localStorageMock.setItem('theme-state', JSON.stringify(saved));
+
+    vi.resetModules();
+    const freshStore = await import('./themeStore');
+    const state = get(freshStore.themeState);
+    expect(state.uiMode).toBe('dark');
+  });
+
+  it('should migrate old state with light activeUIThemeId to uiMode light', async () => {
+    const saved = {
+      activeUIThemeId: 'light',
+      activeTerminalThemeId: 'dark',
+      terminalOverrides: {},
+      customUIThemes: [],
+      customTerminalThemes: [],
+    };
+    localStorageMock.setItem('theme-state', JSON.stringify(saved));
+
+    vi.resetModules();
+    const freshStore = await import('./themeStore');
+    const state = get(freshStore.themeState);
+    expect(state.uiMode).toBe('light');
+  });
+
+  it('should migrate old state with dark-green activeUIThemeId to dark', async () => {
+    const saved = {
+      activeUIThemeId: 'dark-green',
+      activeTerminalThemeId: 'dark',
+      terminalOverrides: {},
+      customUIThemes: [],
+      customTerminalThemes: [],
+    };
+    localStorageMock.setItem('theme-state', JSON.stringify(saved));
+
+    vi.resetModules();
+    const freshStore = await import('./themeStore');
+    const state = get(freshStore.themeState);
+    expect(state.uiMode).toBe('dark');
+    expect(state.activeUIThemeId).toBe('dark');
   });
 });

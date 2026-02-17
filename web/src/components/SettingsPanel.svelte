@@ -18,10 +18,11 @@
   } from '../lib/settingsStore';
   import {
     themeState,
-    setActiveUITheme,
     setActiveTerminalTheme,
+    setUIMode,
+    type UIMode,
   } from '../lib/themeStore';
-  import { BUILT_IN_UI_THEMES, BUILT_IN_TERMINAL_THEMES } from '../lib/themeTypes';
+  import { BUILT_IN_TERMINAL_THEMES } from '../lib/themeTypes';
   import EnvVarEditor from './EnvVarEditor.svelte';
   import { globalEnvVars, addEnvVar, updateEnvVar, deleteEnvVar } from '../lib/envStore';
   import { get } from 'svelte/store';
@@ -77,12 +78,11 @@
   // Line height disabled - breaks TUI apps
 
   // All available UI and terminal themes (built-in + custom)
-  $: allUIThemes = [...BUILT_IN_UI_THEMES, ...$themeState.customUIThemes];
   $: allTerminalThemes = [...BUILT_IN_TERMINAL_THEMES, ...$themeState.customTerminalThemes];
 
-  function handleUIThemeChange(event: Event) {
+  function handleUIModeChange(event: Event) {
     const target = event.target as HTMLSelectElement;
-    setActiveUITheme(target.value);
+    setUIMode(target.value as UIMode);
   }
 
   function handleTerminalThemeChange(event: Event) {
@@ -293,17 +293,17 @@
       </div>
 
       <div class="panel-content">
-        <!-- UI Theme -->
+        <!-- Mode (Light / Dark / Auto) -->
         <div class="setting-group">
-          <label for="uiTheme">UI Theme</label>
+          <label for="uiMode">Mode</label>
           <select
-            id="uiTheme"
-            value={$themeState.activeUIThemeId}
-            on:change={handleUIThemeChange}
+            id="uiMode"
+            value={$themeState.uiMode}
+            on:change={handleUIModeChange}
           >
-            {#each allUIThemes as theme}
-              <option value={theme.id}>{theme.name}</option>
-            {/each}
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+            <option value="auto">Auto</option>
           </select>
         </div>
 

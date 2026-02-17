@@ -62,6 +62,8 @@ export function importTheme(data: ExportedTheme): {
 
   if (data.ui) {
     result.ui = {
+      scrollbarThumb: 'rgba(121,121,121,0.4)',
+      scrollbarThumbHover: 'rgba(121,121,121,0.7)',
       ...data.ui,
       id: generateId(),
       name: data.ui.name || data.name,

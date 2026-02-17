@@ -810,4 +810,21 @@
   .terminal-container :global(.xterm-viewport) {
     overflow-y: auto !important;
   }
+
+  .terminal-container :global(.xterm-viewport::-webkit-scrollbar) {
+    width: 10px;
+  }
+
+  .terminal-container :global(.xterm-viewport::-webkit-scrollbar-track) {
+    background: transparent;
+  }
+
+  .terminal-container :global(.xterm-viewport::-webkit-scrollbar-thumb) {
+    background: var(--ui-scrollbar-thumb, rgba(121,121,121,0.4));
+    border-radius: 5px;
+  }
+
+  .terminal-container :global(.xterm-viewport::-webkit-scrollbar-thumb:hover) {
+    background: var(--ui-scrollbar-thumb-hover, rgba(121,121,121,0.7));
+  }
 </style>

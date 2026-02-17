@@ -23,6 +23,8 @@ export interface UITheme {
   accentHover: string;
   destructive: string;
   destructiveHover: string;
+  scrollbarThumb: string;
+  scrollbarThumbHover: string;
 }
 
 // ── Terminal Theme ───────────────────────────────────────────────────────────
@@ -77,6 +79,8 @@ const darkUI: UITheme = {
   accentHover: '#1177bb',
   destructive: '#f48771',
   destructiveHover: '#5a1d1d',
+  scrollbarThumb: 'rgba(121,121,121,0.4)',
+  scrollbarThumbHover: 'rgba(121,121,121,0.7)',
 };
 
 const lightUI: UITheme = {
@@ -95,27 +99,11 @@ const lightUI: UITheme = {
   accentHover: '#0055a0',
   destructive: '#d32f2f',
   destructiveHover: '#fdd',
+  scrollbarThumb: 'rgba(100,100,100,0.4)',
+  scrollbarThumbHover: 'rgba(100,100,100,0.7)',
 };
 
-const darkGreenUI: UITheme = {
-  id: 'dark-green',
-  name: 'Dark Green',
-  bgPrimary: '#1a1a1a',
-  bgSecondary: '#252525',
-  bgTertiary: '#333333',
-  bgHover: '#1a3a1a',
-  bgActive: '#2a3a2a',
-  textPrimary: '#cccccc',
-  textSecondary: '#999999',
-  textMuted: '#666666',
-  border: '#333333',
-  accent: '#2ea043',
-  accentHover: '#3fb950',
-  destructive: '#f48771',
-  destructiveHover: '#5a1d1d',
-};
-
-export const BUILT_IN_UI_THEMES: readonly UITheme[] = [darkUI, lightUI, darkGreenUI];
+export const BUILT_IN_UI_THEMES: readonly UITheme[] = [darkUI, lightUI];
 
 // ── Built-in Terminal Themes ─────────────────────────────────────────────────
 

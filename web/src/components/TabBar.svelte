@@ -200,8 +200,12 @@
   }
 
   .tabs-container::-webkit-scrollbar-thumb {
-    background: var(--ui-text-muted, #555);
+    background: var(--ui-scrollbar-thumb, rgba(121,121,121,0.4));
     border-radius: 3px;
+  }
+
+  .tabs-container::-webkit-scrollbar-thumb:hover {
+    background: var(--ui-scrollbar-thumb-hover, rgba(121,121,121,0.7));
   }
 
   .tab {
