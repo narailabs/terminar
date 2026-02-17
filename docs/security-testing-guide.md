@@ -22,7 +22,7 @@ cd web && pnpm build
 
 ```bash
 # Start server with auto-generated TLS cert
-cargo run -- --no-auth --auto-tls
+cargo run --bin terminar-server -- --no-auth --auto-tls
 
 # Expected output includes:
 #   TLS certificate fingerprint: SHA256:AB:CD:...
@@ -51,7 +51,7 @@ openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
   -days 365 -nodes -subj "/CN=localhost"
 
 # Start with your own cert
-cargo run -- --no-auth --tls-cert /tmp/test-cert.pem --tls-key /tmp/test-key.pem
+cargo run --bin terminar-server -- --no-auth --tls-cert /tmp/test-cert.pem --tls-key /tmp/test-key.pem
 
 # Verify it uses your cert
 curl -k https://localhost:8444/health
@@ -63,7 +63,7 @@ When TLS is enabled, the HTTP port automatically redirects to HTTPS (except `/he
 
 ```bash
 # Start with auto-TLS
-cargo run -- --no-auth --auto-tls
+cargo run --bin terminar-server -- --no-auth --auto-tls
 
 # HTTP request should get 307 redirect to HTTPS
 curl -v http://localhost:3000/ 2>&1 | grep "< HTTP\|< Location"
@@ -81,7 +81,7 @@ All HTTP responses include hardened security headers.
 
 ```bash
 # Start server (with or without TLS)
-cargo run -- --no-auth --auto-tls
+cargo run --bin terminar-server -- --no-auth --auto-tls
 
 # Check headers on any endpoint
 curl -k -I https://localhost:8444/health
@@ -99,19 +99,19 @@ curl -k -I https://localhost:8444/health
 After 5 failed auth attempts on a WebSocket connection, the server disconnects.
 
 ```bash
-# Start server WITH auth
-cargo run --
+# Start server WITH auth (--require-auth forces auth on localhost too)
+cargo run --bin terminar-server -- --require-auth
 
 # Connect via websocat and send bad auth messages
 # (requires websocat: brew install websocat)
-websocat ws://localhost:3000/ws
+websocat -k wss://localhost:8444/ws
 
-# Send 5 bad auth attempts:
-{"type":"AuthPassword","username":"x","password":"wrong"}
-{"type":"AuthPassword","username":"x","password":"wrong"}
-{"type":"AuthPassword","username":"x","password":"wrong"}
-{"type":"AuthPassword","username":"x","password":"wrong"}
-{"type":"AuthPassword","username":"x","password":"wrong"}
+# Send 5 bad auth attempts (note: snake_case type tags):
+{"type":"auth_password","username":"x","password":"wrong"}
+{"type":"auth_password","username":"x","password":"wrong"}
+{"type":"auth_password","username":"x","password":"wrong"}
+{"type":"auth_password","username":"x","password":"wrong"}
+{"type":"auth_password","username":"x","password":"wrong"}
 
 # Connection should be forcibly closed after the 5th attempt
 ```
@@ -120,10 +120,10 @@ websocat ws://localhost:3000/ws
 
 ```bash
 # Without --trusted-proxy, X-Forwarded-For is ignored
-cargo run -- --no-auth
+cargo run --bin terminar-server -- --no-auth
 
 # With --trusted-proxy, only that IP's XFF header is trusted
-cargo run -- --no-auth --trusted-proxy 10.0.0.1
+cargo run --bin terminar-server -- --no-auth --trusted-proxy 10.0.0.1
 ```
 
 ### 1.7 WSS Enforcement (Web Frontend)
@@ -161,13 +161,19 @@ grep -l "xterm" dist/assets/*.css
 
 ## Phase 2: Audit Logging
 
+> **Important:** Audit events are buffered in memory and flushed to disk on server shutdown
+> (graceful SIGTERM). To see audit entries, stop the server after testing, then inspect the log.
+> Also note: `--no-auth` skips authentication entirely, so no auth events will be logged.
+> Use `--require-auth` to force auth on localhost connections for local testing.
+
 ### 2.1 Default Audit Logging (Standard Level)
 
 ```bash
 # Start server (audit logging is on by default at "standard" level)
-cargo run -- --no-auth
+cargo run --bin terminar-server -- --require-auth
 
-# Create/close sessions via the web UI, then check the log
+# Create/close sessions via the web UI, then stop the server (Ctrl+C)
+# The audit log is flushed on shutdown:
 cat ~/.terminar/audit.log
 
 # Each line is a JSON object like:
@@ -178,16 +184,16 @@ cat ~/.terminar/audit.log
 
 ```bash
 # Off - no logging
-cargo run -- --no-auth --audit-level off
+cargo run --bin terminar-server -- --no-auth --audit-level off
 
 # Auth only - login success/failure, token revocation
-cargo run -- --audit-level auth
+cargo run --bin terminar-server -- --audit-level auth
 
 # Standard (default) - auth + session lifecycle
-cargo run -- --audit-level standard
+cargo run --bin terminar-server -- --audit-level standard
 
 # Verbose - everything including connections and reconnections
-cargo run -- --audit-level verbose
+cargo run --bin terminar-server -- --audit-level verbose
 ```
 
 ### 2.3 Audit Event Types
@@ -228,7 +234,7 @@ for line in sys.stdin:
 
 ```bash
 # Start server WITH auth
-cargo run --
+cargo run --bin terminar-server
 
 # Authenticate via the web UI (password or pairing code)
 # The access token JWT has a 15-minute expiry (was 24 hours)
@@ -243,7 +249,7 @@ echo "<token>" | cut -d. -f2 | base64 -d 2>/dev/null | python3 -m json.tool
 
 ```bash
 # Start server with auth
-cargo run --
+cargo run --bin terminar-server
 
 # After authenticating via the web UI:
 # 1. Browser automatically refreshes the token every 14 minutes
@@ -260,7 +266,7 @@ Revoked tokens survive server restarts.
 
 ```bash
 # Start server, authenticate, then stop it
-cargo run --
+cargo run --bin terminar-server
 # (authenticate via web, then Ctrl+C)
 
 # Check the revocation file
@@ -268,7 +274,7 @@ cat ~/.terminar/revoked-tokens.jsonl
 # Format: {"token_id":"...","revoked_at":"2026-02-16T10:30:00Z","reason":"rotation"}
 
 # Restart the server - revoked tokens are still revoked
-cargo run --
+cargo run --bin terminar-server
 # Previously revoked refresh tokens cannot be reused
 ```
 
@@ -276,7 +282,7 @@ cargo run --
 
 ```bash
 # Start server
-cargo run --
+cargo run --bin terminar-server
 
 # Open web UI and authenticate
 # Open browser DevTools → Application → Cookies
@@ -319,11 +325,11 @@ Forces authentication even on local connections (Unix socket and loopback WebSoc
 
 ```bash
 # Without --require-auth: loopback WebSocket skips auth
-cargo run -- --no-auth
+cargo run --bin terminar-server -- --no-auth
 # Connect from localhost → no auth needed
 
 # With --require-auth: all connections need auth
-cargo run -- --require-auth
+cargo run --bin terminar-server -- --require-auth
 # Even localhost connections require a valid token
 ```
 
@@ -345,8 +351,8 @@ grep -r "authToken" extension/package.json
 
 ```bash
 cd server
-cargo build --bin gateway
-# Binary at: target/debug/gateway
+cargo build --bin terminar-gateway
+# Binary at: target/debug/terminar-gateway
 ```
 
 ### 4.2 Gateway Basic Operation
@@ -360,7 +366,7 @@ sudo mkdir -p /run/terminar
 sudo chown $USER /run/terminar
 
 # Start gateway (it listens for WebSocket connections and proxies to per-user servers)
-cargo run --bin gateway -- --port 4000 --socket-dir /tmp/terminar-test --server-bin ./target/debug/terminar-server
+cargo run --bin terminar-gateway -- --port 4000 --socket-dir /tmp/terminar-test --server-bin ./target/debug/terminar-server
 
 # Expected output:
 #   termiNar gateway listening on 0.0.0.0:4000
@@ -371,10 +377,10 @@ cargo run --bin gateway -- --port 4000 --socket-dir /tmp/terminar-test --server-
 
 ```bash
 # Gateway enables auto-TLS by default (unlike the main server)
-cargo run --bin gateway
+cargo run --bin terminar-gateway
 
 # Disable with --no-auto-tls
-cargo run --bin gateway -- --no-auto-tls
+cargo run --bin terminar-gateway -- --no-auto-tls
 ```
 
 ### 4.4 Per-User Server Mode
@@ -384,10 +390,10 @@ cargo run --bin gateway -- --no-auto-tls
 # It skips auth (gateway already authenticated) and refuses to run as root
 
 # Test user-mode directly:
-cargo run -- --user-mode --socket /tmp/terminar-test/myuser.sock
+cargo run --bin terminar-server -- --user-mode --socket /tmp/terminar-test/myuser.sock
 
 # Verify it refuses to run as root:
-sudo cargo run -- --user-mode
+sudo cargo run --bin terminar-server -- --user-mode
 # Expected: error - refuses to run as root in user-mode
 ```
 
@@ -409,7 +415,7 @@ The gateway validates usernames before constructing paths or commands:
 ```bash
 # Gateway shuts down idle per-user servers after 30 minutes (default)
 # Customize with --idle-timeout:
-cargo run --bin gateway -- --idle-timeout 60  # 1 minute for testing
+cargo run --bin terminar-gateway -- --idle-timeout 60  # 1 minute for testing
 ```
 
 ### 4.7 Deployment Files
@@ -437,28 +443,28 @@ Run this sequence to quickly verify the core security features work:
 # 1. Build
 cd server && cargo build
 
-# 2. Start with auto-TLS and verbose audit logging
-cargo run -- --auto-tls --audit-level verbose
+# 2. Start with auto-TLS, verbose audit, and forced auth on localhost
+cargo run --bin terminar-server -- --require-auth --auto-tls --audit-level verbose
 
 # 3. Verify TLS
 curl -k https://localhost:8444/health
-# → "ok"
+# → {"status":"ok",...}
 
 # 4. Check security headers
 curl -k -I https://localhost:8444/health 2>&1 | grep -E "X-Content-Type|X-Frame|Content-Security|Referrer|Strict-Transport"
 
 # 5. Check HTTP→HTTPS redirect
-curl -v http://localhost:3000/ 2>&1 | grep "307\|Location"
+curl -v http://localhost:3000/ 2>&1 | grep "307\|308\|Location"
 
 # 6. Open web UI, authenticate, check cookies in DevTools
 
-# 7. Check audit log
+# 7. Stop server (Ctrl+C) to flush audit log, then check it
 cat ~/.terminar/audit.log | python3 -m json.tool
 
 # 8. Check revocation persistence
 cat ~/.terminar/revoked-tokens.jsonl
 
-# 9. Stop server (Ctrl+C), restart, verify revoked tokens are still revoked
+# 9. Restart, verify revoked tokens are still revoked
 ```
 
 ---
