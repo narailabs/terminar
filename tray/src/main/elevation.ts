@@ -62,17 +62,20 @@ function runElevatedMacos(script: string): void {
     .replace(/"/g, '\\"');
   const osaScript = `do shell script "bash '${escapedPath}'" with administrator privileges`;
 
+  console.log(`[elevation] wrote script to ${tmpPath}`);
+  console.log(`[elevation] running: osascript -e '${osaScript}'`);
+
   // Use execFile (NOT spawn with detached:true). The detached option calls
   // setsid() which creates a new session disconnected from the user's login
   // session, preventing osascript from showing the macOS authorization dialog.
   // execFile runs the child in the same session, allowing the GUI auth prompt.
-  execFile('osascript', ['-e', osaScript], (error, _stdout, stderr) => {
+  execFile('osascript', ['-e', osaScript], (error, stdout, stderr) => {
     cleanupTempScript(tmpPath);
 
     if (error) {
-      console.error(`[elevation] osascript failed: ${stderr || error.message}`);
+      console.error(`[elevation] osascript failed (code=${error.code}): ${stderr || error.message}`);
     } else {
-      console.log('[elevation] script executed successfully');
+      console.log(`[elevation] script executed successfully. stdout=${stdout}`);
     }
   });
 }

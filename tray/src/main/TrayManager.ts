@@ -202,6 +202,7 @@ export class TrayManager {
    * Port of handle_menu_event() from lib.rs.
    */
   private handleMenuEvent(id: string): void {
+    console.log(`[tray] menu event: ${id}`);
     switch (id) {
       case 'open-webui': {
         const config = this.configStore.load();

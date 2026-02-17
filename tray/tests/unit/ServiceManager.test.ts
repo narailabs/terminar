@@ -225,6 +225,14 @@ describe('ServiceManager', () => {
       }
     });
 
+    it('stop script kills both gateway and server processes', () => {
+      const script = sm.stopScript();
+      // Should kill both gateway (production) and server (dev mode) processes
+      expect(script).toContain('pkill');
+      expect(script).toContain('terminar-gateway');
+      expect(script).toContain('terminar-server');
+    });
+
     // ---- Restart script ----
 
     it('generates restart script', () => {
@@ -238,6 +246,13 @@ describe('ServiceManager', () => {
       if (process.platform === 'linux') {
         expect(script).toContain('systemctl restart');
       }
+    });
+
+    it('restart script falls back to pkill for non-managed processes', () => {
+      const script = sm.restartScript();
+      expect(script).toContain('pkill');
+      expect(script).toContain('terminar-gateway');
+      expect(script).toContain('terminar-server');
     });
 
     // ---- Unsupported platform fallback ----
