@@ -216,6 +216,38 @@ pub fn ensure_tls_cert(tls_dir: &Path) -> Result<GeneratedCert, TlsError> {
     generate_self_signed_cert(tls_dir)
 }
 
+/// Resolves TLS configuration from CLI flags.
+///
+/// Priority: explicit --tls-cert/--tls-key > --auto-tls > none.
+/// When `auto_tls` is true and no explicit cert/key is provided, generates or
+/// loads a self-signed certificate from `tls_dir`.
+pub fn resolve_tls_config(
+    tls_cert: Option<&str>,
+    tls_key: Option<&str>,
+    tls_port: u16,
+    auto_tls: bool,
+    tls_dir: &Path,
+) -> Result<Option<TlsConfig>, TlsError> {
+    // If explicit cert/key provided, use validate_tls_config (existing)
+    if tls_cert.is_some() || tls_key.is_some() {
+        return validate_tls_config(
+            &tls_cert.map(|s| s.to_string()),
+            &tls_key.map(|s| s.to_string()),
+            tls_port,
+        );
+    }
+    // If auto-tls, generate/load cert
+    if auto_tls {
+        let generated = ensure_tls_cert(tls_dir)?;
+        return Ok(Some(TlsConfig {
+            cert_path: generated.cert_path,
+            key_path: generated.key_path,
+            port: tls_port,
+        }));
+    }
+    Ok(None)
+}
+
 /// Spawns the TLS server task using `axum-server`, returning the `JoinHandle`.
 ///
 /// The TLS server serves the same `Router` as the plain HTTP server.
@@ -470,6 +502,64 @@ mod tests {
         let computed = compute_cert_fingerprint(&cert_pem);
         assert!(computed.is_ok());
         assert_eq!(gen.fingerprint, computed.unwrap());
+    }
+
+    #[test]
+    fn test_resolve_tls_auto_generates_cert() {
+        let tmp = tempfile::tempdir().unwrap();
+        let tls_dir = tmp.path().join("tls");
+        let result = resolve_tls_config(None, None, 8444, true, &tls_dir).unwrap();
+        assert!(result.is_some());
+        let config = result.unwrap();
+        assert!(config.cert_path.ends_with("cert.pem"));
+        assert!(config.key_path.ends_with("key.pem"));
+        assert_eq!(config.port, 8444);
+    }
+
+    #[test]
+    fn test_resolve_tls_no_flags_returns_none() {
+        let tmp = tempfile::tempdir().unwrap();
+        let tls_dir = tmp.path().join("tls");
+        let result = resolve_tls_config(None, None, 8444, false, &tls_dir).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_resolve_tls_explicit_cert_takes_priority() {
+        let tmp = tempfile::tempdir().unwrap();
+        let tls_dir = tmp.path().join("tls");
+
+        // Create explicit cert/key files
+        let cert_file = NamedTempFile::new().unwrap();
+        let key_file = NamedTempFile::new().unwrap();
+
+        let result = resolve_tls_config(
+            Some(cert_file.path().to_str().unwrap()),
+            Some(key_file.path().to_str().unwrap()),
+            9443,
+            true, // auto_tls is true but should be ignored
+            &tls_dir,
+        ).unwrap();
+        assert!(result.is_some());
+        let config = result.unwrap();
+        assert_eq!(config.cert_path, cert_file.path().to_str().unwrap());
+        assert_eq!(config.key_path, key_file.path().to_str().unwrap());
+        assert_eq!(config.port, 9443);
+    }
+
+    #[test]
+    fn test_resolve_tls_explicit_cert_without_key_errors() {
+        let tmp = tempfile::tempdir().unwrap();
+        let tls_dir = tmp.path().join("tls");
+        let result = resolve_tls_config(
+            Some("/path/to/cert.pem"),
+            None,
+            8444,
+            true,
+            &tls_dir,
+        );
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), TlsError::MissingKey));
     }
 
     #[test]

@@ -6,6 +6,7 @@
 //! remote pairing), and supports session persistence, history compression, and
 //! graceful shutdown.
 
+pub mod audit;
 pub mod auth;
 pub mod config;
 pub mod connection;
@@ -1127,8 +1128,23 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
         let auth_timeout = tokio::time::timeout(
             Duration::from_secs(30),
             async {
+                let mut auth_attempts: usize = 0;
                 while let Some(Ok(msg)) = receiver.next().await {
                     if let Message::Text(text) = msg {
+                        // Check rate limit before processing any auth message
+                        auth_attempts += 1;
+                        if auth_attempts > MAX_WS_AUTH_ATTEMPTS {
+                            warn!("WebSocket auth rate limit exceeded ({} attempts)", auth_attempts);
+                            let err_msg = ServerMessage::Error {
+                                message: "Too many authentication attempts".to_string(),
+                                error_code: Some("RATE_LIMIT_EXCEEDED".to_string()),
+                            };
+                            let _ = sender.send(Message::Text(
+                                serde_json::to_string(&err_msg).unwrap()
+                            )).await;
+                            return Some(false);
+                        }
+
                         match serde_json::from_str::<ClientMessage>(&text) {
                             // Legacy token auth (UUID)
                             Ok(ClientMessage::Auth { token, .. }) => {
@@ -1149,7 +1165,14 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
                                     }
                                     return Some(true);
                                 }
-                                return Some(false);
+                                let err_msg = ServerMessage::Error {
+                                    message: "Authentication failed".to_string(),
+                                    error_code: Some("AUTH_FAILED".to_string()),
+                                };
+                                let _ = sender.send(Message::Text(
+                                    serde_json::to_string(&err_msg).unwrap()
+                                )).await;
+                                continue; // Allow retry
                             }
                             // Password auth (PAM)
                             Ok(ClientMessage::AuthPassword { username, password }) => {
