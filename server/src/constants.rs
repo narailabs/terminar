@@ -50,6 +50,10 @@ pub const RATE_LIMIT_MAX_ATTEMPTS: usize = 5;
 /// After this period, old attempts are purged.
 pub const RATE_LIMIT_WINDOW_SECS: u64 = 15 * 60;
 
+/// Maximum number of failed authentication attempts per WebSocket connection
+/// before the connection is closed with RATE_LIMIT_EXCEEDED.
+pub const MAX_WS_AUTH_ATTEMPTS: usize = 5;
+
 // ==================== PTY Constants ====================
 
 /// Buffer size for PTY read operations (16KB).
