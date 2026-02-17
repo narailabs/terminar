@@ -560,3 +560,18 @@ export const activeTab = derived(workspaceStore, ($ws) =>
 export const activePanes = derived(activeTab, ($tab) =>
   $tab ? getAllPanes($tab.root) : []
 );
+
+/**
+ * Derived store: how many panes each session is assigned to (across all tabs)
+ */
+export const sessionPaneCounts = derived(workspaceStore, ($ws) => {
+  const counts = new Map<SessionId, number>();
+  for (const tab of $ws.tabs) {
+    for (const pane of getAllPanes(tab.root)) {
+      if (pane.sessionId) {
+        counts.set(pane.sessionId, (counts.get(pane.sessionId) || 0) + 1);
+      }
+    }
+  }
+  return counts;
+});

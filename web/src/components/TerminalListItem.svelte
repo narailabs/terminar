@@ -7,6 +7,7 @@
   export let cwd: string;
   export let foregroundProcess: string | null = null;
   export let terminalTitle: string = '';
+  export let paneCount: number = 0;
   export let isActive: boolean = false;
   export let startEditing: boolean = false;
 
@@ -148,6 +149,14 @@
       {#if processBadge}
         <span class="process-badge" title={foregroundProcess}>{processBadge}</span>
       {/if}
+      {#if paneCount > 0}
+        <span class="pane-count" title="{paneCount} pane{paneCount > 1 ? 's' : ''}">
+          {paneCount > 1 ? paneCount : ''}
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M2 3h5v10H2V3zm7 0h5v10H9V3zM1 2a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1H1z"/>
+          </svg>
+        </span>
+      {/if}
       {#if isHovered && !isEditing}
         <button class="close-btn" on:click={handleClose} title="Close terminal">
           ×
@@ -167,8 +176,8 @@
 
 <style>
   .terminal-item {
-    padding: 8px 12px;
-    margin: 2px 8px;
+    padding: 8px 8px 8px 4px;
+    margin: 2px 6px 2px 2px;
     border-radius: 4px;
     cursor: pointer;
     background: var(--ui-bg-secondary, #2d2d2d);
@@ -243,6 +252,23 @@
 
   .terminal-item.active .process-badge {
     background: rgba(255, 255, 255, 0.12);
+    color: #a0c0e0;
+  }
+
+  .pane-count {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 10px;
+    color: #808080;
+    flex-shrink: 0;
+  }
+
+  .pane-count svg {
+    opacity: 0.7;
+  }
+
+  .terminal-item.active .pane-count {
     color: #a0c0e0;
   }
 

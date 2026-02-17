@@ -6,6 +6,7 @@
   import { broadcastTargets, toggleTarget, isTarget } from '../lib/broadcastStore';
   import { foregroundStore } from '../lib/foregroundStore';
   import { titleStore } from '../lib/titleStore';
+  import { sessionPaneCounts } from '../lib/workspaceStore';
 
   export let sessions: SessionInfo[] = [];
   export let activeSessionId: string | null = null;
@@ -136,6 +137,7 @@
             cwd={session.cwd}
             foregroundProcess={$foregroundStore.processes.get(session.id) ?? null}
             terminalTitle={$titleStore.titles.get(session.id) ?? ''}
+            paneCount={$sessionPaneCounts.get(session.id) ?? 0}
             isActive={session.id === activeSessionId}
             startEditing={editingSessionId === session.id}
             on:select={handleSelect}
@@ -243,8 +245,8 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    margin: 8px;
-    padding: 10px 12px;
+    margin: 8px 6px 8px 2px;
+    padding: 10px 8px 10px 4px;
     background: var(--ui-bg-secondary, #2d2d2d);
     border: 1px dashed #454545;
     border-radius: 4px;
