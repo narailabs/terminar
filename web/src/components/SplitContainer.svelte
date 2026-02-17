@@ -9,6 +9,7 @@
 
   const dispatch = createEventDispatcher<{
     drop: { paneId: string; sessionId: SessionId; dropZone: DropZone };
+    paneDrop: { sourcePaneId: string; targetPaneId: string; dropZone: DropZone };
     contextmenu: { paneId: string; x: number; y: number };
     focus: { paneId: string };
     resize: { splitId: string; ratios: number[] };
@@ -23,6 +24,10 @@
 
   function handlePaneDrop(event: CustomEvent<{ paneId: string; sessionId: SessionId; dropZone: DropZone }>) {
     dispatch('drop', event.detail);
+  }
+
+  function handlePanePaneDrop(event: CustomEvent<{ sourcePaneId: string; targetPaneId: string; dropZone: DropZone }>) {
+    dispatch('paneDrop', event.detail);
   }
 
   function handlePaneContextMenu(event: CustomEvent<{ paneId: string; x: number; y: number }>) {
@@ -111,6 +116,7 @@
     sessionId={node.sessionId}
     isActive={activePaneId === node.id}
     on:drop={handlePaneDrop}
+    on:paneDrop={handlePanePaneDrop}
     on:contextmenu={handlePaneContextMenu}
     on:focus={handlePaneFocus}
     on:detach={handlePaneDetach}
@@ -135,6 +141,7 @@
           node={child}
           {activePaneId}
           on:drop={handlePaneDrop}
+          on:paneDrop={handlePanePaneDrop}
           on:contextmenu={handlePaneContextMenu}
           on:focus={handlePaneFocus}
           on:resize={handleNestedResize}

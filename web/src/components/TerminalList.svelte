@@ -70,6 +70,27 @@
     contextMenu = null;
   }
 
+  // Pane drag-to-sidebar drop target
+  let isPaneDragOver = false;
+
+  function handleListDragOver(event: DragEvent) {
+    if (!event.dataTransfer?.types.includes('application/x-terminar-pane')) return;
+    event.preventDefault();
+    isPaneDragOver = true;
+  }
+
+  function handleListDragLeave() {
+    isPaneDragOver = false;
+  }
+
+  function handleListDrop(event: DragEvent) {
+    isPaneDragOver = false;
+    const sourcePaneId = event.dataTransfer?.getData('application/x-terminar-pane');
+    if (!sourcePaneId) return;
+    event.preventDefault();
+    dispatch('paneDrop', { sourcePaneId });
+  }
+
   function handleNewTerminal() {
     dispatch('create');
   }
@@ -89,7 +110,13 @@
 </script>
 
 <div class="terminal-list" on:contextmenu={handleListContextMenu} role="list">
-  <div class="list-container">
+  <div
+    class="list-container"
+    class:pane-drag-over={isPaneDragOver}
+    on:dragover={handleListDragOver}
+    on:dragleave={handleListDragLeave}
+    on:drop={handleListDrop}
+  >
     {#each sessions as session (session.id)}
       <div class="session-row" class:broadcast-mode={broadcastMode}>
         {#if broadcastMode}
@@ -157,6 +184,13 @@
     flex: 1;
     overflow-y: auto;
     padding: 8px 0;
+    border: 2px solid transparent;
+    transition: border-color 0.15s;
+  }
+
+  .list-container.pane-drag-over {
+    border-color: var(--ui-accent, #0e639c);
+    border-style: dashed;
   }
 
   .list-container::-webkit-scrollbar {

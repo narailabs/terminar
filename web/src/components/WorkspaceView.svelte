@@ -103,6 +103,11 @@
     workspaceStore.handleDrop(paneId, sessionId, dropZone);
   }
 
+  function handlePaneDrop(event: CustomEvent<{ sourcePaneId: string; targetPaneId: string; dropZone: DropZone }>) {
+    const { sourcePaneId, targetPaneId, dropZone } = event.detail;
+    workspaceStore.movePane(sourcePaneId, targetPaneId, dropZone);
+  }
+
   function handlePaneContextMenu(event: CustomEvent<{ paneId: string; x: number; y: number }>) {
     contextMenu = event.detail;
     // Read clipboard eagerly while we still have user activation from the right-click.
@@ -356,6 +361,7 @@
         node={$activeTab.root}
         {activePaneId}
         on:drop={handleDrop}
+        on:paneDrop={handlePaneDrop}
         on:contextmenu={handlePaneContextMenu}
         on:focus={handlePaneFocus}
         on:resize={handleResize}
