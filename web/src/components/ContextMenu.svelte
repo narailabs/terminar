@@ -80,6 +80,24 @@
 
   let openSubmenuLabel: string | null = null;
 
+  function adjustSubmenu(el: HTMLDivElement) {
+    const rect = el.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    const viewportWidth = window.innerWidth;
+
+    // Flip up if overflowing bottom
+    if (rect.bottom > viewportHeight) {
+      const overflow = rect.bottom - viewportHeight + 8;
+      el.style.top = `${-overflow}px`;
+    }
+
+    // Flip to left side if overflowing right
+    if (rect.right > viewportWidth) {
+      el.style.left = 'auto';
+      el.style.right = '100%';
+    }
+  }
+
   function handleSubmenuEnter(label: string) {
     openSubmenuLabel = label;
   }
@@ -116,7 +134,7 @@
               <span class="submenu-arrow">&#x25B8;</span>
             </button>
             {#if openSubmenuLabel === menuItem.label}
-              <div class="submenu">
+              <div class="submenu" use:adjustSubmenu>
                 {#each menuItem.children as child}
                   {#if isSeparator(child)}
                     <div class="separator"></div>
