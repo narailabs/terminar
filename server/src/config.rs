@@ -70,6 +70,14 @@ pub struct Cli {
     /// Audit log verbosity level: off, auth, standard, verbose
     #[arg(long, default_value = "standard")]
     pub audit_level: String,
+
+    /// Trusted proxy IP for X-Forwarded-For header (only trust XFF from this IP)
+    #[arg(long)]
+    pub trusted_proxy: Option<String>,
+
+    /// Run in user-mode (spawned by gateway, skip own auth, refuse root)
+    #[arg(long, default_value_t = false)]
+    pub user_mode: bool,
 }
 
 /// Available CLI subcommands.
@@ -290,5 +298,33 @@ mod tests {
         let args = vec!["server", "--audit-level", "verbose"];
         let cli = Cli::try_parse_from(args).unwrap();
         assert_eq!(cli.audit_level, "verbose");
+    }
+
+    #[test]
+    fn test_trusted_proxy_default_none() {
+        let args = vec!["server"];
+        let cli = Cli::try_parse_from(args).unwrap();
+        assert!(cli.trusted_proxy.is_none());
+    }
+
+    #[test]
+    fn test_trusted_proxy_flag() {
+        let args = vec!["server", "--trusted-proxy", "10.0.0.1"];
+        let cli = Cli::try_parse_from(args).unwrap();
+        assert_eq!(cli.trusted_proxy, Some("10.0.0.1".to_string()));
+    }
+
+    #[test]
+    fn test_user_mode_default_false() {
+        let args = vec!["server"];
+        let cli = Cli::try_parse_from(args).unwrap();
+        assert!(!cli.user_mode);
+    }
+
+    #[test]
+    fn test_user_mode_flag() {
+        let args = vec!["server", "--user-mode"];
+        let cli = Cli::try_parse_from(args).unwrap();
+        assert!(cli.user_mode);
     }
 }

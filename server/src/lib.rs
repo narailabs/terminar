@@ -21,6 +21,7 @@ pub mod messages;
 pub mod persistence;
 pub mod process;
 pub mod pty;
+pub mod revocation;
 pub mod security_headers;
 pub mod session;
 pub mod settings;
