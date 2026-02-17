@@ -35,6 +35,7 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('auth_pubkey_init'), username: z.string(), pubkey: z.string() }),
   z.object({ type: z.literal('auth_pubkey_verify'), signature: z.string(), algorithm: z.string() }),
   z.object({ type: z.literal('auth_token'), token: z.string() }),
+  z.object({ type: z.literal('refresh_token'), refresh_token: z.string() }),
   // New workspace management messages
   z.object({ type: z.literal('save_workspace'), workspace: z.record(z.string(), z.unknown()) }),
   z.object({ type: z.literal('load_workspace') }),

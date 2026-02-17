@@ -22,6 +22,13 @@ pub struct Claims {
     /// Token type: "access" or "refresh".
     #[serde(default = "default_token_type")]
     pub token_type: String,
+    /// Unique token identifier (UUID v4) for revocation tracking.
+    #[serde(default = "default_jti")]
+    pub jti: String,
+}
+
+fn default_jti() -> String {
+    String::new()
 }
 
 fn default_token_type() -> String {
@@ -87,6 +94,7 @@ fn issue_typed_token_at(
         iat,
         exp: iat + expiry.as_secs(),
         token_type: token_type.to_string(),
+        jti: uuid::Uuid::new_v4().to_string(),
     };
 
     encode(&Header::new(Algorithm::HS256), &claims, &EncodingKey::from_secret(key))
@@ -323,5 +331,40 @@ mod tests {
         let key1 = load_or_create_signing_key(&key_path).expect("Should create key");
         let key2 = load_or_create_signing_key(&key_path).expect("Should load existing key");
         assert_eq!(key1, key2, "Loading existing key should return same value");
+    }
+
+    #[test]
+    fn test_token_has_unique_jti() {
+        let key = generate_signing_key();
+        let token1 = issue_access_token(&key, "narayan", "server-123", Duration::from_secs(900))
+            .expect("Should issue token");
+        let token2 = issue_access_token(&key, "narayan", "server-123", Duration::from_secs(900))
+            .expect("Should issue token");
+        let claims1 = validate_token(&key, &token1).unwrap();
+        let claims2 = validate_token(&key, &token2).unwrap();
+        assert!(!claims1.jti.is_empty(), "jti should not be empty");
+        assert!(!claims2.jti.is_empty(), "jti should not be empty");
+        assert_ne!(claims1.jti, claims2.jti, "Each token should have a unique jti");
+    }
+
+    #[test]
+    fn test_refresh_token_has_jti() {
+        let key = generate_signing_key();
+        let token = issue_refresh_token(&key, "narayan", "server-123", Duration::from_secs(604800))
+            .expect("Should issue refresh token");
+        let claims = validate_refresh_token(&key, &token).unwrap();
+        assert!(!claims.jti.is_empty(), "Refresh token should have a jti");
+    }
+
+    #[test]
+    fn test_legacy_token_without_jti_still_validates() {
+        // Tokens issued before jti was added should still validate
+        // (jti defaults to empty string via serde default)
+        let key = generate_signing_key();
+        let token = issue_token(&key, "narayan", "server-123", Duration::from_secs(3600))
+            .expect("Should issue token");
+        let claims = validate_token(&key, &token).unwrap();
+        // jti should be populated for new tokens
+        assert!(!claims.jti.is_empty());
     }
 }

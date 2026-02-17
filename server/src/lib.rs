@@ -682,6 +682,8 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
         .route("/pair/exchange", post(exchange_handler))
         .route("/auth/revoke", post(revoke_handler))
         .route("/auth/refresh", post(refresh_handler))
+        .route("/auth/session", post(session_handler))
+        .route("/auth/logout", post(logout_handler))
         .route("/settings", get(get_settings_handler))
         .route("/settings", put(put_settings_handler))
         .route("/workspace", get(get_workspace_handler))
@@ -971,7 +973,9 @@ async fn auth_middleware(
         || req.uri().path() == "/pair/exchange"
         || req.uri().path() == "/health"
         || req.uri().path() == "/settings"
-        || req.uri().path() == "/workspace" {
+        || req.uri().path() == "/workspace"
+        || req.uri().path() == "/auth/session"
+        || req.uri().path() == "/auth/logout" {
         return next.run(req).await;
     }
 
@@ -1167,6 +1171,88 @@ async fn refresh_handler(
             (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "Invalid or expired refresh token"}))).into_response()
         }
     }
+}
+
+/// POST /auth/session — Exchange a valid access token for HttpOnly auth cookies.
+///
+/// Browser clients call this after successful WebSocket auth. The server validates
+/// the token, issues fresh access + refresh tokens, and sets them as HttpOnly cookies.
+/// On subsequent page loads the browser sends cookies on the WebSocket upgrade request,
+/// allowing automatic re-authentication without localStorage.
+async fn session_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<SessionAuthRequest>,
+) -> impl IntoResponse {
+    // Validate the provided access token
+    match jwt::validate_access_token(&state.signing_key, &payload.token) {
+        Ok(claims) => {
+            // Check revocation
+            if state.revoked_tokens.lock().contains(&payload.token) {
+                return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "Token revoked"}))).into_response();
+            }
+
+            // Issue fresh access + refresh tokens for the cookie
+            let access = jwt::issue_access_token(
+                &state.signing_key, &claims.sub, &state.server_id,
+                Duration::from_secs(constants::ACCESS_TOKEN_EXPIRY_SECS),
+            );
+            let refresh = jwt::issue_refresh_token(
+                &state.signing_key, &claims.sub, &state.server_id,
+                Duration::from_secs(constants::REFRESH_TOKEN_EXPIRY_SECS),
+            );
+
+            match (access, refresh) {
+                (Ok(access_token), Ok(refresh_token)) => {
+                    let cookie_headers = cookies::set_auth_cookies(
+                        &access_token, &refresh_token, state.tls_enabled,
+                    );
+                    let mut response = (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response();
+                    for (name, value) in cookie_headers {
+                        if let Ok(hv) = axum::http::HeaderValue::from_str(&value) {
+                            response.headers_mut().append(
+                                axum::http::header::SET_COOKIE,
+                                hv,
+                            );
+                        }
+                    }
+                    info!("Session cookies set for user: {}", claims.sub);
+                    response
+                }
+                _ => {
+                    (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "Token generation failed"}))).into_response()
+                }
+            }
+        }
+        Err(_) => {
+            (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "Invalid or expired token"}))).into_response()
+        }
+    }
+}
+
+/// POST /auth/logout — Clear HttpOnly cookies and revoke the refresh token.
+async fn logout_handler(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse {
+    // Extract and revoke the refresh token from the cookie
+    if let Some(refresh_token) = cookies::extract_cookie(&headers, "terminar_refresh") {
+        if !refresh_token.is_empty() {
+            state.revoked_tokens.lock().insert(refresh_token);
+        }
+    }
+
+    let cookie_headers = cookies::clear_auth_cookies();
+    let mut response = (StatusCode::OK, Json(serde_json::json!({"status": "logged_out"}))).into_response();
+    for (_, value) in cookie_headers {
+        if let Ok(hv) = axum::http::HeaderValue::from_str(&value) {
+            response.headers_mut().append(
+                axum::http::header::SET_COOKIE,
+                hv,
+            );
+        }
+    }
+    info!("User logged out, cookies cleared");
+    response
 }
 
 async fn health_handler(

@@ -281,4 +281,71 @@ mod tests {
         let store = RevocationStore::new(path).await.unwrap();
         assert!(store.is_revoked("no-exp-token"));
     }
+
+    #[tokio::test]
+    async fn test_refresh_rotation_revokes_old_token() {
+        use crate::jwt;
+        use std::time::Duration;
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("revoked-tokens.jsonl");
+        let store = RevocationStore::new(path).await.unwrap();
+
+        let key = jwt::generate_signing_key();
+
+        // Issue a refresh token
+        let refresh = jwt::issue_refresh_token(&key, "narayan", "srv-1", Duration::from_secs(604800))
+            .expect("Should issue refresh token");
+        let claims = jwt::validate_refresh_token(&key, &refresh).unwrap();
+        let old_jti = claims.jti.clone();
+
+        // Simulate rotation: revoke old token
+        store.revoke(&old_jti, "rotation", Some(claims.exp));
+        store.flush().await;
+
+        // Old token's jti should be revoked
+        assert!(store.is_revoked(&old_jti));
+
+        // Issue new tokens (simulating what the handler does)
+        let new_access = jwt::issue_access_token(&key, "narayan", "srv-1", Duration::from_secs(900))
+            .expect("Should issue new access token");
+        let new_refresh = jwt::issue_refresh_token(&key, "narayan", "srv-1", Duration::from_secs(604800))
+            .expect("Should issue new refresh token");
+
+        // New tokens should be valid
+        let new_access_claims = jwt::validate_access_token(&key, &new_access).unwrap();
+        let new_refresh_claims = jwt::validate_refresh_token(&key, &new_refresh).unwrap();
+
+        // New tokens' jtis should NOT be revoked
+        assert!(!store.is_revoked(&new_access_claims.jti));
+        assert!(!store.is_revoked(&new_refresh_claims.jti));
+
+        // All jtis should be unique
+        assert_ne!(old_jti, new_access_claims.jti);
+        assert_ne!(old_jti, new_refresh_claims.jti);
+        assert_ne!(new_access_claims.jti, new_refresh_claims.jti);
+    }
+
+    #[tokio::test]
+    async fn test_revoked_refresh_token_cannot_be_reused() {
+        use crate::jwt;
+        use std::time::Duration;
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("revoked-tokens.jsonl");
+        let store = RevocationStore::new(path).await.unwrap();
+
+        let key = jwt::generate_signing_key();
+
+        // Issue and immediately revoke a refresh token
+        let refresh = jwt::issue_refresh_token(&key, "narayan", "srv-1", Duration::from_secs(604800))
+            .expect("Should issue refresh token");
+        let claims = jwt::validate_refresh_token(&key, &refresh).unwrap();
+        store.revoke(&claims.jti, "rotation", Some(claims.exp));
+
+        // The JWT itself is still cryptographically valid...
+        assert!(jwt::validate_refresh_token(&key, &refresh).is_ok());
+        // ...but the revocation store marks it as revoked
+        assert!(store.is_revoked(&claims.jti));
+    }
 }
