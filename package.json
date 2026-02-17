@@ -19,7 +19,9 @@
     "test": "cd server && cargo test && cd ../web && pnpm test",
     "test:server": "cd server && cargo test",
     "test:web": "cd web && pnpm test",
-    "test:extension": "cd extension && pnpm test"
+    "test:extension": "cd extension && pnpm test",
+    "tray:dev": "cd tray && pnpm tauri dev",
+    "tray:build": "cd tray && pnpm tauri build"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
