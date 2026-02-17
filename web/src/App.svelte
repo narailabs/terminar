@@ -13,7 +13,7 @@
   import { workspaceStore } from './lib/workspaceStore';
   import { applyUIThemeCSS, themeState } from './lib/themeStore';
   import type { Workspace } from './lib/workspaceTypes';
-  import { saveToken, loadToken, clearToken } from './lib/tokenStore';
+
   import AppToolbar from './components/AppToolbar.svelte';
   import BroadcastBar from './components/BroadcastBar.svelte';
   import { broadcastEnabled, clearTargets, setSessionManager } from './lib/broadcastStore';
@@ -129,6 +129,68 @@
     return url;
   }
 
+  // Cookie-based auth helpers — replaces localStorage token persistence.
+  // After successful WebSocket auth, POST the token to /auth/session to set HttpOnly cookies.
+  // The server sets Secure; HttpOnly; SameSite=Strict cookies that the browser sends
+  // automatically on WebSocket upgrade requests, enabling transparent reconnection.
+  let refreshInterval: ReturnType<typeof setInterval> | null = null;
+
+  function getHttpUrl(): string {
+    // Derive HTTP URL from the WS URL
+    return serverHttpUrl;
+  }
+
+  async function setSessionCookie(accessToken: string): Promise<void> {
+    try {
+      const httpUrl = getHttpUrl();
+      await fetch(`${httpUrl}/auth/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ token: accessToken }),
+      });
+      startTokenRefresh();
+    } catch (err) {
+      console.warn('[Auth] Failed to set session cookie:', err);
+    }
+  }
+
+  async function clearSessionCookie(): Promise<void> {
+    try {
+      const httpUrl = getHttpUrl();
+      await fetch(`${httpUrl}/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch (err) {
+      console.warn('[Auth] Failed to clear session cookie:', err);
+    }
+    stopTokenRefresh();
+  }
+
+  function startTokenRefresh(): void {
+    stopTokenRefresh();
+    // Refresh every 14 minutes (access token expires in 15 min)
+    refreshInterval = setInterval(async () => {
+      try {
+        const httpUrl = getHttpUrl();
+        await fetch(`${httpUrl}/auth/refresh`, {
+          method: 'POST',
+          credentials: 'include',
+        });
+      } catch (err) {
+        console.warn('[Auth] Token refresh failed:', err);
+      }
+    }, 14 * 60 * 1000);
+  }
+
+  function stopTokenRefresh(): void {
+    if (refreshInterval) {
+      clearInterval(refreshInterval);
+      refreshInterval = null;
+    }
+  }
+
   $: isLocal = isLocalServer(serverWsUrl);
 
   // Apply UI theme CSS variables whenever the theme state changes
@@ -196,19 +258,19 @@
     if (isLocal) {
       connectLocal();
     } else {
-      // Try to load saved JWT token for auto-reconnection on remote servers
-      const savedToken = loadToken();
-      if (savedToken) {
-        token = savedToken;
-        // Use JWT token auth for reconnection
-        connectWithJwtToken(savedToken);
-      }
+      // Try cookie-based auto-reconnection for remote servers.
+      // HttpOnly cookies are sent automatically on the WebSocket upgrade request,
+      // so we attempt a direct connection. If the cookie is valid, the server
+      // authenticates without message-based auth. If not, the login page is shown.
+      // Fire-and-forget: runs in background so UI is immediately interactive.
+      connectWithCookie();
     }
     window.addEventListener('keydown', handleGlobalKeydown);
   });
 
   onDestroy(() => {
     window.removeEventListener('keydown', handleGlobalKeydown);
+    stopTokenRefresh();
   });
 
   function handleKeydown(e: KeyboardEvent) {
@@ -449,8 +511,8 @@
       connectionState = 'connected';
       manager?.listSessions();
 
-      // Persist token for reconnection on page refresh
-      saveToken(token);
+      // Set HttpOnly cookies for automatic reconnection on page refresh
+      setSessionCookie(token);
 
       // Initialize workspace
       const serverWorkspace = await loadWorkspace();
@@ -460,9 +522,48 @@
       console.error('[App] Remote connection failed:', err);
       isConnected = false;
       connectionState = 'disconnected';
-      // Clear any stale token on connection failure
-      clearToken();
+      // Clear any stale session cookie on connection failure
+      clearSessionCookie();
       alert('Connection failed. Check console and token.');
+    }
+  }
+
+  // Cookie-based reconnection: the browser sends HttpOnly cookies automatically
+  // on the WebSocket upgrade request. The server validates the cookie and sends AuthOk.
+  // This runs silently (no isAuthenticating UI state) — if it fails, the login page shows.
+  async function connectWithCookie(): Promise<boolean> {
+    try {
+      const wsUrl = enforceSecureConnection(serverWsUrl);
+      const wsManager = new WebSocketSessionManager(wsUrl);
+
+      const authPromise = new Promise<void>((resolve, reject) => {
+        wsManager.on('authenticated', () => resolve());
+        wsManager.on('error', (err: Error) => reject(err));
+      });
+
+      await wsManager.connect();
+      // No auth message needed — the cookie is sent with the upgrade request
+
+      await Promise.race([
+        authPromise,
+        new Promise<void>((_, reject) => setTimeout(() => reject(new Error('Cookie auth timeout')), 3000)),
+      ]);
+
+      // Cookie auth succeeded — wire up the manager
+      manager = wsManager;
+      setupManagerEvents();
+      isConnected = true;
+      connectionState = 'connected';
+      startTokenRefresh();
+
+      manager?.listSessions();
+      const serverWorkspace = await loadWorkspace();
+      workspaceStore.initialize(serverWorkspace);
+      workspaceStore.setSaveCallback(saveWorkspace);
+      return true;
+    } catch {
+      // Cookie auth failed silently — clean up and let the login page show
+      return false;
     }
   }
 
@@ -501,7 +602,7 @@
       workspaceStore.setSaveCallback(saveWorkspace);
     } catch (err: any) {
       console.warn('[App] JWT reconnection failed, showing login:', err?.message);
-      clearToken();
+      clearSessionCookie();
       token = '';
       isConnected = false;
       connectionState = 'disconnected';
@@ -528,7 +629,7 @@
           isConnected = true;
           connectionState = 'connected';
           if (rememberMe) {
-            saveToken(jwtToken);
+            setSessionCookie(jwtToken);
           }
           resolve();
         });
@@ -580,7 +681,7 @@
           isConnected = true;
           connectionState = 'connected';
           if (rememberMe) {
-            saveToken(jwtToken);
+            setSessionCookie(jwtToken);
           }
           resolve();
         });
@@ -644,7 +745,7 @@
     manager = null;
     isConnected = false;
     connectionState = 'disconnected';
-    clearToken();
+    clearSessionCookie();
     token = '';
     sessions = [];
     authError = '';
