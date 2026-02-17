@@ -267,6 +267,8 @@ pub struct AppState {
     pub audit_logger: Option<Arc<audit::AuditLogger>>,
     /// Trusted proxy IP — only trust X-Forwarded-For from this address.
     pub trusted_proxy: Option<String>,
+    /// When true, require authentication even for local/loopback connections.
+    pub require_auth: bool,
 }
 
 /// Request body for the `POST /pair/exchange` endpoint.
@@ -966,27 +968,35 @@ async fn auth_middleware(
 
 /// Extract the real client IP address from a request, safely handling X-Forwarded-For.
 ///
-/// Only trusts the X-Forwarded-For header when the request comes from the configured
-/// trusted proxy IP. This prevents IP spoofing from untrusted clients.
+/// When `--trusted-proxy` is configured, only trusts X-Forwarded-For from that IP.
+/// When no trusted proxy is set, falls back to XFF then peer IP for backward compatibility.
 fn extract_client_ip(
     xff_header: Option<&str>,
     trusted_proxy: Option<&str>,
     peer_ip: Option<&str>,
 ) -> String {
+    // Helper to extract the first (leftmost) IP from an XFF header
+    let xff_first_ip = || -> Option<String> {
+        xff_header.and_then(|xff| {
+            xff.split(',').next().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+        })
+    };
+
     if let Some(proxy_ip) = trusted_proxy {
+        // Strict mode: only trust XFF if request came from the trusted proxy
         if peer_ip == Some(proxy_ip) {
-            // Only trust X-Forwarded-For if request came from the trusted proxy
-            if let Some(xff) = xff_header {
-                if let Some(client_ip) = xff.split(',').next() {
-                    let trimmed = client_ip.trim();
-                    if !trimmed.is_empty() {
-                        return trimmed.to_string();
-                    }
-                }
+            if let Some(ip) = xff_first_ip() {
+                return ip;
             }
         }
+        // Request not from trusted proxy — use peer IP, ignore XFF
+        return peer_ip.unwrap_or("unknown").to_string();
     }
-    // Fallback to peer IP
+
+    // No trusted proxy configured — fall back to XFF then peer IP
+    if let Some(ip) = xff_first_ip() {
+        return ip;
+    }
     peer_ip.unwrap_or("unknown").to_string()
 }
 
@@ -3912,8 +3922,20 @@ mod tests {
 
     #[test]
     fn test_extract_client_ip_no_trusted_proxy() {
+        // Without trusted proxy, XFF is used as fallback (backward compat)
         let ip = extract_client_ip(
             Some("203.0.113.50"),
+            None,
+            Some("192.168.1.100"),
+        );
+        assert_eq!(ip, "203.0.113.50");
+    }
+
+    #[test]
+    fn test_extract_client_ip_no_trusted_proxy_no_xff() {
+        // Without trusted proxy and no XFF, fall back to peer IP
+        let ip = extract_client_ip(
+            None,
             None,
             Some("192.168.1.100"),
         );
