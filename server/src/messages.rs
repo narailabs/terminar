@@ -130,6 +130,9 @@ pub enum ServerMessage {
         /// Protocol version the server supports (e.g., "0.2.0").
         #[serde(skip_serializing_if = "Option::is_none")]
         protocol_version: Option<String>,
+        /// Refresh token for obtaining new access tokens without re-authenticating.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        refresh_token: Option<String>,
     },
     /// SSH public key challenge. Client must sign this nonce with their private key.
     AuthChallenge {
@@ -543,6 +546,7 @@ mod tests {
             token: "eyJhbGciOiJIUzI1NiJ9.test.sig".into(),
             expires: "2026-01-30T06:42:08Z".into(),
             protocol_version: None,
+            refresh_token: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains(r#""type":"AuthOk""#));

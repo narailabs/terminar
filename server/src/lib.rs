@@ -593,6 +593,7 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
         max_auth_attempts: cli.max_auth_attempts,
         trusted_proxy: cli.trusted_proxy.clone(),
         audit_logger: None, // Will be replaced after async init
+        require_auth: cli.require_auth,
     };
 
     // Initialize audit logger
@@ -1279,10 +1280,10 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
 
     // Phase 1: Authentication
     // Skip auth for:
-    // 1. Local connections (localhost/127.0.0.1/::1)
-    // 2. Explicit --no-auth flag
-    let skip_auth = is_local || state.no_auth;
-    if is_local {
+    // 1. Explicit --no-auth flag (always skips)
+    // 2. Local connections UNLESS --require-auth is set
+    let skip_auth = state.no_auth || (is_local && !state.require_auth);
+    if skip_auth && is_local {
         info!("Local connection - skipping authentication");
     }
     if !skip_auth {
@@ -1316,12 +1317,13 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
                                     // Send AuthOk with a JWT for future reconnections
                                     if let Ok(jwt) = jwt::issue_token(
                                         &state.signing_key, "token-user", &state.server_id,
-                                        Duration::from_secs(86400),
+                                        Duration::from_secs(constants::ACCESS_TOKEN_EXPIRY_SECS),
                                     ) {
                                         let ok_msg = ServerMessage::AuthOk {
                                             token: jwt,
-                                            expires: "24h".to_string(),
+                                            expires: format!("{}s", constants::ACCESS_TOKEN_EXPIRY_SECS),
                                             protocol_version: Some(constants::PROTOCOL_VERSION.to_string()),
+                                            refresh_token: None,
                                         };
                                         let _ = sender.send(Message::Text(
                                             serde_json::to_string(&ok_msg).unwrap()
@@ -1347,13 +1349,14 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
                                         &state.server_id,
                                         &username,
                                         &password,
-                                        Duration::from_secs(86400),
+                                        Duration::from_secs(constants::ACCESS_TOKEN_EXPIRY_SECS),
                                     ) {
                                         Ok(result) => {
                                             let ok_msg = ServerMessage::AuthOk {
                                                 token: result.token,
                                                 expires: result.expires,
                                                 protocol_version: Some(constants::PROTOCOL_VERSION.to_string()),
+                                                refresh_token: None,
                                             };
                                             let _ = sender.send(Message::Text(
                                                 serde_json::to_string(&ok_msg).unwrap()
@@ -1391,6 +1394,7 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
                                             token: result.token,
                                             expires: result.expires,
                                             protocol_version: Some(constants::PROTOCOL_VERSION.to_string()),
+                                            refresh_token: None,
                                         };
                                         let _ = sender.send(Message::Text(
                                             serde_json::to_string(&ok_msg).unwrap()
@@ -1436,13 +1440,14 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
                                                             &state.signing_key,
                                                             &state.server_id,
                                                             &signature,
-                                                            Duration::from_secs(86400),
+                                                            Duration::from_secs(constants::ACCESS_TOKEN_EXPIRY_SECS),
                                                         ) {
                                                             Ok(result) => {
                                                                 let ok_msg = ServerMessage::AuthOk {
                                                                     token: result.token,
                                                                     expires: result.expires,
                                                                     protocol_version: Some(constants::PROTOCOL_VERSION.to_string()),
+                                                                    refresh_token: None,
                                                                 };
                                                                 let _ = sender.send(Message::Text(
                                                                     serde_json::to_string(&ok_msg).unwrap()
@@ -1831,6 +1836,7 @@ mod tests {
             max_auth_attempts: 5,
             trusted_proxy: None,
             audit_logger: None,
+            require_auth: false,
         };
 
         let (_, rx) = mpsc::channel(32);

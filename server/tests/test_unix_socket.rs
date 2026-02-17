@@ -42,6 +42,7 @@ async fn spawn_unix_server(name: &str) -> (String, u16, tokio::task::JoinHandle<
         audit_level: "off".to_string(),
         trusted_proxy: None,
         user_mode: false,
+        require_auth: false,
     };
 
     let sp = socket_path.clone();

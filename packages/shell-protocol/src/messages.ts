@@ -43,7 +43,7 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
 
 export const ServerMessageSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('AuthOk'), token: z.string(), expires: z.string(), protocol_version: z.string().optional() }),
+  z.object({ type: z.literal('AuthOk'), token: z.string(), expires: z.string(), protocol_version: z.string().optional(), refresh_token: z.string().optional() }),
   z.object({ type: z.literal('AuthChallenge'), nonce: z.string() }),
   z.object({ type: z.literal('SessionList'), sessions: z.array(SessionInfoSchema) }),
   z.object({ type: z.literal('Output'), session_id: z.string(), data: z.string() }),

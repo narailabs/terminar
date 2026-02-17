@@ -38,6 +38,7 @@ async fn spawn_pty_test_server(name: &str) -> (String, tokio::task::JoinHandle<(
         audit_level: "off".to_string(),
         trusted_proxy: None,
         user_mode: false,
+        require_auth: false,
     };
 
     let socket_path = cli.socket.clone().unwrap();

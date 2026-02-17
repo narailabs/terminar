@@ -36,6 +36,9 @@ async fn spawn_stress_server(name: &str) -> (String, tokio::task::JoinHandle<()>
         max_auth_attempts: 5,
         auto_tls: false,
         audit_level: "off".to_string(),
+        trusted_proxy: None,
+        user_mode: false,
+        require_auth: false,
     };
 
     let socket_path = cli.socket.clone().unwrap();
