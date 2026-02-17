@@ -25,7 +25,7 @@ export interface SessionInfo {
 // --- Actions interface ---
 
 export interface AppActions {
-  createNewTerminal(): void;
+  createNewTerminal(targetPaneId?: string): void;
   closeTerminal(sessionId: string): void;
   renameTerminal(sessionId: string, newName: string): void;
   toggleSidebar(): void;
