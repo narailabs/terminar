@@ -64,11 +64,6 @@
           "default": "",
           "description": "Custom Unix socket path for server communication. Leave empty to use the default."
         },
-        "terminar.authToken": {
-          "type": "string",
-          "default": "",
-          "description": "Stored authentication token. Normally auto-read from ~/.terminar/token."
-        },
         "terminar.autoStart": {
           "type": "boolean",
           "default": true,

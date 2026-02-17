@@ -66,6 +66,10 @@ pub struct Cli {
     /// Auto-generate self-signed TLS certificate on startup
     #[arg(long, default_value_t = false)]
     pub auto_tls: bool,
+
+    /// Audit log verbosity level: off, auth, standard, verbose
+    #[arg(long, default_value = "standard")]
+    pub audit_level: String,
 }
 
 /// Available CLI subcommands.
@@ -272,5 +276,19 @@ mod tests {
         let args = vec!["server", "--auto-tls"];
         let cli = Cli::try_parse_from(args).unwrap();
         assert!(cli.auto_tls);
+    }
+
+    #[test]
+    fn test_audit_level_default_standard() {
+        let args = vec!["server"];
+        let cli = Cli::try_parse_from(args).unwrap();
+        assert_eq!(cli.audit_level, "standard");
+    }
+
+    #[test]
+    fn test_audit_level_custom() {
+        let args = vec!["server", "--audit-level", "verbose"];
+        let cli = Cli::try_parse_from(args).unwrap();
+        assert_eq!(cli.audit_level, "verbose");
     }
 }

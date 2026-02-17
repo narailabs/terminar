@@ -21,12 +21,6 @@ suite('VS Code Settings Configuration', () => {
         assert.strictEqual(socketPath, '', 'Default socketPath should be empty string');
     });
 
-    test('authToken setting has correct default (empty string)', () => {
-        const config = vscode.workspace.getConfiguration('terminar');
-        const authToken = config.get<string>('authToken', '');
-        assert.strictEqual(authToken, '', 'Default authToken should be empty string');
-    });
-
     test('autoStart setting has correct default (true)', () => {
         const config = vscode.workspace.getConfiguration('terminar');
         const autoStart = config.get<boolean>('autoStart', true);
@@ -59,13 +53,6 @@ suite('VS Code Settings Configuration', () => {
         assert.strictEqual(autoStart, true, 'Default autoStart should be true');
     });
 
-    test('getConfiguredAuthToken returns null when not configured', () => {
-        const { getConfiguredAuthToken } = require('../settings');
-
-        const token = getConfiguredAuthToken();
-        assert.strictEqual(token, null, 'Should return null when no token configured');
-    });
-
     test('getConfiguredSocketPath returns custom path when configured', () => {
         const { getConfiguredSocketPath } = require('../settings');
 
@@ -86,17 +73,6 @@ suite('VS Code Settings Configuration', () => {
 
         const result = getConfiguredServerPath();
         assert.strictEqual(result, '/usr/local/bin/my-server', 'Should return custom server path');
-
-        (vscode.workspace as any)._resetConfig();
-    });
-
-    test('getConfiguredAuthToken returns token when configured', () => {
-        const { getConfiguredAuthToken } = require('../settings');
-
-        (vscode.workspace as any)._setConfigValue('terminar.authToken', 'my-secret-token');
-
-        const result = getConfiguredAuthToken();
-        assert.strictEqual(result, 'my-secret-token', 'Should return configured token');
 
         (vscode.workspace as any)._resetConfig();
     });

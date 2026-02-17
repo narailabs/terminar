@@ -25,15 +25,6 @@ export function getConfiguredServerPath(): string | null {
 }
 
 /**
- * Get the configured auth token, or null if not configured.
- */
-export function getConfiguredAuthToken(): string | null {
-    const config = vscode.workspace.getConfiguration(SECTION);
-    const token = config.get<string>('authToken', '');
-    return token || null;
-}
-
-/**
  * Get whether the server should auto-start on extension activation.
  */
 export function getAutoStart(): boolean {
