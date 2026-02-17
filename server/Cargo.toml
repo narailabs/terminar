@@ -50,6 +50,14 @@ serial_test = "3.0"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 criterion = { version = "0.5", features = ["html_reports"] }
 
+[[bin]]
+name = "terminar-server"
+path = "src/main.rs"
+
+[[bin]]
+name = "terminar-gateway"
+path = "src/bin/gateway.rs"
+
 [[bench]]
 name = "message_processing"
 harness = false
