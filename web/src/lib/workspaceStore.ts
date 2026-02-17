@@ -363,6 +363,54 @@ function createWorkspaceStore() {
     },
 
     /**
+     * Move a pane to another pane's position (swap on center, split on edge)
+     */
+    movePane(
+      sourcePaneId: PaneId,
+      targetPaneId: PaneId,
+      dropZone: DropZone
+    ) {
+      if (sourcePaneId === targetPaneId) return;
+
+      if (dropZone === 'center') {
+        // Swap sessions between source and target panes
+        update((ws) => {
+          const tab = ws.tabs.find((t) => t.id === ws.activeTabId);
+          if (!tab) return ws;
+
+          const sourcePane = findPane(tab.root, sourcePaneId);
+          const targetPane = findPane(tab.root, targetPaneId);
+          if (!sourcePane || !targetPane) return ws;
+
+          const tmp = sourcePane.sessionId;
+          sourcePane.sessionId = targetPane.sessionId;
+          targetPane.sessionId = tmp;
+          scheduleSave(ws);
+          return ws;
+        });
+      } else {
+        // Edge drop: move source session to a new split at target, then close source
+        const ws = get({ subscribe });
+        const tab = ws.tabs.find((t) => t.id === ws.activeTabId);
+        if (!tab) return;
+
+        const sourcePane = findPane(tab.root, sourcePaneId);
+        if (!sourcePane?.sessionId) return;
+
+        const sourceSessionId = sourcePane.sessionId;
+        this.handleDrop(targetPaneId, sourceSessionId, dropZone);
+        this.closePane(sourcePaneId);
+      }
+    },
+
+    /**
+     * Detach a pane (close/clear it, leaving session in sidebar list)
+     */
+    detachPane(paneId: PaneId) {
+      this.closePane(paneId);
+    },
+
+    /**
      * Close a pane
      */
     closePane(paneId: PaneId) {

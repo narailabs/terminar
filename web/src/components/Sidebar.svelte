@@ -33,6 +33,10 @@
   function handleSettings() {
     dispatch('settings');
   }
+
+  function handlePaneDrop(event: CustomEvent<{ sourcePaneId: string }>) {
+    dispatch('paneDrop', event.detail);
+  }
 </script>
 
 <div class="sidebar" class:open={isOpen}>
@@ -55,6 +59,7 @@
         on:rename={handleRename}
         on:create={handleCreate}
         on:settings={handleSettings}
+        on:paneDrop={handlePaneDrop}
       />
     </div>
   {/if}

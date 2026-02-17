@@ -418,6 +418,79 @@ describe('workspaceStore', () => {
     });
   });
 
+  // ────────────────────── movePane / detachPane ──────────────────────
+
+  describe('movePane', () => {
+    it('should swap sessions on center drop', () => {
+      const paneId = (activeTabFromStore()!.root as Pane).id;
+      workspaceStore.assignSession(paneId, 'session-A');
+      const newPaneId = workspaceStore.splitPane(paneId, 'horizontal', 'session-B')!;
+
+      workspaceStore.movePane(paneId, newPaneId, 'center');
+
+      const root = activeTabFromStore()!.root as SplitContainer;
+      const p1 = root.children[0] as Pane;
+      const p2 = root.children[1] as Pane;
+      expect(p1.sessionId).toBe('session-B');
+      expect(p2.sessionId).toBe('session-A');
+    });
+
+    it('should no-op when source === target', () => {
+      const paneId = (activeTabFromStore()!.root as Pane).id;
+      workspaceStore.assignSession(paneId, 'session-X');
+
+      workspaceStore.movePane(paneId, paneId, 'center');
+
+      expect((activeTabFromStore()!.root as Pane).sessionId).toBe('session-X');
+    });
+
+    it('should move session to new split on edge drop and close source', () => {
+      const paneId = (activeTabFromStore()!.root as Pane).id;
+      workspaceStore.assignSession(paneId, 'session-A');
+      const newPaneId = workspaceStore.splitPane(paneId, 'horizontal', 'session-B')!;
+
+      // Move paneId to the right of newPaneId
+      workspaceStore.movePane(paneId, newPaneId, 'right');
+
+      // Source pane should be gone (closed), root structure should reflect the move
+      const root = activeTabFromStore()!.root;
+      const allPanes = getAllPanes(root);
+      // session-A should exist in one pane, session-B in another
+      const sessionIds = allPanes.map(p => p.sessionId).filter(Boolean).sort();
+      expect(sessionIds).toEqual(['session-A', 'session-B']);
+      // The original paneId should not exist any more
+      expect(findPane(root, paneId)).toBeNull();
+    });
+
+    it('should no-op on edge drop when source has no session', () => {
+      const paneId = (activeTabFromStore()!.root as Pane).id;
+      // Don't assign any session to paneId
+      const newPaneId = workspaceStore.splitPane(paneId, 'horizontal', 'session-B')!;
+
+      workspaceStore.movePane(paneId, newPaneId, 'right');
+
+      // Should not crash, source pane should still exist with null session
+      const root = activeTabFromStore()!.root as SplitContainer;
+      expect(root.children).toHaveLength(2);
+      expect(findPane(root, paneId)!.sessionId).toBeNull();
+    });
+  });
+
+  describe('detachPane', () => {
+    it('should close/simplify the pane (delegates to closePane)', () => {
+      const paneId = (activeTabFromStore()!.root as Pane).id;
+      workspaceStore.assignSession(paneId, 'session-1');
+      const newPaneId = workspaceStore.splitPane(paneId, 'horizontal')!;
+
+      workspaceStore.detachPane(newPaneId);
+
+      // Should collapse back to a single pane
+      expect(activeTabFromStore()!.root.type).toBe('pane');
+      expect(activeTabFromStore()!.root.id).toBe(paneId);
+      expect((activeTabFromStore()!.root as Pane).sessionId).toBe('session-1');
+    });
+  });
+
   // ────────────────────── Layout Templates ──────────────────────
 
   describe('saveAsTemplate', () => {

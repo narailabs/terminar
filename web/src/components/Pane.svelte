@@ -103,6 +103,7 @@
 
   const dispatch = createEventDispatcher<{
     drop: { paneId: string; sessionId: SessionId; dropZone: DropZone };
+    paneDrop: { sourcePaneId: string; targetPaneId: string; dropZone: DropZone };
     contextmenu: { paneId: string; x: number; y: number };
     focus: { paneId: string };
     detach: { paneId: string };
@@ -259,10 +260,26 @@
 
   let dropZone: DropZone | null = null;
   let isDragOver = false;
+  let isPaneDragging = false;
+
+  // Pane title bar drag handlers
+  function handleTitleDragStart(event: DragEvent) {
+    if (!event.dataTransfer) return;
+    event.dataTransfer.setData('application/x-terminar-pane', paneId);
+    event.dataTransfer.effectAllowed = 'move';
+    isPaneDragging = true;
+  }
+
+  function handleTitleDragEnd() {
+    isPaneDragging = false;
+  }
 
   function handleDragOver(event: DragEvent) {
     event.preventDefault();
     if (!event.dataTransfer) return;
+
+    // Skip drop zone indicators when dragging over self
+    if (isPaneDragging) return;
 
     isDragOver = true;
 
@@ -298,8 +315,22 @@
     event.preventDefault();
     isDragOver = false;
 
+    if (!dropZone) {
+      dropZone = null;
+      return;
+    }
+
+    // Check for pane drag first
+    const sourcePaneId = event.dataTransfer?.getData('application/x-terminar-pane');
+    if (sourcePaneId) {
+      dispatch('paneDrop', { sourcePaneId, targetPaneId: paneId, dropZone });
+      dropZone = null;
+      return;
+    }
+
+    // Existing session drag behavior
     const dragSessionId = event.dataTransfer?.getData('text/plain');
-    if (dragSessionId && dropZone) {
+    if (dragSessionId) {
       dispatch('drop', { paneId, sessionId: dragSessionId, dropZone });
     }
     dropZone = null;
@@ -337,7 +368,12 @@
   tabindex="-1"
 >
   {#if showTitleBar && sessionName}
-    <div class="pane-title-bar">
+    <div
+      class="pane-title-bar"
+      draggable="true"
+      on:dragstart={handleTitleDragStart}
+      on:dragend={handleTitleDragEnd}
+    >
       <span class="pane-title-text">{sessionName}{#if terminalTitle} · <span class="terminal-title">{terminalTitle}</span>{/if}{#if sessionShell} · {sessionShell}{/if}{#if displayCwd} · {displayCwd}{/if}{#if processBadge} · <span class="process-badge">{processBadge}</span>{/if}</span>
       {#if sessionExited}<span class="exited-badge">{exitBadgeText}</span>{/if}
       <span class="title-bar-spacer"></span>
@@ -450,6 +486,11 @@
     border-bottom: 1px solid var(--ui-border, #3c3c3c);
     display: flex;
     align-items: center;
+    cursor: grab;
+  }
+
+  .pane-title-bar:active {
+    cursor: grabbing;
   }
 
   .pane-title-text {

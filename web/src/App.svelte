@@ -832,6 +832,10 @@
     openSettings();
   }
 
+  function handleSidebarPaneDrop(event: CustomEvent<{ sourcePaneId: string }>) {
+    workspaceStore.detachPane(event.detail.sourcePaneId);
+  }
+
   // Keep broadcast store's session manager in sync
   $: setSessionManager(manager);
 
@@ -911,6 +915,7 @@
         on:rename={handleSidebarRename}
         on:create={handleSidebarCreate}
         on:settings={handleSettingsFromSidebar}
+        on:paneDrop={handleSidebarPaneDrop}
       />
     </div>
   {/if}
