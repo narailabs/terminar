@@ -78,6 +78,10 @@ pub struct Cli {
     /// Run in user-mode (spawned by gateway, skip own auth, refuse root)
     #[arg(long, default_value_t = false)]
     pub user_mode: bool,
+
+    /// Require authentication for all connections including local/loopback
+    #[arg(long, default_value_t = false)]
+    pub require_auth: bool,
 }
 
 /// Available CLI subcommands.
