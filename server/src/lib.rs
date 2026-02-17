@@ -41,7 +41,7 @@ use tokio::io::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{broadcast, mpsc};
 use uuid::Uuid;
-use tracing::{info, error, warn, info_span, Instrument};
+use tracing::{info, error, warn, trace, info_span, Instrument};
 use std::time::{Instant, Duration};
 
 use constants::{
@@ -2059,10 +2059,17 @@ async fn process_message(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let process_start = Instant::now();
     state.messages_processed_total.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    info!(message_type = %format!("{:?}", std::mem::discriminant(msg)), "Received message: {:?}", msg);
+    match msg {
+        ClientMessage::Input { .. } | ClientMessage::Resize { .. } => {
+            trace!("Received message: {:?}", msg);
+        }
+        _ => {
+            info!(message_type = %format!("{:?}", std::mem::discriminant(msg)), "Received message: {:?}", msg);
+        }
+    }
     let result = process_message_inner(msg, tx_out, sessions, state, attach_tasks, client_id).await;
     let elapsed = process_start.elapsed();
-    info!(
+    trace!(
         message_latency_ms = elapsed.as_secs_f64() * 1000.0,
         "Message processed in {:.3}ms",
         elapsed.as_secs_f64() * 1000.0,

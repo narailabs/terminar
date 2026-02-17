@@ -203,6 +203,9 @@
 
   // Global keyboard shortcuts — delegates to the centralized KeyBindingRegistry
   function handleGlobalKeydown(event: KeyboardEvent) {
+    // Skip if already handled by the terminal's custom key event handler
+    if (event.defaultPrevented) return;
+
     const registry = getKeyBindingRegistry();
     const action = registry.match(event);
     if (!action) return;
