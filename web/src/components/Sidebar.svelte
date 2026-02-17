@@ -118,7 +118,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 16px;
+    padding: 12px 12px 12px 6px;
     border-bottom: 1px solid var(--ui-border, #3c3c3c);
   }
 
