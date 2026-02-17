@@ -143,6 +143,14 @@
   // condition where checking viewportY vs baseY per-write is unreliable during
   // xterm's async parsing — baseY can update mid-parse while viewportY is stale,
   // causing false "not at bottom" reads that skip scrolling.
+  //
+  // IMPORTANT: This MUST be a writable() store, NOT a plain `let` variable.
+  // Svelte's reactivity system only tracks assignments at the top level of
+  // <script> blocks. State modified inside vanilla JS callbacks (addEventListener,
+  // requestAnimationFrame, Promise.then, etc.) will NOT trigger Svelte re-renders
+  // if stored in a plain `let`. Using a writable store ensures the "Scroll to
+  // bottom" badge visibility (`{#if !$autoScroll}`) updates correctly when
+  // autoScroll changes inside wheel/scroll/keydown event listeners.
   const autoScroll = writable(true);
   let viewportElement: Element | null = null;
 
@@ -198,7 +206,11 @@
     viewportElement.addEventListener('scroll', () => {
       if (isAtBottom()) {
         autoScroll.set(true);
-      } else {
+      } else if (!isOutputActive) {
+        // Only disable auto-scroll from user-initiated scrolls.
+        // TUI apps (gemini-cli, etc.) send cursor-positioning escape sequences
+        // that cause xterm to scroll the viewport internally during term.write().
+        // Without this guard, those internal scrolls falsely disable auto-scroll.
         autoScroll.set(false);
       }
     }, { passive: true });
@@ -224,10 +236,6 @@
       }
     });
   }
-
-  // Minimum change in dimensions before we consider refitting
-  // This prevents micro-adjustments that disrupt TUI apps
-  const MIN_SIZE_CHANGE = 2;
 
   // How long to wait after output before marking output as inactive (ms)
   // TUI apps send rapid escape sequences - we need to let them finish
@@ -311,13 +319,9 @@
     const dims = getProposedDimensions();
     if (!dims) return;
 
-    // Skip if dimensions haven't changed significantly (unless immediate)
-    if (!immediate) {
-      const colChange = Math.abs(dims.cols - lastCols);
-      const rowChange = Math.abs(dims.rows - lastRows);
-      if (colChange < MIN_SIZE_CHANGE && rowChange < MIN_SIZE_CHANGE) {
-        return;
-      }
+    // Skip if dimensions haven't changed at all (unless immediate)
+    if (!immediate && dims.cols === lastCols && dims.rows === lastRows) {
+      return;
     }
 
     resizeDebouncer.resize(dims.cols, dims.rows, immediate);
