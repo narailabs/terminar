@@ -334,12 +334,28 @@ echo "termiNar gateway service uninstalled"
   restartScript(): string {
     if (process.platform === 'darwin') {
       return `#!/bin/bash
-launchctl kickstart -k system/com.terminar.gateway
+# If managed by launchd, use kickstart
+if launchctl print system/com.terminar.gateway >/dev/null 2>&1; then
+    launchctl kickstart -k system/com.terminar.gateway
+else
+    # Not managed by launchd — kill the process; user must restart manually
+    pkill -f 'terminar-gateway' 2>/dev/null
+    pkill -f 'terminar-server' 2>/dev/null
+    true
+fi
 `;
     }
     if (process.platform === 'linux') {
       return `#!/bin/bash
-systemctl restart terminar-gateway
+# If managed by systemd, use systemctl
+if systemctl is-active terminar-gateway >/dev/null 2>&1; then
+    systemctl restart terminar-gateway
+else
+    # Not managed by systemd — kill the process; user must restart manually
+    pkill -f 'terminar-gateway' 2>/dev/null
+    pkill -f 'terminar-server' 2>/dev/null
+    true
+fi
 `;
     }
     return "echo 'Service restart not supported on this platform'";
@@ -349,12 +365,26 @@ systemctl restart terminar-gateway
   stopScript(): string {
     if (process.platform === 'darwin') {
       return `#!/bin/bash
-launchctl bootout system/com.terminar.gateway
+# Try launchctl bootout first (for launchd-managed service)
+launchctl bootout system/com.terminar.gateway 2>/dev/null
+
+# If a terminar process is still running (gateway or standalone server),
+# find and kill it. Handles both production (terminar-gateway) and
+# dev mode (terminar-server --no-auth on the gateway port).
+pkill -f 'terminar-gateway' 2>/dev/null
+pkill -f 'terminar-server' 2>/dev/null
+true
 `;
     }
     if (process.platform === 'linux') {
       return `#!/bin/bash
-systemctl stop terminar-gateway
+# Try systemctl first (for systemd-managed service)
+systemctl stop terminar-gateway 2>/dev/null
+
+# If a terminar process is still running, kill it directly
+pkill -f 'terminar-gateway' 2>/dev/null
+pkill -f 'terminar-server' 2>/dev/null
+true
 `;
     }
     return "echo 'Service stop not supported on this platform'";
