@@ -546,6 +546,16 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
     )
     .map_err(|e| -> Box<dyn std::error::Error> { Box::new(e) })?;
 
+    // Log TLS certificate fingerprint for TOFU verification
+    if let Some(ref tls_cfg) = tls_config {
+        let cert_bytes = std::fs::read(&tls_cfg.cert_path)
+            .map_err(|e| format!("Failed to read TLS cert: {}", e))?;
+        let fingerprint = tls::compute_cert_fingerprint(&cert_bytes)
+            .map_err(|e| format!("Failed to compute fingerprint: {}", e))?;
+        info!("TLS certificate fingerprint (SHA-256): {}", fingerprint);
+        info!("Verify this fingerprint on first connection (TOFU)");
+    }
+
     // 1. Start HTTP/WebSocket Server
     let cors_layer = create_cors_layer(&cli.cors_origins);
 
@@ -1205,12 +1215,19 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
                                             let _ = sender.send(Message::Text(
                                                 serde_json::to_string(&err_msg).unwrap()
                                             )).await;
-                                            return Some(false);
+                                            continue; // Allow retry
                                         }
                                     }
                                 }
                                 // No password verifier configured
-                                return Some(false);
+                                let err_msg = ServerMessage::Error {
+                                    message: "Password authentication not available".to_string(),
+                                    error_code: Some("AUTH_FAILED".to_string()),
+                                };
+                                let _ = sender.send(Message::Text(
+                                    serde_json::to_string(&err_msg).unwrap()
+                                )).await;
+                                continue; // Allow retry with different method
                             }
                             // JWT token auth (reconnection)
                             Ok(ClientMessage::AuthToken { token }) => {
@@ -1235,7 +1252,7 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
                                         let _ = sender.send(Message::Text(
                                             serde_json::to_string(&err_msg).unwrap()
                                         )).await;
-                                        return Some(false);
+                                        continue; // Allow retry
                                     }
                                 }
                             }
@@ -1306,17 +1323,31 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
                                         let _ = sender.send(Message::Text(
                                             serde_json::to_string(&err_msg).unwrap()
                                         )).await;
-                                        return Some(false);
+                                        continue; // Allow retry
                                     }
                                 }
                             }
                             // SSH pubkey verify without init - reject
                             Ok(ClientMessage::AuthPubkeyVerify { .. }) => {
-                                return Some(false);
+                                let err_msg = ServerMessage::Error {
+                                    message: "Authentication failed".to_string(),
+                                    error_code: Some("AUTH_FAILED".to_string()),
+                                };
+                                let _ = sender.send(Message::Text(
+                                    serde_json::to_string(&err_msg).unwrap()
+                                )).await;
+                                continue; // Allow retry
                             }
                             _ => {
-                                // First message wasn't an auth type - reject
-                                return Some(false);
+                                // Message wasn't an auth type - reject
+                                let err_msg = ServerMessage::Error {
+                                    message: "Authentication required".to_string(),
+                                    error_code: Some("AUTH_FAILED".to_string()),
+                                };
+                                let _ = sender.send(Message::Text(
+                                    serde_json::to_string(&err_msg).unwrap()
+                                )).await;
+                                continue; // Allow retry
                             }
                         }
                     }

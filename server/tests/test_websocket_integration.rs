@@ -30,6 +30,7 @@ async fn spawn_test_server() -> (String, tokio::task::JoinHandle<()>) {
         tls_port: 8444,
         max_auth_attempts: 5,
         auto_tls: false,
+        audit_level: "off".to_string(),
     };
 
     let socket_path = cli.socket.clone().unwrap();
@@ -139,6 +140,7 @@ async fn spawn_test_server_with_auth() -> (String, tokio::task::JoinHandle<()>) 
         tls_port: 8444,
         max_auth_attempts: 5,
         auto_tls: false,
+        audit_level: "off".to_string(),
     };
 
     let socket_path = cli.socket.clone().unwrap();
