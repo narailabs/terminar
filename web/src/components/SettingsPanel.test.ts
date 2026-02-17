@@ -20,10 +20,11 @@ import {
   themeState,
   setActiveUITheme,
   setActiveTerminalTheme,
+  setUIMode,
   addCustomUITheme,
   addCustomTerminalTheme,
 } from '../lib/themeStore';
-import { BUILT_IN_UI_THEMES, BUILT_IN_TERMINAL_THEMES } from '../lib/themeTypes';
+import { BUILT_IN_TERMINAL_THEMES } from '../lib/themeTypes';
 import { settingsStore } from '../lib/settingsStore';
 
 describe('SettingsPanel - Theme Selectors', () => {
@@ -39,17 +40,17 @@ describe('SettingsPanel - Theme Selectors', () => {
     cleanup();
   });
 
-  it('should show UI Theme dropdown with all built-in themes', () => {
+  it('should show Mode dropdown with Light, Dark, Auto options', () => {
     render(SettingsPanel, { props: { isOpen: true } });
 
-    const select = document.querySelector('#uiTheme') as HTMLSelectElement;
+    const select = document.querySelector('#uiMode') as HTMLSelectElement;
     expect(select).toBeTruthy();
 
     const options = Array.from(select.querySelectorAll('option'));
-    expect(options.length).toBeGreaterThanOrEqual(BUILT_IN_UI_THEMES.length);
-    expect(options.some(o => o.textContent === 'Dark')).toBe(true);
+    expect(options).toHaveLength(3);
     expect(options.some(o => o.textContent === 'Light')).toBe(true);
-    expect(options.some(o => o.textContent === 'Dark Green')).toBe(true);
+    expect(options.some(o => o.textContent === 'Dark')).toBe(true);
+    expect(options.some(o => o.textContent === 'Auto')).toBe(true);
   });
 
   it('should show Terminal Theme dropdown with all built-in themes', () => {
@@ -65,13 +66,13 @@ describe('SettingsPanel - Theme Selectors', () => {
     expect(options.some(o => o.textContent === 'Dark Green')).toBe(true);
   });
 
-  it('should update themeStore when UI theme is changed', async () => {
+  it('should update themeStore when mode is changed', async () => {
     render(SettingsPanel, { props: { isOpen: true } });
 
-    const select = document.querySelector('#uiTheme') as HTMLSelectElement;
+    const select = document.querySelector('#uiMode') as HTMLSelectElement;
     await fireEvent.change(select, { target: { value: 'light' } });
 
-    expect(get(themeState).activeUIThemeId).toBe('light');
+    expect(get(themeState).uiMode).toBe('light');
   });
 
   it('should update themeStore when terminal theme is changed', async () => {
@@ -83,11 +84,11 @@ describe('SettingsPanel - Theme Selectors', () => {
     expect(get(themeState).activeTerminalThemeId).toBe('dark-green');
   });
 
-  it('should reflect current active theme in the dropdown', () => {
-    setActiveUITheme('light');
+  it('should reflect current mode in the dropdown', () => {
+    setUIMode('light');
     render(SettingsPanel, { props: { isOpen: true } });
 
-    const select = document.querySelector('#uiTheme') as HTMLSelectElement;
+    const select = document.querySelector('#uiMode') as HTMLSelectElement;
     expect(select.value).toBe('light');
   });
 

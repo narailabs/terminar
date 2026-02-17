@@ -16,7 +16,10 @@ import {
 
 // ── State ────────────────────────────────────────────────────────────────────
 
+export type UIMode = 'light' | 'dark' | 'auto';
+
 export interface ThemeState {
+  uiMode: UIMode;
   activeUIThemeId: string;
   activeTerminalThemeId: string;
   terminalOverrides: Record<string, string>; // paneId -> terminalThemeId
@@ -27,6 +30,7 @@ export interface ThemeState {
 const STORAGE_KEY = 'theme-state';
 
 const DEFAULT_STATE: ThemeState = {
+  uiMode: 'dark',
   activeUIThemeId: 'dark',
   activeTerminalThemeId: 'dark',
   terminalOverrides: {},
@@ -38,7 +42,18 @@ function loadState(): ThemeState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      return { ...DEFAULT_STATE, ...JSON.parse(raw) };
+      const parsed = JSON.parse(raw);
+      const state = { ...DEFAULT_STATE, ...parsed };
+      // Migrate: if no uiMode saved, derive from activeUIThemeId
+      if (!parsed.uiMode) {
+        state.uiMode = state.activeUIThemeId === 'light' ? 'light' : 'dark';
+      }
+      // Migrate: if activeUIThemeId was dark-green, fall back to dark
+      if (state.activeUIThemeId === 'dark-green') {
+        state.activeUIThemeId = 'dark';
+        state.uiMode = 'dark';
+      }
+      return state;
     }
   } catch {
     // ignore
@@ -78,6 +93,49 @@ function findTerminalTheme(id: string, state: ThemeState): TerminalTheme | undef
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
+
+export function setUIMode(mode: UIMode): void {
+  const resolved = resolveMode(mode);
+  themeState.update((s) => ({ ...s, uiMode: mode, activeUIThemeId: resolved }));
+}
+
+export function getResolvedUIMode(): 'light' | 'dark' {
+  const state = get(themeState);
+  return resolveMode(state.uiMode);
+}
+
+function resolveMode(mode: UIMode): 'light' | 'dark' {
+  if (mode === 'auto') {
+    return typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-color-scheme: dark)').matches
+      ? 'dark'
+      : 'light';
+  }
+  return mode;
+}
+
+let autoModeCleanup: (() => void) | null = null;
+
+export function initAutoMode(): void {
+  // Clean up any previous listener
+  if (autoModeCleanup) {
+    autoModeCleanup();
+    autoModeCleanup = null;
+  }
+
+  if (typeof window === 'undefined') return;
+
+  const mql = window.matchMedia('(prefers-color-scheme: dark)');
+  const handler = () => {
+    const state = get(themeState);
+    if (state.uiMode === 'auto') {
+      const resolved = resolveMode('auto');
+      themeState.update((s) => ({ ...s, activeUIThemeId: resolved }));
+    }
+  };
+  mql.addEventListener('change', handler);
+  autoModeCleanup = () => mql.removeEventListener('change', handler);
+}
 
 export function setActiveUITheme(id: string): void {
   themeState.update((s) => ({ ...s, activeUIThemeId: id }));
@@ -137,10 +195,15 @@ const UI_CSS_MAP: Record<string, keyof UITheme> = {
   '--ui-accent-hover': 'accentHover',
   '--ui-destructive': 'destructive',
   '--ui-destructive-hover': 'destructiveHover',
+  '--ui-scrollbar-thumb': 'scrollbarThumb',
+  '--ui-scrollbar-thumb-hover': 'scrollbarThumbHover',
 };
 
 export function applyUIThemeCSS(): void {
-  const theme = getActiveUITheme();
+  const state = get(themeState);
+  // Resolve mode to pick the right built-in theme
+  const resolvedId = state.uiMode === 'auto' ? resolveMode('auto') : state.activeUIThemeId;
+  const theme = findUITheme(resolvedId, state) ?? BUILT_IN_UI_THEMES[0];
   const root = document.documentElement;
   for (const [cssVar, themeKey] of Object.entries(UI_CSS_MAP)) {
     root.style.setProperty(cssVar, theme[themeKey]);

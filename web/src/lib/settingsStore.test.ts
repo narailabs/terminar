@@ -56,6 +56,7 @@ vi.mock('./themeStore', () => {
   const { writable } = require('svelte/store');
   return {
     themeState: writable({
+      uiMode: 'dark',
       activeUIThemeId: 'dark',
       activeTerminalThemeId: 'dark',
       terminalOverrides: {},

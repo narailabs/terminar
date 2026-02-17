@@ -9,15 +9,14 @@ import {
 // ── UITheme structure ────────────────────────────────────────────────────────
 
 describe('Built-in UI Themes', () => {
-  it('should have exactly 3 built-in UI themes', () => {
-    expect(BUILT_IN_UI_THEMES).toHaveLength(3);
+  it('should have exactly 2 built-in UI themes', () => {
+    expect(BUILT_IN_UI_THEMES).toHaveLength(2);
   });
 
-  it('should have dark, light, and dark-green themes', () => {
+  it('should have dark and light themes', () => {
     const ids = BUILT_IN_UI_THEMES.map((t) => t.id);
     expect(ids).toContain('dark');
     expect(ids).toContain('light');
-    expect(ids).toContain('dark-green');
   });
 
   it('each UI theme should have all required color tokens', () => {
@@ -27,6 +26,7 @@ describe('Built-in UI Themes', () => {
       'textPrimary', 'textSecondary', 'textMuted',
       'border', 'accent', 'accentHover',
       'destructive', 'destructiveHover',
+      'scrollbarThumb', 'scrollbarThumbHover',
     ];
 
     for (const theme of BUILT_IN_UI_THEMES) {

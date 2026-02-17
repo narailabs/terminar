@@ -11,7 +11,7 @@
   import { settingsStore } from './lib/settingsStore';
   import { initializeSettings } from './lib/settingsApi';
   import { workspaceStore } from './lib/workspaceStore';
-  import { applyUIThemeCSS, themeState } from './lib/themeStore';
+  import { applyUIThemeCSS, themeState, initAutoMode } from './lib/themeStore';
   import type { Workspace } from './lib/workspaceTypes';
 
   import AppToolbar from './components/AppToolbar.svelte';
@@ -196,6 +196,9 @@
   $: if ($themeState) {
     applyUIThemeCSS();
   }
+
+  // Listen for OS color scheme changes when mode is 'auto'
+  initAutoMode();
 
   // Global keyboard shortcuts — delegates to the centralized KeyBindingRegistry
   function handleGlobalKeydown(event: KeyboardEvent) {
