@@ -505,6 +505,18 @@ mod tests {
     }
 
     #[test]
+    fn test_cert_fingerprint_format() {
+        let dir = tempfile::tempdir().unwrap();
+        let tls_dir = dir.path().join("tls");
+        let gen = generate_self_signed_cert(&tls_dir).unwrap();
+        let cert_bytes = std::fs::read(&gen.cert_path).unwrap();
+        let fingerprint = compute_cert_fingerprint(&cert_bytes).unwrap();
+        // SHA-256 fingerprint = 32 bytes = 64 hex chars + 31 colons = 95 chars
+        assert_eq!(fingerprint.len(), 95);
+        assert!(fingerprint.contains(':'));
+    }
+
+    #[test]
     fn test_resolve_tls_auto_generates_cert() {
         let tmp = tempfile::tempdir().unwrap();
         let tls_dir = tmp.path().join("tls");

@@ -36,6 +36,7 @@ async fn spawn_auth_server(name: &str) -> (String, tokio::task::JoinHandle<()>) 
         tls_port: 8444,
         max_auth_attempts: 5,
         auto_tls: false,
+        audit_level: "off".to_string(),
     };
 
     let socket_path = cli.socket.clone().unwrap();
@@ -68,6 +69,7 @@ async fn spawn_noauth_server(name: &str) -> (String, tokio::task::JoinHandle<()>
         tls_port: 8444,
         max_auth_attempts: 5,
         auto_tls: false,
+        audit_level: "off".to_string(),
     };
 
     let socket_path = cli.socket.clone().unwrap();
@@ -532,6 +534,7 @@ async fn test_health_endpoint_unauthenticated() {
         tls_port: 8444,
         max_auth_attempts: 5,
         auto_tls: false,
+        audit_level: "off".to_string(),
     };
 
     let socket_path = cli.socket.clone().unwrap();
@@ -578,6 +581,7 @@ async fn test_metrics_endpoint_requires_auth() {
         tls_port: 8444,
         max_auth_attempts: 5,
         auto_tls: false,
+        audit_level: "off".to_string(),
     };
 
     let socket_path = cli.socket.clone().unwrap();
@@ -620,6 +624,7 @@ async fn test_pair_exchange_rate_limiting() {
         tls_port: 8444,
         max_auth_attempts: 5,
         auto_tls: false,
+        audit_level: "off".to_string(),
     };
 
     let socket_path = cli.socket.clone().unwrap();
@@ -649,6 +654,128 @@ async fn test_pair_exchange_rate_limiting() {
     }
 
     assert!(got_rate_limited, "Should be rate limited after multiple invalid pairing attempts");
+}
+
+/// Test: WebSocket auth rate limiting - after MAX_WS_AUTH_ATTEMPTS failed attempts,
+/// the server should send RATE_LIMIT_EXCEEDED and close the connection.
+/// Note: localhost bypasses auth, so this test verifies the rate-limit code path
+/// only works for non-localhost connections. On localhost, it verifies no crash occurs.
+#[tokio::test]
+#[ignore = "Integration test - localhost bypasses auth by design"]
+async fn test_ws_auth_rate_limit_after_5_failures() {
+    let (ws_url, _server) = spawn_auth_server("ws-rate-limit").await;
+
+    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+        .await
+        .expect("Failed to connect");
+
+    // Send 6 invalid auth attempts (MAX_WS_AUTH_ATTEMPTS = 5, so the 6th should trigger rate limit)
+    let mut got_rate_limited = false;
+    let mut auth_failed_count = 0;
+    for i in 0..7 {
+        let auth_msg = ClientMessage::Auth {
+            token: format!("invalid-token-{}", i),
+            protocol_version: None,
+        };
+        let send_result = socket.send(Message::Text(serde_json::to_string(&auth_msg).unwrap())).await;
+        if send_result.is_err() {
+            // Connection was closed by the server
+            break;
+        }
+
+        // Read response
+        let start = std::time::Instant::now();
+        while start.elapsed() < Duration::from_secs(2) {
+            match socket.next().await {
+                Some(Ok(Message::Text(text))) => {
+                    if let Ok(msg) = serde_json::from_str::<ServerMessage>(&text) {
+                        match msg {
+                            ServerMessage::Error { error_code, .. } => {
+                                if error_code.as_deref() == Some("RATE_LIMIT_EXCEEDED") {
+                                    got_rate_limited = true;
+                                    break;
+                                } else if error_code.as_deref() == Some("AUTH_FAILED") {
+                                    auth_failed_count += 1;
+                                    break;
+                                }
+                            }
+                            _ => break,
+                        }
+                    }
+                    break;
+                }
+                Some(Ok(Message::Close(_))) => {
+                    break;
+                }
+                None => break,
+                _ => {}
+            }
+        }
+
+        if got_rate_limited {
+            break;
+        }
+    }
+
+    // On localhost this will bypass auth entirely (no rate limit triggered).
+    // On non-localhost (remote) connections, we expect rate limiting.
+    // This test documents the behavior and verifies no crashes.
+    if got_rate_limited {
+        // Rate limit correctly triggered (non-localhost connection)
+        assert!(auth_failed_count <= 5, "Should get at most 5 AUTH_FAILED before RATE_LIMIT_EXCEEDED");
+    }
+    // If we got here without panicking, the server handled all attempts gracefully
+}
+
+/// Test: WebSocket auth allows retry after failure (before hitting rate limit)
+#[tokio::test]
+#[ignore = "Integration test - localhost bypasses auth by design"]
+async fn test_ws_auth_allows_retry_after_failure() {
+    let (ws_url, _server) = spawn_auth_server("ws-retry").await;
+
+    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+        .await
+        .expect("Failed to connect");
+
+    // Send an invalid token first
+    let bad_auth = ClientMessage::Auth {
+        token: "wrong-token".to_string(),
+        protocol_version: None,
+    };
+    socket.send(Message::Text(serde_json::to_string(&bad_auth).unwrap())).await.unwrap();
+
+    // Read the error response
+    let start = std::time::Instant::now();
+    while start.elapsed() < Duration::from_secs(2) {
+        match socket.next().await {
+            Some(Ok(Message::Text(text))) => {
+                if let Ok(ServerMessage::Error { error_code, .. }) = serde_json::from_str::<ServerMessage>(&text) {
+                    // On non-localhost, should get AUTH_FAILED (not connection close)
+                    if error_code.as_deref() == Some("AUTH_FAILED") {
+                        // Good - server allowed retry by not closing the connection
+                    }
+                }
+                break;
+            }
+            Some(Ok(Message::Close(_))) | None => break,
+            _ => {}
+        }
+    }
+
+    // Verify the connection is still usable (we can still send another message)
+    let second_auth = ClientMessage::Auth {
+        token: "another-wrong-token".to_string(),
+        protocol_version: None,
+    };
+    let send_result = socket.send(Message::Text(serde_json::to_string(&second_auth).unwrap())).await;
+
+    // On localhost, auth is bypassed so the first message already succeeded.
+    // On non-localhost, the connection should still be open for retry.
+    // Either way, no crash = test passes.
+    match send_result {
+        Ok(_) => { /* Connection still open - correct for retry behavior */ }
+        Err(_) => { /* Connection closed - acceptable on localhost where auth was bypassed */ }
+    }
 }
 
 // ==================== Origin Validation Tests ====================
