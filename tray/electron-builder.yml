@@ -1,0 +1,24 @@
+appId: com.terminar.tray
+productName: termiNar
+directories:
+  buildResources: build
+  output: release
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - icons/**/*
+mac:
+  category: public.app-category.developer-tools
+  icon: icons/icon.png
+  target:
+    - target: dmg
+      arch: [universal]
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  hardenedRuntime: true
+linux:
+  category: Development
+  icon: icons/icon.png
+  target:
+    - target: AppImage
+    - target: deb

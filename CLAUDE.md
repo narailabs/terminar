@@ -118,14 +118,14 @@ cargo build --release        # Release build (outputs terminar-server + terminar
 cargo test                   # Run tests
 cargo clippy                 # Lint
 cargo run -- --no-auth       # Dev mode (USE THIS BY DEFAULT)
-cargo run --bin terminar-gateway -- --port 3000  # Run gateway
+cargo run --bin terminar-gateway -- --port 6749  # Run gateway
 ```
 
 ### Web Frontend
 
 ```bash
 cd web
-pnpm dev                     # Vite dev server (localhost:5173)
+pnpm dev                     # Vite dev server (localhost:3001)
 pnpm build                   # Production build
 pnpm test -- --run           # Vitest (single run)
 pnpm test:watch              # Vitest (watch mode)
