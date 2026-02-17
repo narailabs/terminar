@@ -119,6 +119,16 @@
     }
   }
 
+  // Enforce WSS for remote connections to prevent credential interception
+  function enforceSecureConnection(url: string): string {
+    if (!isLocalServer(url) && url.startsWith('ws://')) {
+      const secureUrl = url.replace('ws://', 'wss://');
+      console.warn(`[Security] Upgrading remote connection to WSS: ${secureUrl}`);
+      return secureUrl;
+    }
+    return url;
+  }
+
   $: isLocal = isLocalServer(serverWsUrl);
 
   // Apply UI theme CSS variables whenever the theme state changes
@@ -427,7 +437,8 @@
     if (!token) return;
 
     console.log('[App] Connecting to remote server with token');
-    manager = new WebSocketSessionManager(serverWsUrl, token);
+    const wsUrl = enforceSecureConnection(serverWsUrl);
+    manager = new WebSocketSessionManager(wsUrl, token);
 
     setupManagerEvents();
 
@@ -461,7 +472,8 @@
     isAuthenticating = true;
 
     try {
-      manager = new WebSocketSessionManager(serverWsUrl);
+      const wsUrl = enforceSecureConnection(serverWsUrl);
+      manager = new WebSocketSessionManager(wsUrl);
       setupManagerEvents();
 
       const authPromise = new Promise<void>((resolve, reject) => {
@@ -506,7 +518,8 @@
     isAuthenticating = true;
 
     try {
-      manager = new WebSocketSessionManager(serverWsUrl);
+      const wsUrl = enforceSecureConnection(serverWsUrl);
+      manager = new WebSocketSessionManager(wsUrl);
       setupManagerEvents();
 
       // Listen for auth result
@@ -558,7 +571,8 @@
       // Parse the private key to extract public key and algorithm
       const { publicKeyStr, algorithm, signFn } = await parseSshPrivateKey(privateKeyPem);
 
-      manager = new WebSocketSessionManager(serverWsUrl);
+      const wsUrl = enforceSecureConnection(serverWsUrl);
+      manager = new WebSocketSessionManager(wsUrl);
       setupManagerEvents();
 
       const authPromise = new Promise<void>((resolve, reject) => {

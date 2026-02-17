@@ -101,7 +101,7 @@ class TerminarExtension {
                     this.remoteManager.disconnect();
                 }
 
-                const wsUrl = `ws://${host}/ws`;
+                const wsUrl = `wss://${host}/ws`;
                 this.remoteManager = new WebSocketSessionManager(wsUrl, token);
 
                 this.remoteManager.on('sessionList', (sessions: WsSessionInfo[]) => {
