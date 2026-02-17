@@ -330,8 +330,9 @@
       { label: 'Split Up', action: handleSplitUp },
       { label: 'Split Down', action: handleSplitVertical, shortcut: 'Cmd+Shift+O' },
     ]},
-    { label: 'Assign Session', action: () => {}, children: [
+    { label: 'Attach Session', action: () => {}, children: [
       { label: 'New Terminal', action: handleNewTerminalInPane },
+      ...(effectiveAvailableSessions.length > 0 ? [{ type: 'separator' as const }] : []),
       ...effectiveAvailableSessions.map(session => ({
         label: session.name || session.id.slice(0, 8),
         action: () => handleAssignSession(session.id),

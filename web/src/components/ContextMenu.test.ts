@@ -214,7 +214,7 @@ describe('Context Menu - All Items', () => {
 
     await openContextMenu(container);
 
-    await openSubmenu('Assign Session');
+    await openSubmenu('Attach Session');
     expect(screen.getByText('zsh')).toBeTruthy();
     expect(screen.getByText('node')).toBeTruthy();
   });
@@ -410,7 +410,7 @@ describe('Context Menu - All Items', () => {
     closeSpy.mockRestore();
   });
 
-  // ── Assign Session ───────────────────────────────────────────────────────
+  // ── Attach Session ───────────────────────────────────────────────────────
 
   it('Assign: should assign the selected session to the pane', async () => {
     const assignSpy = vi.spyOn(workspaceStore, 'assignSession');
@@ -423,7 +423,7 @@ describe('Context Menu - All Items', () => {
     });
 
     await openContextMenu(container);
-    await openSubmenu('Assign Session');
+    await openSubmenu('Attach Session');
     await clickMenuItem('fish');
 
     expect(assignSpy).toHaveBeenCalledWith(paneId, 'new-session-id');
