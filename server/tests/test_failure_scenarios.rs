@@ -36,6 +36,7 @@ async fn spawn_server_with_auth(name: &str, no_auth: bool) -> (String, tokio::ta
         audit_level: "off".to_string(),
         trusted_proxy: None,
         user_mode: false,
+        require_auth: false,
     };
 
     let socket_path = cli.socket.clone().unwrap();

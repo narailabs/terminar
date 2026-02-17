@@ -54,6 +54,14 @@ pub const RATE_LIMIT_WINDOW_SECS: u64 = 15 * 60;
 /// before the connection is closed with RATE_LIMIT_EXCEEDED.
 pub const MAX_WS_AUTH_ATTEMPTS: usize = 5;
 
+/// Access token lifetime: 15 minutes.
+/// Short-lived tokens minimize exposure if compromised.
+pub const ACCESS_TOKEN_EXPIRY_SECS: u64 = 15 * 60;
+
+/// Refresh token lifetime: 7 days.
+/// Used to obtain new access tokens without re-authenticating.
+pub const REFRESH_TOKEN_EXPIRY_SECS: u64 = 7 * 24 * 60 * 60;
+
 // ==================== PTY Constants ====================
 
 /// Buffer size for PTY read operations (16KB).

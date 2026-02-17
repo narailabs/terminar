@@ -17,7 +17,7 @@ export type ParsedServerMessage =
     | { type: 'CwdChanged'; session_id: string; cwd: string }
     | { type: 'Error'; message: string; error_code?: string }
     | { type: 'Shutdown'; reason: string }
-    | { type: 'AuthOk'; token: string; expires: string; protocol_version?: string }
+    | { type: 'AuthOk'; token: string; expires: string; protocol_version?: string; refresh_token?: string }
     | { type: 'AuthChallenge'; nonce: string }
     | { type: 'WorkspaceData'; workspace: Record<string, unknown> | null };
 

@@ -331,4 +331,18 @@ mod tests {
         let cli = Cli::try_parse_from(args).unwrap();
         assert!(cli.user_mode);
     }
+
+    #[test]
+    fn test_require_auth_default_false() {
+        let args = vec!["server"];
+        let cli = Cli::try_parse_from(args).unwrap();
+        assert!(!cli.require_auth);
+    }
+
+    #[test]
+    fn test_require_auth_flag() {
+        let args = vec!["server", "--require-auth"];
+        let cli = Cli::try_parse_from(args).unwrap();
+        assert!(cli.require_auth);
+    }
 }
