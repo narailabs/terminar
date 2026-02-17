@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
-  import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { api } from "./lib/api";
 
   let status = $state<"idle" | "installing" | "success" | "error">("idle");
   let errorMessage = $state("");
@@ -11,13 +10,13 @@
 
     try {
       // Load default config
-      const config = await invoke("get_config");
+      const config = await api.getConfig();
       // Install the service with default config
-      await invoke("install_service", { config });
+      await api.installService(config);
       status = "success";
       // Close window after a brief delay
       setTimeout(() => {
-        getCurrentWindow().close();
+        api.closeWindow();
       }, 1500);
     } catch (e) {
       status = "error";

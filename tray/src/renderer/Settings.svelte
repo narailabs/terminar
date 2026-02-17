@@ -1,21 +1,8 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
-  import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { open, ask, confirm } from "@tauri-apps/plugin-dialog";
-
-  interface TrayConfig {
-    gateway_port: number;
-    tls_mode: string;
-    tls_cert: string | null;
-    tls_key: string | null;
-    tls_port: number;
-    require_auth: boolean;
-    audit_level: string;
-    idle_timeout: number;
-  }
+  import { api, type TrayConfig } from "./lib/api";
 
   let config = $state<TrayConfig>({
-    gateway_port: 3000,
+    gateway_port: 6749,
     tls_mode: "auto",
     tls_cert: null,
     tls_key: null,
@@ -36,7 +23,7 @@
 
   async function loadConfig() {
     try {
-      const loaded = await invoke<TrayConfig>("get_config");
+      const loaded = await api.getConfig();
       config = loaded;
     } catch (e) {
       errorMessage = `Failed to load config: ${e}`;
@@ -46,34 +33,34 @@
   }
 
   async function pickCert() {
-    const path = await open({
+    const path = await api.pickFile({
       title: "Select TLS Certificate",
       filters: [{ name: "PEM", extensions: ["pem", "crt"] }],
     });
-    if (path) config.tls_cert = path as string;
+    if (path) config.tls_cert = path;
   }
 
   async function pickKey() {
-    const path = await open({
+    const path = await api.pickFile({
       title: "Select TLS Private Key",
       filters: [{ name: "PEM", extensions: ["pem", "key"] }],
     });
-    if (path) config.tls_key = path as string;
+    if (path) config.tls_key = path;
   }
 
   async function save() {
     saving = true;
     errorMessage = "";
     try {
-      await invoke("save_config", { config });
-      const restart = await ask("Restart service to apply changes?", {
+      await api.saveConfig(config);
+      const restart = await api.ask("Restart service to apply changes?", {
         title: "Restart Required",
         kind: "info",
       });
       if (restart) {
-        await invoke("restart_service");
+        await api.restartService();
       }
-      getCurrentWindow().close();
+      api.closeWindow();
     } catch (e) {
       errorMessage = `Failed to save: ${e}`;
     } finally {
@@ -82,18 +69,18 @@
   }
 
   function cancel() {
-    getCurrentWindow().close();
+    api.closeWindow();
   }
 
   async function uninstall() {
-    const confirmed = await confirm(
+    const confirmed = await api.confirm(
       "This will stop and remove the termiNar gateway service. Are you sure?",
       { title: "Uninstall Service", kind: "warning" },
     );
     if (confirmed) {
       try {
-        await invoke("uninstall_service");
-        getCurrentWindow().close();
+        await api.uninstallService();
+        api.closeWindow();
       } catch (e) {
         errorMessage = `Uninstall failed: ${e}`;
       }

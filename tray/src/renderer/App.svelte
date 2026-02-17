@@ -2,7 +2,7 @@
   import Install from "./Install.svelte";
   import Settings from "./Settings.svelte";
 
-  // The mode is passed as a query parameter from the Rust backend
+  // The mode is passed as a query parameter from the main process
   const params = new URLSearchParams(window.location.search);
   const mode = params.get("mode") ?? "settings";
 </script>
