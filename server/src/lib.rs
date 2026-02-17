@@ -1207,7 +1207,7 @@ async fn session_handler(
                         &access_token, &refresh_token, state.tls_enabled,
                     );
                     let mut response = (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response();
-                    for (name, value) in cookie_headers {
+                    for (_name, value) in cookie_headers {
                         if let Ok(hv) = axum::http::HeaderValue::from_str(&value) {
                             response.headers_mut().append(
                                 axum::http::header::SET_COOKIE,
@@ -1377,6 +1377,7 @@ async fn put_workspace_handler(
 async fn ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     connect_info: Option<ConnectInfo<SocketAddr>>,
 ) -> impl IntoResponse {
     // Determine if this is a local connection
@@ -1391,23 +1392,42 @@ async fn ws_handler(
         info!("WebSocket connection (no address info, treating as remote)");
     }
 
+    // Extract auth token from HttpOnly cookie (set by POST /auth/session)
+    let cookie_token = cookies::extract_cookie(&headers, "terminar_token");
+
     let connection_id = Uuid::new_v4().to_string();
     let span = info_span!("websocket", connection_id = %connection_id, is_local = is_local);
-    ws.on_upgrade(move |socket| handle_websocket(socket, state, is_local).instrument(span))
+    ws.on_upgrade(move |socket| handle_websocket(socket, state, is_local, cookie_token).instrument(span))
 }
 
-async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
+async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool, cookie_token: Option<String>) {
     let (mut sender, mut receiver) = socket.split();
 
     // Phase 1: Authentication
     // Skip auth for:
     // 1. Explicit --no-auth flag (always skips)
     // 2. Local connections UNLESS --require-auth is set
+    // 3. Valid HttpOnly cookie token from a previous /auth/session call
     let skip_auth = state.no_auth || (is_local && !state.require_auth);
+    let cookie_auth = if !skip_auth {
+        if let Some(ref token) = cookie_token {
+            match jwt::validate_access_token(&state.signing_key, token) {
+                Ok(_claims) if !state.revoked_tokens.lock().contains(token) => {
+                    info!("Authenticated via HttpOnly cookie");
+                    true
+                }
+                _ => false,
+            }
+        } else {
+            false
+        }
+    } else {
+        false
+    };
     if skip_auth && is_local {
         info!("Local connection - skipping authentication");
     }
-    if !skip_auth {
+    if !skip_auth && !cookie_auth {
         let auth_timeout = tokio::time::timeout(
             Duration::from_secs(30),
             async {
@@ -4280,5 +4300,139 @@ mod tests {
         let (state, _) = create_test_state();
         // Default test state has require_auth = false
         assert!(!state.require_auth, "Default test state should have require_auth=false");
+    }
+
+    #[test]
+    fn test_tls_enabled_default_false_in_test_state() {
+        let (state, _) = create_test_state();
+        assert!(!state.tls_enabled, "Default test state should have tls_enabled=false");
+    }
+
+    #[tokio::test]
+    async fn test_session_handler_valid_token() {
+        let (state, _rx) = create_test_state();
+        let token = jwt::issue_access_token(
+            &state.signing_key, "testuser", &state.server_id,
+            Duration::from_secs(900),
+        ).unwrap();
+
+        let app = Router::new()
+            .route("/auth/session", post(session_handler))
+            .with_state(state);
+
+        let body = serde_json::json!({"token": token});
+        let request = axum::http::Request::builder()
+            .method("POST")
+            .uri("/auth/session")
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(serde_json::to_string(&body).unwrap()))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // Should have Set-Cookie headers
+        let set_cookies: Vec<_> = response.headers().get_all("set-cookie").iter().collect();
+        assert_eq!(set_cookies.len(), 2, "Should set both access and refresh cookies");
+
+        let cookie_str: String = set_cookies.iter().map(|v| v.to_str().unwrap()).collect::<Vec<_>>().join("; ");
+        assert!(cookie_str.contains("terminar_token="), "Should set access token cookie");
+        assert!(cookie_str.contains("terminar_refresh="), "Should set refresh token cookie");
+        assert!(cookie_str.contains("HttpOnly"), "Cookies should be HttpOnly");
+    }
+
+    #[tokio::test]
+    async fn test_session_handler_invalid_token() {
+        let (state, _rx) = create_test_state();
+
+        let app = Router::new()
+            .route("/auth/session", post(session_handler))
+            .with_state(state);
+
+        let body = serde_json::json!({"token": "invalid-garbage"});
+        let request = axum::http::Request::builder()
+            .method("POST")
+            .uri("/auth/session")
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(serde_json::to_string(&body).unwrap()))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_logout_handler_clears_cookies() {
+        let (state, _rx) = create_test_state();
+
+        let app = Router::new()
+            .route("/auth/logout", post(logout_handler))
+            .with_state(state);
+
+        let request = axum::http::Request::builder()
+            .method("POST")
+            .uri("/auth/logout")
+            .header("Cookie", "terminar_refresh=some_refresh_token")
+            .body(axum::body::Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // Should have Set-Cookie headers that clear cookies (Max-Age=0)
+        let set_cookies: Vec<_> = response.headers().get_all("set-cookie").iter().collect();
+        assert_eq!(set_cookies.len(), 2, "Should clear both cookies");
+
+        let cookie_str: String = set_cookies.iter().map(|v| v.to_str().unwrap()).collect::<Vec<_>>().join("; ");
+        assert!(cookie_str.contains("Max-Age=0"), "Cookies should be cleared with Max-Age=0");
+    }
+
+    #[tokio::test]
+    async fn test_logout_handler_revokes_refresh_token() {
+        let (state, _rx) = create_test_state();
+        let revoked = state.revoked_tokens.clone();
+
+        let app = Router::new()
+            .route("/auth/logout", post(logout_handler))
+            .with_state(state);
+
+        let request = axum::http::Request::builder()
+            .method("POST")
+            .uri("/auth/logout")
+            .header("Cookie", "terminar_refresh=my_refresh_jwt")
+            .body(axum::body::Body::empty())
+            .unwrap();
+
+        let _response = app.oneshot(request).await.unwrap();
+
+        // The refresh token should be added to the revoked set
+        assert!(revoked.lock().contains("my_refresh_jwt"), "Refresh token should be revoked on logout");
+    }
+
+    #[tokio::test]
+    async fn test_session_handler_revoked_token_rejected() {
+        let (state, _rx) = create_test_state();
+        let token = jwt::issue_access_token(
+            &state.signing_key, "testuser", &state.server_id,
+            Duration::from_secs(900),
+        ).unwrap();
+
+        // Revoke the token
+        state.revoked_tokens.lock().insert(token.clone());
+
+        let app = Router::new()
+            .route("/auth/session", post(session_handler))
+            .with_state(state);
+
+        let body = serde_json::json!({"token": token});
+        let request = axum::http::Request::builder()
+            .method("POST")
+            .uri("/auth/session")
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(serde_json::to_string(&body).unwrap()))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 }
