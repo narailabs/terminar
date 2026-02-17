@@ -21,8 +21,11 @@ pub struct GatewayConfig {
     #[arg(long)]
     pub tls_key: Option<String>,
 
-    /// Auto-generate self-signed TLS certificate on startup
-    #[arg(long, default_value_t = true)]
+    /// Disable auto-generation of a self-signed TLS certificate on startup.
+    /// By default, auto-TLS is enabled. When --tls-cert and --tls-key are
+    /// provided, the supplied certificate takes precedence regardless of
+    /// this flag. Pass --no-auto-tls to disable automatic certificate generation.
+    #[arg(long = "no-auto-tls", default_value_t = true, action = clap::ArgAction::SetFalse)]
     pub auto_tls: bool,
 
     /// Port for the TLS/HTTPS listener
@@ -104,5 +107,12 @@ mod tests {
         assert_eq!(config.tls_cert, Some("/path/to/cert.pem".to_string()));
         assert_eq!(config.tls_key, Some("/path/to/key.pem".to_string()));
         assert_eq!(config.tls_port, 9443);
+    }
+
+    #[test]
+    fn test_no_auto_tls_flag() {
+        let args = vec!["terminar-gateway", "--no-auto-tls"];
+        let config = GatewayConfig::try_parse_from(args).unwrap();
+        assert!(!config.auto_tls);
     }
 }

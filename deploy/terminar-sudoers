@@ -15,5 +15,11 @@
 #   - The --socket argument is constrained to /run/terminar/* to prevent
 #     the gateway from writing sockets to arbitrary paths
 #   - The terminar-server binary refuses to run as root in --user-mode
+#
+# NOTE: The wildcard pattern below matches any arguments after --user-mode.
+# If the spawn command in user_server.rs changes (e.g., additional flags are
+# added), this rule may need to be updated to match the new argument pattern.
+# A broader alternative is:
+#   terminar ALL=(ALL) NOPASSWD: /usr/local/bin/terminar-server --user-mode *
 
 terminar ALL=(ALL) NOPASSWD: /usr/local/bin/terminar-server --user-mode --socket /run/terminar/*

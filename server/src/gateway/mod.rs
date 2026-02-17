@@ -257,6 +257,8 @@ async fn handle_gateway_websocket(mut socket: WebSocket, state: GatewayState) {
             Ok(msg) => {
                 if let Some(msg_type) = msg.get("type").and_then(|t| t.as_str()) {
                     match msg_type {
+                        // TODO: Add SSH public key auth support. Currently only password auth (PAM) is
+                        // supported through the gateway. The design doc specifies PAM + SSH key auth.
                         "AuthPassword" => {
                             let username = msg
                                 .get("username")
@@ -285,7 +287,7 @@ async fn handle_gateway_websocket(mut socket: WebSocket, state: GatewayState) {
                                     };
                                     let _ = socket
                                         .send(Message::Text(
-                                            serde_json::to_string(&auth_ok).unwrap().into(),
+                                            serde_json::to_string(&auth_ok).unwrap(),
                                         ))
                                         .await;
                                     break username.to_string();
@@ -351,7 +353,7 @@ async fn send_error(
     };
     socket
         .send(Message::Text(
-            serde_json::to_string(&error_msg).unwrap().into(),
+            serde_json::to_string(&error_msg).unwrap(),
         ))
         .await
 }

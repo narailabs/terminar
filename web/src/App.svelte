@@ -20,7 +20,7 @@
   import { getEffectiveEnv } from './lib/envStore';
   import { getKeyBindingRegistry } from './lib/keybindings';
   import { activityStore } from './lib/activityStore';
-  import { markExited, removeExited } from './lib/exitedSessionsStore';
+  import { markExited } from './lib/exitedSessionsStore';
   import { foregroundStore } from './lib/foregroundStore';
   import { parseSshPrivateKey } from './lib/sshKeyParser';
   import { writable } from 'svelte/store';
@@ -121,10 +121,17 @@
 
   // Enforce WSS for remote connections to prevent credential interception
   function enforceSecureConnection(url: string): string {
-    if (!isLocalServer(url) && url.startsWith('ws://')) {
-      const secureUrl = url.replace('ws://', 'wss://');
-      console.warn(`[Security] Upgrading remote connection to WSS: ${secureUrl}`);
-      return secureUrl;
+    if (!isLocalServer(url)) {
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol === 'ws:') {
+          parsed.protocol = 'wss:';
+          console.warn(`[Security] Upgrading remote connection to WSS: ${parsed.href}`);
+          return parsed.href;
+        }
+      } catch {
+        // If URL parsing fails, fall through to return original
+      }
     }
     return url;
   }
@@ -135,15 +142,9 @@
   // automatically on WebSocket upgrade requests, enabling transparent reconnection.
   let refreshInterval: ReturnType<typeof setInterval> | null = null;
 
-  function getHttpUrl(): string {
-    // Derive HTTP URL from the WS URL
-    return serverHttpUrl;
-  }
-
   async function setSessionCookie(accessToken: string): Promise<void> {
     try {
-      const httpUrl = getHttpUrl();
-      await fetch(`${httpUrl}/auth/session`, {
+      await fetch(`${serverHttpUrl}/auth/session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -157,8 +158,7 @@
 
   async function clearSessionCookie(): Promise<void> {
     try {
-      const httpUrl = getHttpUrl();
-      await fetch(`${httpUrl}/auth/logout`, {
+      await fetch(`${serverHttpUrl}/auth/logout`, {
         method: 'POST',
         credentials: 'include',
       });
@@ -173,8 +173,7 @@
     // Refresh every 14 minutes (access token expires in 15 min)
     refreshInterval = setInterval(async () => {
       try {
-        const httpUrl = getHttpUrl();
-        await fetch(`${httpUrl}/auth/refresh`, {
+        await fetch(`${serverHttpUrl}/auth/refresh`, {
           method: 'POST',
           credentials: 'include',
         });
@@ -532,10 +531,15 @@
   // on the WebSocket upgrade request. The server validates the cookie and sends AuthOk.
   // This runs silently (no isAuthenticating UI state) — if it fails, the login page shows.
   async function connectWithCookie(): Promise<boolean> {
-    try {
-      const wsUrl = enforceSecureConnection(serverWsUrl);
-      const wsManager = new WebSocketSessionManager(wsUrl);
+    const wsUrl = enforceSecureConnection(serverWsUrl);
+    const wsManager = new WebSocketSessionManager(wsUrl);
 
+    // Set manager and wire up events BEFORE connecting, so events emitted
+    // during auth are not missed (matches connectLocal/connectWithPassword pattern).
+    manager = wsManager;
+    setupManagerEvents();
+
+    try {
       const authPromise = new Promise<void>((resolve, reject) => {
         wsManager.on('authenticated', () => resolve());
         wsManager.on('error', (err: Error) => reject(err));
@@ -546,12 +550,10 @@
 
       await Promise.race([
         authPromise,
-        new Promise<void>((_, reject) => setTimeout(() => reject(new Error('Cookie auth timeout')), 3000)),
+        new Promise<void>((_, reject) => setTimeout(() => reject(new Error('Cookie auth timeout')), 5000)),
       ]);
 
-      // Cookie auth succeeded — wire up the manager
-      manager = wsManager;
-      setupManagerEvents();
+      // Cookie auth succeeded
       isConnected = true;
       connectionState = 'connected';
       startTokenRefresh();
@@ -562,7 +564,10 @@
       workspaceStore.setSaveCallback(saveWorkspace);
       return true;
     } catch {
-      // Cookie auth failed silently — clean up and let the login page show
+      // Cookie auth failed — clean up the manager to avoid resource leaks
+      // (WebSocketSessionManager registers a beforeunload listener in constructor)
+      wsManager.disconnect();
+      manager = null;
       return false;
     }
   }

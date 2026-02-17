@@ -95,90 +95,48 @@ pub enum Commands {
 }
 
 impl Cli {
-
     pub fn load() -> Self {
-
         Cli::parse()
-
     }
-
 }
-
-
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
 
-
-
     #[test]
-
     fn test_default_config() {
-
         let args = vec!["server"];
-
         let cli = Cli::try_parse_from(args).unwrap();
-
         assert_eq!(cli.port, 3000);
-
         assert_eq!(cli.log_level, "info");
-
         assert!(!cli.no_auth);
-
         assert!(cli.command.is_none());
-
     }
 
-
-
     #[test]
-
     fn test_custom_port_and_auth() {
-
         let args = vec!["server", "--port", "8080", "--no-auth"];
-
         let cli = Cli::try_parse_from(args).unwrap();
-
         assert_eq!(cli.port, 8080);
-
         assert!(cli.no_auth);
-
     }
 
-
-
     #[test]
-
     fn test_socket_path() {
-
         let args = vec!["server", "--socket", "/tmp/mysock"];
-
         let cli = Cli::try_parse_from(args).unwrap();
-
         assert_eq!(cli.socket, Some("/tmp/mysock".to_string()));
-
     }
 
-
-
     #[test]
-
     fn test_pair_command() {
-
         let args = vec!["server", "pair"];
-
         let cli = Cli::try_parse_from(args).unwrap();
-
         match cli.command {
-
             Some(Commands::Pair) => {},
-
             _ => panic!("Expected Pair command"),
-
         }
-
     }
 
     #[test]

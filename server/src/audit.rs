@@ -6,7 +6,7 @@
 //! - **Standard**: Session lifecycle, pairing, configuration changes
 //! - **Verbose**: Connection open/close, reconnection attempts, token refreshes
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
@@ -43,16 +43,20 @@ impl AuditLevel {
             AuditLevel::Verbose => 3,
         }
     }
+}
+
+impl std::str::FromStr for AuditLevel {
+    type Err = std::convert::Infallible;
 
     /// Parse an audit level from a string. Defaults to `Standard` for unknown values.
-    pub fn from_str(s: &str) -> Self {
-        match s.to_lowercase().as_str() {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s.to_lowercase().as_str() {
             "off" => AuditLevel::Off,
             "auth" => AuditLevel::Auth,
             "standard" => AuditLevel::Standard,
             "verbose" => AuditLevel::Verbose,
             _ => AuditLevel::Standard,
-        }
+        })
     }
 }
 
@@ -144,13 +148,49 @@ impl Default for AuditEvent {
     }
 }
 
+/// Convert a Unix timestamp (seconds since epoch) to an ISO 8601 UTC string.
+///
+/// Format: `YYYY-MM-DDTHH:MM:SSZ`
+pub fn unix_secs_to_iso8601(secs: u64) -> String {
+    let days = secs / 86400;
+    let time_secs = secs % 86400;
+    let hours = time_secs / 3600;
+    let minutes = (time_secs % 3600) / 60;
+    let seconds = time_secs % 60;
+
+    let (year, month, day) = days_to_ymd(days);
+
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        year, month, day, hours, minutes, seconds
+    )
+}
+
+/// Convert days since Unix epoch (1970-01-01) to (year, month, day).
+///
+/// Algorithm from <http://howardhinnant.github.io/date_algorithms.html>.
+fn days_to_ymd(days: u64) -> (u64, u64, u64) {
+    let z = days + 719468;
+    let era = z / 146097;
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    (y, m, d)
+}
+
 impl AuditEvent {
     fn now() -> String {
-        let secs = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        format!("{}Z", secs)
+        unix_secs_to_iso8601(secs)
     }
 
     pub fn auth_success(username: &str, method: &str, client_ip: &str, conn_type: &str) -> Self {
@@ -166,7 +206,12 @@ impl AuditEvent {
         }
     }
 
-    pub fn auth_failure(username: Option<&str>, method: &str, client_ip: &str, reason: &str) -> Self {
+    pub fn auth_failure(
+        username: Option<&str>,
+        method: &str,
+        client_ip: &str,
+        reason: &str,
+    ) -> Self {
         Self {
             timestamp: Self::now(),
             event: AuditEventType::AuthFailure,
@@ -428,20 +473,38 @@ mod tests {
 
         assert_eq!(AuditEventType::SessionCreated.level(), AuditLevel::Standard);
         assert_eq!(AuditEventType::SessionClosed.level(), AuditLevel::Standard);
-        assert_eq!(AuditEventType::PairingCodeGenerated.level(), AuditLevel::Standard);
+        assert_eq!(
+            AuditEventType::PairingCodeGenerated.level(),
+            AuditLevel::Standard
+        );
 
-        assert_eq!(AuditEventType::ConnectionOpened.level(), AuditLevel::Verbose);
+        assert_eq!(
+            AuditEventType::ConnectionOpened.level(),
+            AuditLevel::Verbose
+        );
         assert_eq!(AuditEventType::TokenRefreshed.level(), AuditLevel::Verbose);
     }
 
     #[test]
     fn test_audit_level_from_str() {
-        assert_eq!(AuditLevel::from_str("off"), AuditLevel::Off);
-        assert_eq!(AuditLevel::from_str("auth"), AuditLevel::Auth);
-        assert_eq!(AuditLevel::from_str("standard"), AuditLevel::Standard);
-        assert_eq!(AuditLevel::from_str("verbose"), AuditLevel::Verbose);
-        assert_eq!(AuditLevel::from_str("VERBOSE"), AuditLevel::Verbose);
-        assert_eq!(AuditLevel::from_str("unknown"), AuditLevel::Standard);
+        assert_eq!("off".parse::<AuditLevel>().unwrap(), AuditLevel::Off);
+        assert_eq!("auth".parse::<AuditLevel>().unwrap(), AuditLevel::Auth);
+        assert_eq!(
+            "standard".parse::<AuditLevel>().unwrap(),
+            AuditLevel::Standard
+        );
+        assert_eq!(
+            "verbose".parse::<AuditLevel>().unwrap(),
+            AuditLevel::Verbose
+        );
+        assert_eq!(
+            "VERBOSE".parse::<AuditLevel>().unwrap(),
+            AuditLevel::Verbose
+        );
+        assert_eq!(
+            "unknown".parse::<AuditLevel>().unwrap(),
+            AuditLevel::Standard
+        );
     }
 
     #[test]
@@ -454,11 +517,46 @@ mod tests {
         assert_eq!(deserialized, AuditLevel::Auth);
     }
 
+    #[test]
+    fn test_days_to_ymd_epoch() {
+        assert_eq!(days_to_ymd(0), (1970, 1, 1));
+    }
+
+    #[test]
+    fn test_days_to_ymd_known_date() {
+        // 2026-02-16 is 20500 days after epoch (1970-01-01)
+        // Let's verify with a known timestamp: 2000-01-01 = 10957 days
+        assert_eq!(days_to_ymd(10957), (2000, 1, 1));
+    }
+
+    #[test]
+    fn test_unix_secs_to_iso8601() {
+        // Unix timestamp 0 = 1970-01-01T00:00:00Z
+        assert_eq!(unix_secs_to_iso8601(0), "1970-01-01T00:00:00Z");
+        // 2000-01-01T00:00:00Z = 946684800
+        assert_eq!(unix_secs_to_iso8601(946684800), "2000-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn test_now_produces_iso8601_format() {
+        let ts = AuditEvent::now();
+        // Should match YYYY-MM-DDTHH:MM:SSZ pattern
+        assert_eq!(ts.len(), 20, "ISO 8601 timestamp should be 20 chars");
+        assert!(ts.ends_with('Z'));
+        assert_eq!(&ts[4..5], "-");
+        assert_eq!(&ts[7..8], "-");
+        assert_eq!(&ts[10..11], "T");
+        assert_eq!(&ts[13..14], ":");
+        assert_eq!(&ts[16..17], ":");
+    }
+
     #[tokio::test]
     async fn test_audit_logger_writes_to_file() {
         let tmp = tempfile::TempDir::new().unwrap();
         let log_path = tmp.path().join("audit.log");
-        let logger = AuditLogger::new(log_path.clone(), AuditLevel::Verbose).await.unwrap();
+        let logger = AuditLogger::new(log_path.clone(), AuditLevel::Verbose)
+            .await
+            .unwrap();
 
         logger.log(AuditEvent {
             timestamp: "2026-02-16T10:30:00Z".to_string(),
@@ -479,7 +577,9 @@ mod tests {
     async fn test_audit_logger_respects_level_filter() {
         let tmp = tempfile::TempDir::new().unwrap();
         let log_path = tmp.path().join("audit.log");
-        let logger = AuditLogger::new(log_path.clone(), AuditLevel::Auth).await.unwrap();
+        let logger = AuditLogger::new(log_path.clone(), AuditLevel::Auth)
+            .await
+            .unwrap();
 
         // This is a "verbose" level event -- should NOT be logged at "auth" level
         logger.log(AuditEvent {
@@ -499,7 +599,9 @@ mod tests {
     async fn test_audit_logger_writes_multiple_events() {
         let tmp = tempfile::TempDir::new().unwrap();
         let log_path = tmp.path().join("audit.log");
-        let logger = AuditLogger::new(log_path.clone(), AuditLevel::Verbose).await.unwrap();
+        let logger = AuditLogger::new(log_path.clone(), AuditLevel::Verbose)
+            .await
+            .unwrap();
 
         logger.log(AuditEvent {
             timestamp: "2026-02-16T10:30:00Z".to_string(),
@@ -530,7 +632,9 @@ mod tests {
     async fn test_audit_logger_auth_level_logs_auth_but_not_standard() {
         let tmp = tempfile::TempDir::new().unwrap();
         let log_path = tmp.path().join("audit.log");
-        let logger = AuditLogger::new(log_path.clone(), AuditLevel::Auth).await.unwrap();
+        let logger = AuditLogger::new(log_path.clone(), AuditLevel::Auth)
+            .await
+            .unwrap();
 
         // Auth event -- should be logged
         logger.log(AuditEvent {

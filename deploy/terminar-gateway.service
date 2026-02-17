@@ -15,7 +15,11 @@
 #   6. Reload systemd: sudo systemctl daemon-reload
 #   7. Enable and start: sudo systemctl enable --now terminar-gateway
 #
-# Configuration via environment file (/etc/terminar-gateway/env):
+# Configuration via environment file (/etc/terminar-gateway/env).
+# All variables must be set; sensible defaults are provided below.
+# The binary itself also has built-in defaults (port=3000, tls_port=8444, etc.)
+# but systemd's $VAR substitution requires the variable to be defined.
+#
 #   TERMINAR_GW_PORT=3000
 #   TERMINAR_GW_TLS_PORT=8444
 #   TERMINAR_GW_LOG_LEVEL=info
@@ -34,14 +38,13 @@ User=terminar
 Group=terminar
 
 ExecStart=/usr/local/bin/terminar-gateway \
-    --port ${TERMINAR_GW_PORT:-3000} \
-    --tls-port ${TERMINAR_GW_TLS_PORT:-8444} \
-    --auto-tls \
+    --port $TERMINAR_GW_PORT \
+    --tls-port $TERMINAR_GW_TLS_PORT \
     --server-bin /usr/local/bin/terminar-server \
     --socket-dir /run/terminar \
-    --idle-timeout ${TERMINAR_GW_IDLE_TIMEOUT:-1800} \
-    --audit-level ${TERMINAR_GW_AUDIT_LEVEL:-standard} \
-    --log-level ${TERMINAR_GW_LOG_LEVEL:-info}
+    --idle-timeout $TERMINAR_GW_IDLE_TIMEOUT \
+    --audit-level $TERMINAR_GW_AUDIT_LEVEL \
+    --log-level $TERMINAR_GW_LOG_LEVEL
 
 # Environment configuration
 EnvironmentFile=-/etc/terminar-gateway/env
