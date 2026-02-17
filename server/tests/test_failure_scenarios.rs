@@ -34,6 +34,8 @@ async fn spawn_server_with_auth(name: &str, no_auth: bool) -> (String, tokio::ta
         max_auth_attempts: 5,
         auto_tls: false,
         audit_level: "off".to_string(),
+        trusted_proxy: None,
+        user_mode: false,
     };
 
     let socket_path = cli.socket.clone().unwrap();
