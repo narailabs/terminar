@@ -14,8 +14,8 @@ termiNar provides persistent terminal sessions across VS Code, browsers, and des
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Client Frontends                         │
 │                                                                 │
-│  VS Code Extension    Web (Svelte)    Tray (Tauri)    Electron  │
-│   Unix socket         WebSocket       HTTP health     WebSocket │
+│  VS Code Extension    Web (Svelte)   Tray (Electron)   Electron  │
+│   Unix socket         WebSocket       HTTP health      WebSocket │
 └──────┬─────────────────┬──────────────────┬──────────────┬──────┘
        │                 │                  │              │
        ▼                 ▼                  ▼              ▼
@@ -185,26 +185,30 @@ Svelte 5, Vite, xterm.js, Vitest, TypeScript
 
 ## System Tray (`tray/`)
 
-Tauri 2 app — runs as a menu bar icon (macOS) or system tray (Linux/Windows).
+Electron app — runs as a menu bar icon (macOS) or system tray (Linux/Windows). Tray-only (no Dock icon on macOS).
 
-### Rust Backend (`tray/src-tauri/src/`)
+### Electron Main Process (`tray/src/main/`)
 
 | Module | Purpose |
 |--------|---------|
-| `lib.rs` | App setup: tray menu, health listener, install window |
-| `config.rs` | `TrayConfig`: gateway port, TLS mode, auth, audit level |
-| `service.rs` | `ServiceManager`: launchd/systemd install/uninstall/status |
-| `health.rs` | `HealthState`: polls gateway `/health` endpoint every 5s |
-| `tray.rs` | Build tray context menu from health + config state |
-| `commands.rs` | Tauri commands exposed to Svelte frontend |
+| `index.ts` | App lifecycle, orchestration, single instance lock |
+| `TrayManager.ts` | System tray icon + dynamic context menu from health/config state |
+| `HealthPoller.ts` | Polls gateway `/health` endpoint every 5s via `fetch()` |
+| `ServiceManager.ts` | launchd/systemd service management (bash script generation) |
+| `ConfigStore.ts` | `TrayConfig` persistence (`~/.terminar/tray-config.json`) |
+| `WindowManager.ts` | Install/Settings window lifecycle |
+| `elevation.ts` | Elevated script execution via `osascript` (macOS) / `pkexec` (Linux) |
+| `ipc.ts` | IPC handler registration (main ↔ renderer) |
+| `types.ts` | Shared TypeScript types and defaults |
 
-### Svelte Frontend (`tray/src/`)
+### Svelte Frontend (`tray/src/renderer/`)
 
 | Component | Purpose |
 |-----------|---------|
 | `App.svelte` | Routes between Install and Settings views |
 | `Install.svelte` | First-run wizard (install gateway service) |
 | `Settings.svelte` | Configure port, TLS, auth, audit level |
+| `lib/api.ts` | Typed wrapper around `window.trayAPI` (preload bridge) |
 
 ### Tray Menu Items
 
@@ -212,13 +216,14 @@ Tauri 2 app — runs as a menu bar icon (macOS) or system tray (Linux/Windows).
 - Open Web UI (launches browser)
 - Toggle TLS / Toggle Auth
 - Audit Level submenu
-- Restart/Stop Service
+- Start/Stop/Restart Service
+- Install/Uninstall Gateway
 - Settings window
 - Quit
 
 ### Tech Stack
 
-Tauri 2, Svelte 5, Rust (reqwest, tokio, dirs, serde)
+Electron, Svelte 5, Vite, Playwright (E2E), Vitest (unit)
 
 ---
 
@@ -258,9 +263,9 @@ Tests: Mocha (not Vitest), mock `vscode` module via `setup.js`
 
 ---
 
-## Electron (`electron/`) — Experimental
+## Electron (`electron/`) — Experimental (Inactive)
 
-Scaffolded but not primary desktop path. The Tauri tray app (`tray/`) is the active desktop component.
+Scaffolded desktop wrapper experiment. Not the primary desktop path — the Electron tray app (`tray/`) is the active desktop component.
 
 Contains: `WindowManager`, `ServerManager`, `TrayManager`, `MenuManager`, `ShortcutManager`, `AutoUpdater`, `ConfigStore`, IPC handlers.
 
