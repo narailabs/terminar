@@ -41,3 +41,6 @@ credentials.json
 
 # Runtime data
 *.sock
+
+# Git worktrees
+.worktrees/
