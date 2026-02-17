@@ -24,7 +24,7 @@ use axum::{
     },
     response::IntoResponse,
     routing::get,
-    Router,
+    Json, Router,
 };
 use tokio::sync::broadcast;
 use tracing::{error, info, warn};
@@ -198,9 +198,22 @@ pub async fn run_gateway(config: GatewayConfig) -> Result<(), Box<dyn std::error
     Ok(())
 }
 
+/// Health check response.
+#[derive(serde::Serialize)]
+struct HealthResponse {
+    status: &'static str,
+    active_servers: usize,
+    version: &'static str,
+}
+
 /// Health check endpoint.
-async fn health_handler() -> &'static str {
-    "ok"
+async fn health_handler(State(state): State<GatewayState>) -> Json<HealthResponse> {
+    let active_servers = state.user_server_manager.active_server_count().await;
+    Json(HealthResponse {
+        status: "ok",
+        active_servers,
+        version: env!("CARGO_PKG_VERSION"),
+    })
 }
 
 /// WebSocket upgrade handler.
