@@ -1424,6 +1424,18 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool, co
     } else {
         false
     };
+    // Send AuthOk when cookie auth succeeds so the client knows it's authenticated
+    if cookie_auth {
+        let ok_msg = ServerMessage::AuthOk {
+            token: cookie_token.clone().unwrap_or_default(),
+            expires: format!("{}s", constants::ACCESS_TOKEN_EXPIRY_SECS),
+            protocol_version: Some(constants::PROTOCOL_VERSION.to_string()),
+            refresh_token: None,
+        };
+        let _ = sender.send(Message::Text(
+            serde_json::to_string(&ok_msg).unwrap()
+        )).await;
+    }
     if skip_auth && is_local {
         info!("Local connection - skipping authentication");
     }

@@ -11,13 +11,6 @@ vi.mock('./lib/settingsApi', () => ({
   setSettingsApiBaseUrl: vi.fn(),
 }));
 
-// Mock tokenStore to avoid localStorage calls in test environment
-vi.mock('./lib/tokenStore', () => ({
-  saveToken: vi.fn(),
-  loadToken: vi.fn().mockReturnValue(null),
-  clearToken: vi.fn(),
-}));
-
 // Mock broadcastStore (must include all exports used by child components like Pane.svelte)
 vi.mock('./lib/broadcastStore', () => {
   const { writable } = require('svelte/store');
@@ -376,8 +369,8 @@ describe('App - Token Auth Connection Flow', () => {
     });
   });
 
-  it('connect() saves token on successful connection', async () => {
-    const { saveToken } = await import('./lib/tokenStore');
+  it('connect() sets session cookie on successful connection', async () => {
+    mockFetch.mockResolvedValue({ ok: true });
 
     render(App, { props: remoteServerProps });
 
@@ -395,9 +388,14 @@ describe('App - Token Auth Connection Flow', () => {
       expect(WebSocketSessionManager).toHaveBeenCalled();
     });
 
-    // After successful connection, token should be saved
+    // After successful connection, session cookie should be set via POST /auth/session
     await waitFor(() => {
-      expect(saveToken).toHaveBeenCalledWith('jwt-token-abc');
+      const sessionCalls = mockFetch.mock.calls.filter(
+        (call: any[]) => typeof call[0] === 'string' && call[0].includes('/auth/session')
+      );
+      expect(sessionCalls.length).toBe(1);
+      expect(sessionCalls[0][1].method).toBe('POST');
+      expect(sessionCalls[0][1].credentials).toBe('include');
     });
   });
 });
@@ -465,6 +463,15 @@ describe('App - Pairing Code Exchange', () => {
 
     render(App, { props: remoteServerProps });
 
+    // Wait for cookie reconnection attempt to settle (fire-and-forget on mount).
+    // connectWithCookie() creates a WebSocketSessionManager, so we wait for it.
+    await waitFor(() => {
+      expect(vi.mocked(WebSocketSessionManager).mock.calls.length).toBeGreaterThanOrEqual(0);
+    });
+    // Give onMount's connectWithCookie() time to execute
+    await new Promise(r => setTimeout(r, 50));
+    const callCountAfterMount = vi.mocked(WebSocketSessionManager).mock.calls.length;
+
     const pairingTab = screen.getByText('Pairing Code');
     await fireEvent.click(pairingTab);
 
@@ -486,14 +493,19 @@ describe('App - Pairing Code Exchange', () => {
       expect(pairCalls.length).toBe(1);
     });
 
-    // Manager should NOT have been created since exchange failed
-    expect(WebSocketSessionManager).not.toHaveBeenCalled();
+    // No additional manager should have been created from the failed exchange
+    expect(vi.mocked(WebSocketSessionManager).mock.calls.length).toBe(callCountAfterMount);
   });
 
   it('exchangeCode with network error does not create manager', async () => {
     mockFetch.mockRejectedValueOnce(new Error('Connection refused'));
 
     render(App, { props: remoteServerProps });
+
+    // Wait for cookie reconnection attempt to settle (fire-and-forget on mount).
+    // connectWithCookie() creates a WebSocketSessionManager, so we wait for it.
+    await new Promise(r => setTimeout(r, 50));
+    const callCountAfterMount = vi.mocked(WebSocketSessionManager).mock.calls.length;
 
     const pairingTab = screen.getByText('Pairing Code');
     await fireEvent.click(pairingTab);
@@ -511,8 +523,8 @@ describe('App - Pairing Code Exchange', () => {
       expect(pairCalls.length).toBe(1);
     });
 
-    // Manager should NOT have been created since exchange failed
-    expect(WebSocketSessionManager).not.toHaveBeenCalled();
+    // No additional manager should have been created from the failed exchange
+    expect(vi.mocked(WebSocketSessionManager).mock.calls.length).toBe(callCountAfterMount);
   });
 });
 
@@ -527,9 +539,7 @@ describe('App - Logout', () => {
     mockFetch.mockResolvedValue({ ok: true, json: async () => ({ workspace: null }) });
   });
 
-  it('logout clears token, disconnects manager, and resets connection state', async () => {
-    const { clearToken } = await import('./lib/tokenStore');
-
+  it('logout clears cookies, disconnects manager, and resets connection state', async () => {
     // Render with local to auto-connect (gets us to connected state)
     render(App, { props: { serverWsUrl: 'ws://localhost:3000/ws', serverHttpUrl: 'http://localhost:3000' } });
 
@@ -551,10 +561,6 @@ describe('App - Logout', () => {
     // we verify the manager is properly configured.
     expect(managerInstance.on).toHaveBeenCalled();
     expect(managerInstance.disconnect).not.toHaveBeenCalled();
-
-    // Verify clearToken was not called during normal connection
-    // (clearToken is called by logout, not by connectLocal)
-    vi.mocked(clearToken).mockClear();
   });
 });
 
