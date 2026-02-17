@@ -58,6 +58,7 @@
   let sessions: SessionInfo[] = [];
   let sidebarOpen = true;
   let pendingNewTerminal = false;
+  let pendingNewTerminalPaneId: string | null = null;
 
   // Context stores for child components
   const managerStore = writable<SessionManager | null>(null);
@@ -407,17 +408,23 @@
         // Find and select the newly created terminal
         const newSession = sessions.find(s => !previousSessionIds.has(s.id));
         if (newSession) {
-          // Auto-assign to first empty pane if exists
-          const ws = workspaceStore.get();
-          const tab = ws.tabs.find(t => t.id === ws.activeTabId);
-          if (tab) {
-            const emptyPaneId = findEmptyPane(tab.root);
-            if (emptyPaneId) {
-              workspaceStore.assignSession(emptyPaneId, newSession.id);
+          if (pendingNewTerminalPaneId) {
+            // Assign to the specific pane that requested the new terminal
+            workspaceStore.assignSession(pendingNewTerminalPaneId, newSession.id);
+          } else {
+            // Auto-assign to first empty pane if exists
+            const ws = workspaceStore.get();
+            const tab = ws.tabs.find(t => t.id === ws.activeTabId);
+            if (tab) {
+              const emptyPaneId = findEmptyPane(tab.root);
+              if (emptyPaneId) {
+                workspaceStore.assignSession(emptyPaneId, newSession.id);
+              }
             }
           }
         }
         pendingNewTerminal = false;
+        pendingNewTerminalPaneId = null;
       }
     });
 
@@ -760,8 +767,9 @@
   }
 
   // Terminal management functions
-  function createNewTerminal() {
+  function createNewTerminal(targetPaneId?: string) {
     pendingNewTerminal = true;
+    pendingNewTerminalPaneId = targetPaneId || null;
     // Estimate terminal dimensions from viewport to avoid hardcoded 80x24.
     // This ensures the PTY spawns at roughly the right size, preventing garbled
     // output when apps (like Claude Code) render before a resize event arrives.

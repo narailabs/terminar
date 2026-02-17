@@ -199,6 +199,13 @@
     }
   }
 
+  function handleNewTerminalInPane() {
+    if (contextMenu) {
+      actions.createNewTerminal(contextMenu.paneId);
+      contextMenu = null;
+    }
+  }
+
   function handleCopy() {
     if (contextMenu) {
       const pane = getPane(contextMenu.paneId);
@@ -323,12 +330,13 @@
       { label: 'Split Up', action: handleSplitUp },
       { label: 'Split Down', action: handleSplitVertical, shortcut: 'Cmd+Shift+O' },
     ]},
-    ...(effectiveAvailableSessions.length > 0 ? [
-      { label: 'Assign Session', action: () => {}, children: effectiveAvailableSessions.map(session => ({
+    { label: 'Assign Session', action: () => {}, children: [
+      { label: 'New Terminal', action: handleNewTerminalInPane },
+      ...effectiveAvailableSessions.map(session => ({
         label: session.name || session.id.slice(0, 8),
         action: () => handleAssignSession(session.id),
-      }))},
-    ] : []),
+      })),
+    ]},
     { label: 'Theme', action: () => {}, children: BUILT_IN_TERMINAL_THEMES.map(theme => ({
       label: theme.name,
       action: () => handleSetTerminalTheme(theme.id),
