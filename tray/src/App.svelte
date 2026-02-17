@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { getCurrentWindow } from "@tauri-apps/api/window";
+  import Install from "./Install.svelte";
+  import Settings from "./Settings.svelte";
 
   // The mode is passed as a query parameter from the Rust backend
   const params = new URLSearchParams(window.location.search);
@@ -8,9 +9,9 @@
 
 <main>
   {#if mode === "install"}
-    <p>Install view (coming soon)</p>
+    <Install />
   {:else}
-    <p>Settings view (coming soon)</p>
+    <Settings />
   {/if}
 </main>
 
@@ -25,6 +26,6 @@
   }
 
   main {
-    padding: 1.5rem;
+    min-height: 100vh;
   }
 </style>
