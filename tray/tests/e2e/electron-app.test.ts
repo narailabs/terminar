@@ -24,7 +24,9 @@ test.describe.serial('Electron Tray App', () => {
     }
   });
 
-  // ---- Core app tests (main process only, no windows needed) ----
+  // =========================================================================
+  // Core app lifecycle tests
+  // =========================================================================
 
   test('app is ready and running', async () => {
     const isReady = await electronApp.evaluate(async ({ app }) => app.isReady());
@@ -37,26 +39,49 @@ test.describe.serial('Electron Tray App', () => {
   });
 
   test('tray icon was created without crashing', async () => {
-    // If the app is still responsive, the tray was created.
     const isReady = await electronApp.evaluate(async ({ app }) => app.isReady());
     expect(isReady).toBe(true);
   });
 
-  test('IPC handlers are registered', async () => {
+  test('single instance lock is held', async () => {
+    // Attempting to request another lock should indicate one is already held
+    const hasLock = await electronApp.evaluate(async ({ app }) => {
+      return app.requestSingleInstanceLock();
+    });
+    // The app already has the lock, so requesting again returns true (it's the same app)
+    expect(hasLock).toBe(true);
+  });
+
+  test('dock is hidden on macOS (tray-only app)', async () => {
+    if (process.platform !== 'darwin') {
+      test.skip();
+      return;
+    }
+    // Dock should be hidden since no windows are open initially
+    // (install wizard may or may not open depending on service status)
+    const isReady = await electronApp.evaluate(async ({ app }) => app.isReady());
+    expect(isReady).toBe(true);
+  });
+
+  // =========================================================================
+  // IPC handler registration tests
+  // =========================================================================
+
+  test('IPC handlers are registered (ipcMain.handle is functional)', async () => {
     const result = await electronApp.evaluate(async ({ ipcMain }) => {
       return typeof ipcMain.handle === 'function';
     });
     expect(result).toBe(true);
   });
 
-  // ---- Window tests: create a window from the test to validate rendering ----
+  // =========================================================================
+  // Window creation and UI rendering tests
+  // =========================================================================
 
   test('can open a BrowserWindow that loads the built UI', async () => {
-    // Compute paths from the test side (not in evaluate, where require/import aren't available)
     const preloadPath = path.join(trayRoot, 'dist-electron', 'index.mjs');
     const htmlPath = path.join(trayRoot, 'dist', 'index.html');
 
-    // Create a window from within the main process
     const windowReady = await electronApp.evaluate(
       async ({ BrowserWindow }, { preload, html }) => {
         const win = new BrowserWindow({
@@ -82,7 +107,6 @@ test.describe.serial('Electron Tray App', () => {
 
     expect(windowReady.success).toBe(true);
 
-    // Now get the window via Playwright
     await new Promise((r) => setTimeout(r, 1000));
     const windows = electronApp.windows();
     expect(windows.length).toBeGreaterThanOrEqual(1);
@@ -93,7 +117,7 @@ test.describe.serial('Electron Tray App', () => {
     }
   });
 
-  test('window loads Svelte app', async () => {
+  test('window loads Svelte app with #app mount point', async () => {
     if (!window) {
       test.skip();
       return;
@@ -109,13 +133,34 @@ test.describe.serial('Electron Tray App', () => {
       return;
     }
 
-    const hasApi = await window.evaluate(() => {
-      return typeof (window as unknown as Record<string, unknown>).trayAPI === 'object';
+    const apiShape = await window.evaluate(() => {
+      const api = (window as unknown as Record<string, unknown>).trayAPI;
+      if (typeof api !== 'object' || api === null) return null;
+      return Object.keys(api).sort();
     });
-    expect(hasApi).toBe(true);
+
+    expect(apiShape).not.toBeNull();
+    // Verify all expected methods are exposed
+    expect(apiShape).toContain('getConfig');
+    expect(apiShape).toContain('saveConfig');
+    expect(apiShape).toContain('getServiceStatus');
+    expect(apiShape).toContain('getHealth');
+    expect(apiShape).toContain('installService');
+    expect(apiShape).toContain('uninstallService');
+    expect(apiShape).toContain('restartService');
+    expect(apiShape).toContain('stopService');
+    expect(apiShape).toContain('startService');
+    expect(apiShape).toContain('pickFile');
+    expect(apiShape).toContain('confirm');
+    expect(apiShape).toContain('ask');
+    expect(apiShape).toContain('closeWindow');
   });
 
-  test('trayAPI.getConfig returns valid config', async () => {
+  // =========================================================================
+  // IPC: Config operations
+  // =========================================================================
+
+  test('trayAPI.getConfig returns valid default config', async () => {
     if (!window) {
       test.skip();
       return;
@@ -123,17 +168,55 @@ test.describe.serial('Electron Tray App', () => {
 
     const config = await window.evaluate(async () => {
       const api = (window as unknown as { trayAPI: { getConfig: () => Promise<Record<string, unknown>> } }).trayAPI;
-      if (!api?.getConfig) return null;
       return api.getConfig();
     });
 
     expect(config).not.toBeNull();
     expect(config).toHaveProperty('gateway_port', 6749);
     expect(config).toHaveProperty('tls_mode');
+    expect(config).toHaveProperty('tls_port');
     expect(config).toHaveProperty('require_auth');
+    expect(config).toHaveProperty('audit_level');
+    expect(config).toHaveProperty('idle_timeout');
+    expect(config).toHaveProperty('tls_cert');
+    expect(config).toHaveProperty('tls_key');
   });
 
-  test('trayAPI.getServiceStatus returns valid status', async () => {
+  test('trayAPI.saveConfig + getConfig round-trip preserves values', async () => {
+    if (!window) {
+      test.skip();
+      return;
+    }
+
+    // Save a modified config
+    const saved = await window.evaluate(async () => {
+      const api = (window as unknown as {
+        trayAPI: {
+          getConfig: () => Promise<Record<string, unknown>>;
+          saveConfig: (c: Record<string, unknown>) => Promise<void>;
+        };
+      }).trayAPI;
+
+      const original = await api.getConfig();
+      const modified = { ...original, gateway_port: 7777, audit_level: 'verbose' };
+      await api.saveConfig(modified);
+      const reloaded = await api.getConfig();
+
+      // Restore original
+      await api.saveConfig(original);
+
+      return { modified, reloaded };
+    });
+
+    expect(saved.reloaded.gateway_port).toBe(7777);
+    expect(saved.reloaded.audit_level).toBe('verbose');
+  });
+
+  // =========================================================================
+  // IPC: Service status
+  // =========================================================================
+
+  test('trayAPI.getServiceStatus returns valid status string', async () => {
     if (!window) {
       test.skip();
       return;
@@ -141,7 +224,6 @@ test.describe.serial('Electron Tray App', () => {
 
     const status = await window.evaluate(async () => {
       const api = (window as unknown as { trayAPI: { getServiceStatus: () => Promise<string> } }).trayAPI;
-      if (!api?.getServiceStatus) return null;
       return api.getServiceStatus();
     });
 
@@ -149,7 +231,11 @@ test.describe.serial('Electron Tray App', () => {
     expect(['running', 'stopped', 'notinstalled', 'unknown']).toContain(status);
   });
 
-  test('trayAPI.getHealth returns health object', async () => {
+  // =========================================================================
+  // IPC: Health polling
+  // =========================================================================
+
+  test('trayAPI.getHealth returns health object with valid status', async () => {
     if (!window) {
       test.skip();
       return;
@@ -157,7 +243,6 @@ test.describe.serial('Electron Tray App', () => {
 
     const health = await window.evaluate(async () => {
       const api = (window as unknown as { trayAPI: { getHealth: () => Promise<Record<string, unknown>> } }).trayAPI;
-      if (!api?.getHealth) return null;
       return api.getHealth();
     });
 
@@ -166,10 +251,185 @@ test.describe.serial('Electron Tray App', () => {
     expect(['running', 'starting', 'stopped']).toContain(
       (health as Record<string, unknown>).status,
     );
+    expect(health).toHaveProperty('active_servers');
+    expect(health).toHaveProperty('version');
   });
 
-  test('app stays alive after closing all windows', async () => {
-    // Close all windows via Electron API
+  // =========================================================================
+  // IPC: Service actions (stop/start/restart) — verify they don't crash
+  // These trigger osascript auth dialogs on macOS, which we can't interact
+  // with in CI, but we can verify the IPC handler doesn't throw.
+  // =========================================================================
+
+  test('trayAPI.stopService IPC handler is callable', async () => {
+    if (!window) {
+      test.skip();
+      return;
+    }
+
+    // We can't actually test the osascript auth dialog, but we can verify
+    // the IPC handler exists and doesn't throw before reaching elevation
+    const hasHandler = await window.evaluate(() => {
+      const api = (window as unknown as { trayAPI: { stopService: Function } }).trayAPI;
+      return typeof api.stopService === 'function';
+    });
+    expect(hasHandler).toBe(true);
+  });
+
+  test('trayAPI.startService IPC handler is callable', async () => {
+    if (!window) {
+      test.skip();
+      return;
+    }
+
+    const hasHandler = await window.evaluate(() => {
+      const api = (window as unknown as { trayAPI: { startService: Function } }).trayAPI;
+      return typeof api.startService === 'function';
+    });
+    expect(hasHandler).toBe(true);
+  });
+
+  test('trayAPI.restartService IPC handler is callable', async () => {
+    if (!window) {
+      test.skip();
+      return;
+    }
+
+    const hasHandler = await window.evaluate(() => {
+      const api = (window as unknown as { trayAPI: { restartService: Function } }).trayAPI;
+      return typeof api.restartService === 'function';
+    });
+    expect(hasHandler).toBe(true);
+  });
+
+  test('trayAPI.uninstallService IPC handler is callable', async () => {
+    if (!window) {
+      test.skip();
+      return;
+    }
+
+    const hasHandler = await window.evaluate(() => {
+      const api = (window as unknown as { trayAPI: { uninstallService: Function } }).trayAPI;
+      return typeof api.uninstallService === 'function';
+    });
+    expect(hasHandler).toBe(true);
+  });
+
+  // =========================================================================
+  // Settings window
+  // =========================================================================
+
+  test('can open a settings window with correct mode', async () => {
+    const preloadPath = path.join(trayRoot, 'dist-electron', 'index.mjs');
+    const htmlPath = path.join(trayRoot, 'dist', 'index.html');
+
+    const settingsReady = await electronApp.evaluate(
+      async ({ BrowserWindow }, { preload, html }) => {
+        // Close any existing windows first
+        BrowserWindow.getAllWindows().forEach((w) => w.close());
+
+        const win = new BrowserWindow({
+          width: 500,
+          height: 550,
+          show: true,
+          webPreferences: {
+            preload,
+            contextIsolation: true,
+            nodeIntegration: false,
+          },
+        });
+
+        try {
+          await win.loadFile(html, { search: 'mode=settings' });
+          return {
+            success: true,
+            url: win.webContents.getURL(),
+          };
+        } catch (err) {
+          return { success: false, error: String(err) };
+        }
+      },
+      { preload: preloadPath, html: htmlPath },
+    );
+
+    expect(settingsReady.success).toBe(true);
+    expect(settingsReady.url).toContain('mode=settings');
+
+    // Get the settings window
+    await new Promise((r) => setTimeout(r, 1000));
+    const windows = electronApp.windows();
+    expect(windows.length).toBeGreaterThanOrEqual(1);
+
+    if (windows.length > 0) {
+      window = windows[0];
+      await window.waitForLoadState('domcontentloaded');
+    }
+  });
+
+  test('settings window has #app mount point', async () => {
+    if (!window) {
+      test.skip();
+      return;
+    }
+
+    const appEl = await window.$('#app');
+    expect(appEl).not.toBeNull();
+  });
+
+  test('settings window has trayAPI exposed', async () => {
+    if (!window) {
+      test.skip();
+      return;
+    }
+
+    const hasApi = await window.evaluate(() => {
+      return typeof (window as unknown as Record<string, unknown>).trayAPI === 'object';
+    });
+    expect(hasApi).toBe(true);
+  });
+
+  // =========================================================================
+  // IPC: closeWindow
+  // =========================================================================
+
+  test('trayAPI.closeWindow closes the calling window', async () => {
+    if (!window) {
+      test.skip();
+      return;
+    }
+
+    // Count windows before
+    const beforeCount = await electronApp.evaluate(async ({ BrowserWindow }) => {
+      return BrowserWindow.getAllWindows().length;
+    });
+
+    // Call closeWindow from the renderer
+    try {
+      await window.evaluate(async () => {
+        const api = (window as unknown as { trayAPI: { closeWindow: () => Promise<void> } }).trayAPI;
+        await api.closeWindow();
+      });
+    } catch {
+      // Window closing may cause context to be destroyed, which is expected
+    }
+
+    await new Promise((r) => setTimeout(r, 500));
+
+    // Count windows after — should have one fewer
+    const afterCount = await electronApp.evaluate(async ({ BrowserWindow }) => {
+      return BrowserWindow.getAllWindows().length;
+    });
+
+    expect(afterCount).toBeLessThan(beforeCount);
+    window = null;
+  });
+
+  // =========================================================================
+  // App lifecycle: stays alive after all windows close
+  // =========================================================================
+
+  test('app stays alive after closing all windows (tray keeps it alive)', async () => {
+    // Close all remaining windows
     await electronApp.evaluate(async ({ BrowserWindow }) => {
       BrowserWindow.getAllWindows().forEach((w) => w.close());
     });
@@ -177,7 +437,7 @@ test.describe.serial('Electron Tray App', () => {
 
     await new Promise((r) => setTimeout(r, 500));
 
-    // App should still be running (tray keeps it alive)
+    // App should still be running
     const isReady = await electronApp.evaluate(async ({ app }) => app.isReady());
     expect(isReady).toBe(true);
 

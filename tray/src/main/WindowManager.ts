@@ -68,14 +68,24 @@ export class WindowManager {
   }
 
   /**
-   * Close a window by its BrowserWindow id.
+   * Close a window by its webContents id.
    * Used by the IPC handler when the renderer requests to close itself.
+   * Searches both tracked windows and all BrowserWindows as fallback.
    */
   closeWindowById(webContentsId: number): void {
+    // First check tracked windows
     for (const [, win] of this.windows.entries()) {
       if (!win.isDestroyed() && win.webContents.id === webContentsId) {
         win.close();
-        break;
+        return;
+      }
+    }
+
+    // Fallback: search all BrowserWindows (handles windows not created by WindowManager)
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed() && win.webContents.id === webContentsId) {
+        win.close();
+        return;
       }
     }
   }
