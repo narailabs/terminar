@@ -27,6 +27,8 @@
 
   function handleClickOutside(event: MouseEvent) {
     if (menuElement && !menuElement.contains(event.target as Node)) {
+      event.stopPropagation();
+      event.preventDefault();
       dispatch('close');
     }
   }
@@ -52,7 +54,9 @@
   }
 
   onMount(() => {
-    document.addEventListener('click', handleClickOutside);
+    // Use mousedown in capture phase so we see the event before xterm.js
+    // or other components can stop its propagation.
+    document.addEventListener('mousedown', handleClickOutside, true);
     document.addEventListener('keydown', handleKeydown);
     if (menuElement) {
       adjustPosition(menuElement);
@@ -60,7 +64,7 @@
   });
 
   onDestroy(() => {
-    document.removeEventListener('click', handleClickOutside);
+    document.removeEventListener('mousedown', handleClickOutside, true);
     document.removeEventListener('keydown', handleKeydown);
   });
 
