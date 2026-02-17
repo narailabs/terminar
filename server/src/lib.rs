@@ -11,6 +11,7 @@ pub mod auth;
 pub mod config;
 pub mod connection;
 pub mod constants;
+pub mod cookies;
 pub mod error;
 pub mod gateway;
 pub mod handlers;
@@ -271,6 +272,8 @@ pub struct AppState {
     pub require_auth: bool,
     /// Persistent token revocation store for refresh token rotation.
     pub revocation_store: Option<Arc<revocation::RevocationStore>>,
+    /// Whether TLS is enabled (used for Secure cookie flag).
+    pub tls_enabled: bool,
 }
 
 /// Request body for the `POST /pair/exchange` endpoint.
@@ -341,6 +344,13 @@ pub struct RefreshResponse {
     pub refresh_token: String,
     /// Access token expiry description.
     pub expires_in: String,
+}
+
+/// Request body for `POST /auth/session` (set HttpOnly cookies from a valid token).
+#[derive(Deserialize)]
+pub struct SessionAuthRequest {
+    /// A valid access token to exchange for HttpOnly cookies.
+    pub token: String,
 }
 
 /// Validates a WebSocket origin header against the whitelist.
@@ -597,6 +607,7 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
         audit_logger: None, // Will be replaced after async init
         require_auth: cli.require_auth,
         revocation_store: None, // Will be replaced after async init
+        tls_enabled: false, // Will be updated after TLS config resolution
     };
 
     // Initialize revocation store
@@ -657,6 +668,7 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
     }
 
     // 1. Start HTTP/WebSocket Server
+    state.tls_enabled = tls_config.is_some();
     let cors_layer = create_cors_layer(&cli.cors_origins);
 
     let security_headers_state = security_headers::SecurityHeadersState {
@@ -750,8 +762,9 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
     let listener_unix = UnixListener::bind(socket_path)?;
     info!("Unix Socket listening on {}", socket_path);
 
-    // Save audit logger reference before state is moved into spawned tasks
+    // Save references before state is moved into spawned tasks
     let audit_logger_for_shutdown = state.audit_logger.clone();
+    let revocation_store_for_shutdown = state.revocation_store.clone();
 
     let sessions_unix = sessions.clone();
     let mut unix_shutdown_rx = shutdown_tx.subscribe();
@@ -897,6 +910,11 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
     if let Some(ref logger) = audit_logger_for_shutdown {
         info!("Flushing audit log...");
         logger.flush().await;
+    }
+
+    if let Some(ref store) = revocation_store_for_shutdown {
+        info!("Flushing revocation store...");
+        store.flush().await;
     }
 
     // Save session histories and metadata before cleanup
@@ -1332,15 +1350,19 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
                             Ok(ClientMessage::Auth { token, .. }) => {
                                 if token == state.api_key {
                                     // Send AuthOk with a JWT for future reconnections
-                                    if let Ok(jwt) = jwt::issue_token(
+                                    if let Ok(access_jwt) = jwt::issue_access_token(
                                         &state.signing_key, "token-user", &state.server_id,
                                         Duration::from_secs(constants::ACCESS_TOKEN_EXPIRY_SECS),
                                     ) {
+                                        let refresh_jwt = jwt::issue_refresh_token(
+                                            &state.signing_key, "token-user", &state.server_id,
+                                            Duration::from_secs(constants::REFRESH_TOKEN_EXPIRY_SECS),
+                                        ).ok();
                                         let ok_msg = ServerMessage::AuthOk {
-                                            token: jwt,
+                                            token: access_jwt,
                                             expires: format!("{}s", constants::ACCESS_TOKEN_EXPIRY_SECS),
                                             protocol_version: Some(constants::PROTOCOL_VERSION.to_string()),
-                                            refresh_token: None,
+                                            refresh_token: refresh_jwt,
                                         };
                                         let _ = sender.send(Message::Text(
                                             serde_json::to_string(&ok_msg).unwrap()
@@ -1369,11 +1391,15 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
                                         Duration::from_secs(constants::ACCESS_TOKEN_EXPIRY_SECS),
                                     ) {
                                         Ok(result) => {
+                                            let refresh_jwt = jwt::issue_refresh_token(
+                                                &state.signing_key, &username, &state.server_id,
+                                                Duration::from_secs(constants::REFRESH_TOKEN_EXPIRY_SECS),
+                                            ).ok();
                                             let ok_msg = ServerMessage::AuthOk {
                                                 token: result.token,
                                                 expires: result.expires,
                                                 protocol_version: Some(constants::PROTOCOL_VERSION.to_string()),
-                                                refresh_token: None,
+                                                refresh_token: refresh_jwt,
                                             };
                                             let _ = sender.send(Message::Text(
                                                 serde_json::to_string(&ok_msg).unwrap()
@@ -1407,11 +1433,20 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
                             Ok(ClientMessage::AuthToken { token }) => {
                                 match auth::handle_token_auth(&state.signing_key, &token) {
                                     Ok(result) => {
+                                        // Extract username from token claims for refresh token
+                                        let refresh_jwt = jwt::validate_token(&state.signing_key, &token)
+                                            .ok()
+                                            .and_then(|claims| {
+                                                jwt::issue_refresh_token(
+                                                    &state.signing_key, &claims.sub, &state.server_id,
+                                                    Duration::from_secs(constants::REFRESH_TOKEN_EXPIRY_SECS),
+                                                ).ok()
+                                            });
                                         let ok_msg = ServerMessage::AuthOk {
                                             token: result.token,
                                             expires: result.expires,
                                             protocol_version: Some(constants::PROTOCOL_VERSION.to_string()),
-                                            refresh_token: None,
+                                            refresh_token: refresh_jwt,
                                         };
                                         let _ = sender.send(Message::Text(
                                             serde_json::to_string(&ok_msg).unwrap()
@@ -1539,11 +1574,15 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
                                                             Duration::from_secs(constants::ACCESS_TOKEN_EXPIRY_SECS),
                                                         ) {
                                                             Ok(result) => {
+                                                                let refresh_jwt = jwt::issue_refresh_token(
+                                                                    &state.signing_key, &username, &state.server_id,
+                                                                    Duration::from_secs(constants::REFRESH_TOKEN_EXPIRY_SECS),
+                                                                ).ok();
                                                                 let ok_msg = ServerMessage::AuthOk {
                                                                     token: result.token,
                                                                     expires: result.expires,
                                                                     protocol_version: Some(constants::PROTOCOL_VERSION.to_string()),
-                                                                    refresh_token: None,
+                                                                    refresh_token: refresh_jwt,
                                                                 };
                                                                 let _ = sender.send(Message::Text(
                                                                     serde_json::to_string(&ok_msg).unwrap()
@@ -1716,6 +1755,7 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
                                 ClientMessage::Auth { .. } |
                                 ClientMessage::AuthPassword { .. } |
                                 ClientMessage::AuthToken { .. } |
+                                ClientMessage::RefreshToken { .. } |
                                 ClientMessage::AuthPubkeyInit { .. } |
                                 ClientMessage::AuthPubkeyVerify { .. }
                             ) {
@@ -1934,6 +1974,7 @@ mod tests {
             audit_logger: None,
             require_auth: false,
             revocation_store: None,
+            tls_enabled: false,
         };
 
         let (_, rx) = mpsc::channel(32);
