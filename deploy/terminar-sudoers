@@ -1,0 +1,19 @@
+# /etc/sudoers.d/terminar
+#
+# Allow the terminar service user to spawn per-user terminar-server
+# instances. The gateway runs as the 'terminar' user and needs to
+# execute terminar-server as individual users for privilege separation.
+#
+# Installation:
+#   1. Copy to /etc/sudoers.d/terminar
+#   2. Set permissions: sudo chmod 0440 /etc/sudoers.d/terminar
+#   3. Verify syntax: sudo visudo -cf /etc/sudoers.d/terminar
+#
+# Security notes:
+#   - NOPASSWD is required because the gateway is a non-interactive daemon
+#   - The command is restricted to the exact binary path and --user-mode flag
+#   - The --socket argument is constrained to /run/terminar/* to prevent
+#     the gateway from writing sockets to arbitrary paths
+#   - The terminar-server binary refuses to run as root in --user-mode
+
+terminar ALL=(ALL) NOPASSWD: /usr/local/bin/terminar-server --user-mode --socket /run/terminar/*
