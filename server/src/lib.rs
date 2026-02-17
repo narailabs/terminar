@@ -531,9 +531,19 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
         max_auth_attempts: cli.max_auth_attempts,
     };
 
-    // Validate TLS configuration early (fail fast if cert/key are invalid)
-    let tls_config = tls::validate_tls_config(&cli.tls_cert, &cli.tls_key, cli.tls_port)
-        .map_err(|e| -> Box<dyn std::error::Error> { Box::new(e) })?;
+    // Resolve TLS configuration: explicit cert/key > auto-TLS > none
+    let home_dir = std::path::PathBuf::from(
+        std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string())
+    );
+    let tls_dir = home_dir.join(".terminar").join("tls");
+    let tls_config = tls::resolve_tls_config(
+        cli.tls_cert.as_deref(),
+        cli.tls_key.as_deref(),
+        cli.tls_port,
+        cli.auto_tls,
+        &tls_dir,
+    )
+    .map_err(|e| -> Box<dyn std::error::Error> { Box::new(e) })?;
 
     // 1. Start HTTP/WebSocket Server
     let cors_layer = create_cors_layer(&cli.cors_origins);
