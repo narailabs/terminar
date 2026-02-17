@@ -269,6 +269,8 @@ pub struct AppState {
     pub trusted_proxy: Option<String>,
     /// When true, require authentication even for local/loopback connections.
     pub require_auth: bool,
+    /// Persistent token revocation store for refresh token rotation.
+    pub revocation_store: Option<Arc<revocation::RevocationStore>>,
 }
 
 /// Request body for the `POST /pair/exchange` endpoint.
@@ -594,7 +596,22 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
         trusted_proxy: cli.trusted_proxy.clone(),
         audit_logger: None, // Will be replaced after async init
         require_auth: cli.require_auth,
+        revocation_store: None, // Will be replaced after async init
     };
+
+    // Initialize revocation store
+    let revocation_path = std::path::PathBuf::from(
+        std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string())
+    ).join(".terminar").join("revoked-tokens.jsonl");
+    match revocation::RevocationStore::new(revocation_path.clone()).await {
+        Ok(store) => {
+            info!("Revocation store loaded from {:?} ({} revoked tokens)", revocation_path, store.len());
+            state.revocation_store = Some(Arc::new(store));
+        }
+        Err(e) => {
+            warn!("Failed to initialize revocation store: {}", e);
+        }
+    }
 
     // Initialize audit logger
     let audit_level = audit::AuditLevel::from_str(&cli.audit_level);
@@ -1414,6 +1431,85 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
                                     }
                                 }
                             }
+                            // Refresh token rotation
+                            Ok(ClientMessage::RefreshToken { refresh_token }) => {
+                                // Validate the refresh token
+                                match jwt::validate_refresh_token(&state.signing_key, &refresh_token) {
+                                    Ok(claims) => {
+                                        // Check if token has been revoked
+                                        if let Some(ref store) = state.revocation_store {
+                                            if store.is_revoked(&claims.jti) {
+                                                warn!("Attempted reuse of revoked refresh token jti={}", claims.jti);
+                                                let err_msg = ServerMessage::Error {
+                                                    message: "Refresh token has been revoked".to_string(),
+                                                    error_code: Some("TOKEN_REVOKED".to_string()),
+                                                };
+                                                let _ = sender.send(Message::Text(
+                                                    serde_json::to_string(&err_msg).unwrap()
+                                                )).await;
+                                                continue;
+                                            }
+                                        }
+
+                                        // Revoke old refresh token
+                                        if let Some(ref store) = state.revocation_store {
+                                            store.revoke(&claims.jti, "rotation", Some(claims.exp));
+                                        }
+
+                                        // Issue new access token
+                                        let new_access = jwt::issue_access_token(
+                                            &state.signing_key, &claims.sub, &state.server_id,
+                                            Duration::from_secs(constants::ACCESS_TOKEN_EXPIRY_SECS),
+                                        );
+                                        // Issue new refresh token
+                                        let new_refresh = jwt::issue_refresh_token(
+                                            &state.signing_key, &claims.sub, &state.server_id,
+                                            Duration::from_secs(constants::REFRESH_TOKEN_EXPIRY_SECS),
+                                        );
+
+                                        match (new_access, new_refresh) {
+                                            (Ok(access_jwt), Ok(refresh_jwt)) => {
+                                                if let Some(ref logger) = state.audit_logger {
+                                                    logger.log(audit::AuditEvent::token_revoked(
+                                                        &claims.jti, "rotation",
+                                                    ));
+                                                }
+                                                let ok_msg = ServerMessage::AuthOk {
+                                                    token: access_jwt,
+                                                    expires: format!("{}s", constants::ACCESS_TOKEN_EXPIRY_SECS),
+                                                    protocol_version: Some(constants::PROTOCOL_VERSION.to_string()),
+                                                    refresh_token: Some(refresh_jwt),
+                                                };
+                                                let _ = sender.send(Message::Text(
+                                                    serde_json::to_string(&ok_msg).unwrap()
+                                                )).await;
+                                                return Some(true);
+                                            }
+                                            _ => {
+                                                let err_msg = ServerMessage::Error {
+                                                    message: "Failed to issue new tokens".to_string(),
+                                                    error_code: Some("INTERNAL_ERROR".to_string()),
+                                                };
+                                                let _ = sender.send(Message::Text(
+                                                    serde_json::to_string(&err_msg).unwrap()
+                                                )).await;
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        warn!("Refresh token validation failed: {}", e);
+                                        let err_msg = ServerMessage::Error {
+                                            message: "Invalid refresh token".to_string(),
+                                            error_code: Some("AUTH_FAILED".to_string()),
+                                        };
+                                        let _ = sender.send(Message::Text(
+                                            serde_json::to_string(&err_msg).unwrap()
+                                        )).await;
+                                        continue;
+                                    }
+                                }
+                            }
                             // SSH pubkey auth - step 1: init challenge
                             Ok(ClientMessage::AuthPubkeyInit { username, pubkey }) => {
                                 // Look up the user's home directory
@@ -1837,6 +1933,7 @@ mod tests {
             trusted_proxy: None,
             audit_logger: None,
             require_auth: false,
+            revocation_store: None,
         };
 
         let (_, rx) = mpsc::channel(32);
@@ -4014,5 +4111,47 @@ mod tests {
             HttpRequest::builder().uri("/health").body(Body::empty()).unwrap(),
         ).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    // === Task 17: --require-auth flag tests ===
+
+    #[test]
+    fn test_require_auth_skip_auth_logic() {
+        // The skip_auth logic in handle_websocket is:
+        //   let skip_auth = state.no_auth || (is_local && !state.require_auth);
+        //
+        // Truth table:
+        //   no_auth=true,  is_local=*,     require_auth=*     -> skip (--no-auth always wins)
+        //   no_auth=false, is_local=true,  require_auth=false -> skip (local default)
+        //   no_auth=false, is_local=true,  require_auth=true  -> auth required
+        //   no_auth=false, is_local=false, require_auth=*     -> auth required
+
+        // Helper that mirrors the handle_websocket logic
+        let skip_auth = |no_auth: bool, is_local: bool, require_auth: bool| -> bool {
+            no_auth || (is_local && !require_auth)
+        };
+
+        // --no-auth always skips
+        assert!(skip_auth(true, true, false));
+        assert!(skip_auth(true, false, false));
+        assert!(skip_auth(true, true, true));
+        assert!(skip_auth(true, false, true));
+
+        // Local without require_auth -> skip
+        assert!(skip_auth(false, true, false));
+
+        // Local WITH require_auth -> must auth
+        assert!(!skip_auth(false, true, true));
+
+        // Remote always requires auth (unless no_auth)
+        assert!(!skip_auth(false, false, false));
+        assert!(!skip_auth(false, false, true));
+    }
+
+    #[test]
+    fn test_require_auth_in_app_state() {
+        let (state, _) = create_test_state();
+        // Default test state has require_auth = false
+        assert!(!state.require_auth, "Default test state should have require_auth=false");
     }
 }
