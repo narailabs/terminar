@@ -37,15 +37,17 @@ terminar/
 │       ├── App.svelte       # Root component
 │       ├── components/      # ~20 components: Terminal, Pane, WorkspaceView, Sidebar, etc.
 │       └── lib/             # ~50 modules: stores, managers, keybindings, themes
-├── tray/                    # System tray app (Tauri 2 + Svelte + Rust)
-│   ├── src-tauri/src/       # Rust: config, service mgmt, health polling, tray menu
-│   └── src/                 # Svelte: Install wizard, Settings window
+├── tray/                    # System tray app (Electron + Svelte 5)
+│   └── src/
+│       ├── main/            # Electron main process (tray, health, service, config, IPC)
+│       ├── preload/         # contextBridge API (trayAPI)
+│       └── renderer/        # Svelte: Install wizard, Settings window
 ├── extension/               # VS Code extension (TypeScript)
 │   └── src/                 # ServerController, SessionManager, NetSocketAdapter
 ├── packages/
 │   └── shell-protocol/      # Shared TypeScript protocol (@narai/terminar-protocol)
 │       └── src/             # Zod schemas, ShellClient, BaseWebSocketManager
-├── electron/                # Electron desktop app (experimental, not primary)
+├── electron/                # Electron desktop app (experimental, inactive)
 ├── deploy/                  # Systemd/launchd service files, sudoers, logrotate
 ├── docs/                    # API docs, architecture plans, security guides
 │   ├── ARCHITECTURE.md      # Detailed architecture reference (READ THIS)
@@ -73,13 +75,13 @@ Browser ──TLS──► terminar-gateway ──sudo──► terminar-server 
                 JWT issuance              /run/terminar/<user>.sock
 ```
 
-### System Tray (Tauri 2)
+### System Tray (Electron)
 
 ```
 Tray App (tray/) ──HTTP health──► terminar-gateway/server
      │
-  Service management (launchd/systemd)
-  Settings window (Svelte)
+  Service management (launchd/systemd via elevated bash scripts)
+  Settings window (Svelte 5)
   Install wizard
 ```
 
@@ -88,10 +90,10 @@ Tray App (tray/) ──HTTP health──► terminar-gateway/server
 - **terminar-server** (`server/`): Single-user PTY server. Unix socket + WebSocket. Token auth via `~/.terminar/token`.
 - **terminar-gateway** (`server/src/bin/gateway.rs`): Multi-user reverse proxy. TLS termination, password/SSH auth, spawns per-user servers via `sudo -u`.
 - **Web Frontend** (`web/`): Svelte 5 + xterm.js. Split panes, tabs, drag-and-drop, themes, keybindings.
-- **System Tray** (`tray/`): Tauri 2 app. Service lifecycle, health polling, settings, install wizard.
+- **System Tray** (`tray/`): Electron tray app. Service lifecycle, health polling, settings, install wizard.
 - **VS Code Extension** (`extension/`): Connects via Unix socket with length-prefixed framing.
 - **Protocol Package** (`packages/shell-protocol/`): Zod schemas, ShellClient, BaseWebSocketManager. Shared by web + extension.
-- **Electron** (`electron/`): Experimental desktop wrapper. Not the primary desktop path (tray is).
+- **Electron** (`electron/`): Experimental desktop wrapper (inactive).
 
 ## Build & Test Commands
 
@@ -105,8 +107,8 @@ pnpm test                    # Test server + web
 pnpm test:server             # Test server only
 pnpm test:web                # Test web only
 pnpm test:extension          # Test extension only
-pnpm tray:dev                # Run tray app (Tauri dev)
-pnpm tray:build              # Build tray app
+pnpm tray:dev                # Run tray app (Electron dev)
+pnpm tray:test               # Test tray app (unit + e2e)
 ```
 
 ### Rust Server
@@ -131,12 +133,14 @@ pnpm test -- --run           # Vitest (single run)
 pnpm test:watch              # Vitest (watch mode)
 ```
 
-### System Tray (Tauri 2)
+### System Tray (Electron)
 
 ```bash
 cd tray
-pnpm tauri dev               # Run in dev mode
-pnpm tauri build             # Build distributable
+pnpm dev                     # Run in dev mode (Electron + Vite)
+pnpm test -- --run           # Vitest unit tests (77 tests)
+npx playwright test          # Playwright E2E tests (22 tests)
+pnpm build                   # Build distributable (electron-builder)
 ```
 
 ### Protocol Package
@@ -162,7 +166,7 @@ pnpm test                    # Mocha tests (requires protocol dist/)
 2. `server` → `cargo build` (independent of TypeScript)
 3. `extension` → `pnpm compile` (depends on shell-protocol dist/)
 4. `web` → uses relative imports via `shared-protocol.ts` barrel
-5. `tray` → `pnpm tauri build` (independent Rust + Svelte build)
+5. `tray` → `pnpm build` (Electron + Svelte, independent of server)
 
 ## Key Files
 
@@ -176,8 +180,9 @@ pnpm test                    # Mocha tests (requires protocol dist/)
 | `web/src/components/Terminal.svelte` | xterm.js terminal widget (write buffering, auto-scroll) |
 | `web/src/lib/workspaceStore.ts` | Split pane / tab workspace state |
 | `web/src/lib/sessionContext.ts` | Svelte context API for session access |
-| `tray/src-tauri/src/lib.rs` | Tray app setup (menu, health polling, service mgmt) |
-| `tray/src-tauri/src/service.rs` | launchd/systemd service management |
+| `tray/src/main/index.ts` | Tray app entry (Electron lifecycle, orchestration) |
+| `tray/src/main/ServiceManager.ts` | launchd/systemd service management (bash scripts) |
+| `tray/src/main/TrayManager.ts` | System tray icon + dynamic context menu |
 | `docs/ARCHITECTURE.md` | Full architecture reference |
 | `docs/API.md` | API reference documentation |
 
