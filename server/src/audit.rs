@@ -144,6 +144,128 @@ impl Default for AuditEvent {
     }
 }
 
+impl AuditEvent {
+    fn now() -> String {
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        format!("{}Z", secs)
+    }
+
+    pub fn auth_success(username: &str, method: &str, client_ip: &str, conn_type: &str) -> Self {
+        Self {
+            timestamp: Self::now(),
+            event: AuditEventType::AuthSuccess,
+            level: AuditLevel::Auth,
+            username: Some(username.to_string()),
+            method: Some(method.to_string()),
+            client_ip: Some(client_ip.to_string()),
+            connection_type: Some(conn_type.to_string()),
+            ..Default::default()
+        }
+    }
+
+    pub fn auth_failure(username: Option<&str>, method: &str, client_ip: &str, reason: &str) -> Self {
+        Self {
+            timestamp: Self::now(),
+            event: AuditEventType::AuthFailure,
+            level: AuditLevel::Auth,
+            username: username.map(|s| s.to_string()),
+            method: Some(method.to_string()),
+            client_ip: Some(client_ip.to_string()),
+            reason: Some(reason.to_string()),
+            ..Default::default()
+        }
+    }
+
+    pub fn auth_rate_limited(client_ip: &str, attempts: usize) -> Self {
+        Self {
+            timestamp: Self::now(),
+            event: AuditEventType::AuthRateLimited,
+            level: AuditLevel::Auth,
+            client_ip: Some(client_ip.to_string()),
+            details: serde_json::json!({ "attempts": attempts }),
+            ..Default::default()
+        }
+    }
+
+    pub fn session_created(session_id: &str, username: Option<&str>) -> Self {
+        Self {
+            timestamp: Self::now(),
+            event: AuditEventType::SessionCreated,
+            level: AuditLevel::Standard,
+            session_id: Some(session_id.to_string()),
+            username: username.map(|s| s.to_string()),
+            ..Default::default()
+        }
+    }
+
+    pub fn session_closed(session_id: &str, reason: &str) -> Self {
+        Self {
+            timestamp: Self::now(),
+            event: AuditEventType::SessionClosed,
+            level: AuditLevel::Standard,
+            session_id: Some(session_id.to_string()),
+            reason: Some(reason.to_string()),
+            ..Default::default()
+        }
+    }
+
+    pub fn connection_opened(client_ip: &str, conn_type: &str) -> Self {
+        Self {
+            timestamp: Self::now(),
+            event: AuditEventType::ConnectionOpened,
+            level: AuditLevel::Verbose,
+            client_ip: Some(client_ip.to_string()),
+            connection_type: Some(conn_type.to_string()),
+            ..Default::default()
+        }
+    }
+
+    pub fn connection_closed(client_ip: &str, conn_type: &str) -> Self {
+        Self {
+            timestamp: Self::now(),
+            event: AuditEventType::ConnectionClosed,
+            level: AuditLevel::Verbose,
+            client_ip: Some(client_ip.to_string()),
+            connection_type: Some(conn_type.to_string()),
+            ..Default::default()
+        }
+    }
+
+    pub fn token_revoked(token_id: &str, reason: &str) -> Self {
+        Self {
+            timestamp: Self::now(),
+            event: AuditEventType::TokenRevoked,
+            level: AuditLevel::Auth,
+            details: serde_json::json!({ "token_id": token_id }),
+            reason: Some(reason.to_string()),
+            ..Default::default()
+        }
+    }
+
+    pub fn pairing_code_generated(client_ip: &str) -> Self {
+        Self {
+            timestamp: Self::now(),
+            event: AuditEventType::PairingCodeGenerated,
+            level: AuditLevel::Standard,
+            client_ip: Some(client_ip.to_string()),
+            ..Default::default()
+        }
+    }
+
+    pub fn pairing_code_used(client_ip: &str) -> Self {
+        Self {
+            timestamp: Self::now(),
+            event: AuditEventType::PairingCodeUsed,
+            level: AuditLevel::Standard,
+            client_ip: Some(client_ip.to_string()),
+            ..Default::default()
+        }
+    }
+}
+
 /// Async audit logger that writes JSON-lines to a file via a background task.
 ///
 /// Events are sent through an mpsc channel and written by a background tokio task
