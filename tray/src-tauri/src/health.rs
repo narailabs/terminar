@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Mutex;
-use tokio::task::JoinHandle;
+use tauri::async_runtime::JoinHandle;
 
 /// Gateway health status.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -99,7 +99,7 @@ pub fn start_health_poller(app: &AppHandle, port: u16) -> JoinHandle<()> {
         .health
         .clone();
 
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         let mut last_status = GatewayStatus::Stopped;
 
         loop {
