@@ -21,7 +21,7 @@ termiNar provides persistent terminal sessions across VS Code, browsers, and des
        ▼                 ▼                  ▼              ▼
 ┌──────────────────────────────────────────────────────────────────┐
 │                     terminar-server (single-user)                │
-│  Unix socket (:sock) + HTTP/WebSocket (:3000)                    │
+│  Unix socket (:sock) + HTTP/WebSocket (:6749)                    │
 │  PTY management, session persistence, output history             │
 └──────────────────────────────────────────────────────────────────┘
 
@@ -29,7 +29,7 @@ termiNar provides persistent terminal sessions across VS Code, browsers, and des
 
 ┌──────────────────────────────────────────────────────────────────┐
 │                     terminar-gateway                             │
-│  TLS termination (:8444), HTTP (:3000)                           │
+│  TLS termination (:8444), HTTP (:6749)                           │
 │  Auth (password/SSH key → JWT), per-user server spawning         │
 │                                                                  │
 │  ┌────────────────────────────────────────────────────────┐      │
@@ -95,7 +95,7 @@ termiNar provides persistent terminal sessions across VS Code, browsers, and des
 
 **terminar-server:**
 ```
---port <PORT>           HTTP/WS port (default: 3000)
+--port <PORT>           HTTP/WS port (default: 6749)
 --socket <PATH>         Unix socket path (default: /tmp/vscode-terminar-<uid>.sock)
 --no-auth               Disable auth (dev only)
 --persist-sessions      Save sessions to disk
@@ -108,7 +108,7 @@ pair                    Subcommand: generate pairing code for browser auth
 
 **terminar-gateway:**
 ```
---port <PORT>           HTTP port (default: 3000)
+--port <PORT>           HTTP port (default: 6749)
 --tls-port <PORT>       TLS port (default: 8444)
 --server-bin <PATH>     Path to terminar-server binary
 --socket-dir <PATH>     Per-user socket directory (default: /run/terminar)

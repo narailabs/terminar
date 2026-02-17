@@ -15,7 +15,7 @@ pub struct Cli {
     pub command: Option<Commands>,
 
     /// Port to listen on for WebSocket connections
-    #[arg(short, long, default_value_t = 3000)]
+    #[arg(short, long, default_value_t = 6749)]
     pub port: u16,
 
     /// Path to the Unix Domain Socket
@@ -108,7 +108,7 @@ mod tests {
     fn test_default_config() {
         let args = vec!["server"];
         let cli = Cli::try_parse_from(args).unwrap();
-        assert_eq!(cli.port, 3000);
+        assert_eq!(cli.port, 6749);
         assert_eq!(cli.log_level, "info");
         assert!(!cli.no_auth);
         assert!(cli.command.is_none());

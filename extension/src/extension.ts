@@ -84,7 +84,7 @@ class TerminarExtension {
         }));
 
         this.context.subscriptions.push(vscode.commands.registerCommand('terminar.connectRemote', async () => {
-            const host = await vscode.window.showInputBox({ prompt: 'Enter server address (e.g. localhost:3000)', placeHolder: 'localhost:3000' });
+            const host = await vscode.window.showInputBox({ prompt: 'Enter server address (e.g. localhost:6749)', placeHolder: 'localhost:6749' });
             if (!host) return;
 
             const code = await vscode.window.showInputBox({ prompt: 'Enter 6-digit pairing code', placeHolder: '123456' });

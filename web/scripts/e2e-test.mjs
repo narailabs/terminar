@@ -2,12 +2,12 @@
 /**
  * End-to-end test for terminal functionality
  * Run: node scripts/e2e-test.mjs
- * Requires: Server running on ws://localhost:3000/ws
+ * Requires: Server running on ws://localhost:6749/ws
  */
 
 import WebSocket from 'ws';
 
-const WS_URL = 'ws://localhost:3000/ws';
+const WS_URL = 'ws://localhost:6749/ws';
 const TIMEOUT = 10000;
 
 let ws;

@@ -5,7 +5,7 @@
 
 import WebSocket from 'ws';
 
-const WS_URL = 'ws://localhost:3000/ws';
+const WS_URL = 'ws://localhost:6749/ws';
 let ws;
 let sessionId = null;
 

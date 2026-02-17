@@ -17,10 +17,10 @@
 #
 # Configuration via environment file (/etc/terminar-gateway/env).
 # All variables must be set; sensible defaults are provided below.
-# The binary itself also has built-in defaults (port=3000, tls_port=8444, etc.)
+# The binary itself also has built-in defaults (port=6749, tls_port=8444, etc.)
 # but systemd's $VAR substitution requires the variable to be defined.
 #
-#   TERMINAR_GW_PORT=3000
+#   TERMINAR_GW_PORT=6749
 #   TERMINAR_GW_TLS_PORT=8444
 #   TERMINAR_GW_LOG_LEVEL=info
 #   TERMINAR_GW_AUDIT_LEVEL=standard

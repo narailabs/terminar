@@ -25,7 +25,7 @@ export const DEFAULT_CONFIG: Config = {
     scrollback: 10000,
   },
   connection: {
-    defaultServer: 'ws://localhost:3000',
+    defaultServer: 'ws://localhost:6749',
     autoReconnect: true,
     reconnectDelay: 5,
     savedServers: [],

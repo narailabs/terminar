@@ -41,8 +41,8 @@
   }
 
   // Props for server URLs (allows testing with different URLs)
-  export let serverHttpUrl = 'http://localhost:3000';
-  export let serverWsUrl = 'ws://localhost:3000/ws';
+  export let serverHttpUrl = 'http://localhost:6749';
+  export let serverWsUrl = 'ws://localhost:6749/ws';
 
   let token = '';
   let pairingCode = '';

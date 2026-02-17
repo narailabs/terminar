@@ -20,7 +20,7 @@ const mockSettings: TerminalSettings = {
 
 describe('settingsApi', () => {
   beforeEach(() => {
-    setSettingsApiBaseUrl('http://localhost:3000');
+    setSettingsApiBaseUrl('http://localhost:6749');
     vi.stubGlobal('fetch', vi.fn());
     vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
@@ -56,7 +56,7 @@ describe('settingsApi', () => {
 
       const result = await fetchSettings();
 
-      expect(fetch).toHaveBeenCalledWith('http://localhost:3000/settings', {
+      expect(fetch).toHaveBeenCalledWith('http://localhost:6749/settings', {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -96,7 +96,7 @@ describe('settingsApi', () => {
 
       await expect(saveSettings(mockSettings)).resolves.toBeUndefined();
 
-      expect(fetch).toHaveBeenCalledWith('http://localhost:3000/settings', {
+      expect(fetch).toHaveBeenCalledWith('http://localhost:6749/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(mockSettings),
@@ -159,7 +159,7 @@ describe('settingsApi', () => {
         setSaveCallback: vi.fn(),
       };
 
-      await initializeSettings(store, 'http://localhost:3000');
+      await initializeSettings(store, 'http://localhost:6749');
 
       expect(store.setSaveCallback).toHaveBeenCalledWith(saveSettings);
       expect(store.initialize).toHaveBeenCalledWith(null);
@@ -173,7 +173,7 @@ describe('settingsApi', () => {
         setSaveCallback: vi.fn(),
       };
 
-      await initializeSettings(store, 'http://localhost:3000');
+      await initializeSettings(store, 'http://localhost:6749');
 
       expect(store.setSaveCallback).toHaveBeenCalledWith(saveSettings);
       expect(store.initialize).toHaveBeenCalledWith(null);

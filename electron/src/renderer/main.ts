@@ -16,7 +16,7 @@ const app = mount(App, { target });
 // Create a WebSocketSessionManager instance to hook into session events
 // The actual connection happens within the App component, but we create
 // a reference here to hook into session list changes for electron IPC
-const manager = new WebSocketSessionManager('ws://localhost:3000/ws');
+const manager = new WebSocketSessionManager('ws://localhost:6749/ws');
 
 // Hook into session list changes and notify main process
 manager.on('sessionList', (sessions: unknown[]) => {
