@@ -10,17 +10,17 @@ if (!gotLock) {
   app.quit();
 }
 
-function getIconPath(): string {
-  // Use the 256x256 icon from tray icons for the app window
-  const appRoot = app.isPackaged
-    ? path.join(process.resourcesPath)
-    : path.resolve(__dirname, '..', '..', '..');
-  return path.join(appRoot, 'tray', 'icons', 'icon.png');
+function getIcon(): Electron.NativeImage {
+  // In dev: dist-electron/ → electron/build/icon.png
+  // In prod: resources/build/icon.png (bundled by electron-builder)
+  const iconPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'build', 'icon.png')
+    : path.resolve(__dirname, '..', 'build', 'icon.png');
+  return nativeImage.createFromPath(iconPath);
 }
 
 function createWindow(): BrowserWindow {
-  const iconPath = getIconPath();
-  const icon = nativeImage.createFromPath(iconPath);
+  const icon = getIcon();
 
   const win = new BrowserWindow({
     width: 1200,
@@ -97,6 +97,12 @@ function buildMenu(): void {
 }
 
 app.whenReady().then(() => {
+  // Set macOS Dock icon (BrowserWindow `icon` only affects Linux/Windows)
+  const icon = getIcon();
+  if (process.platform === 'darwin' && app.dock) {
+    app.dock.setIcon(icon);
+  }
+
   buildMenu();
   createWindow();
 });
