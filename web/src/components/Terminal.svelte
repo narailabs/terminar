@@ -135,11 +135,15 @@
   // Without this, high-throughput programs (Claude Code, cat large-file, etc.) flood
   // xterm.js with many small write() calls per frame, overwhelming the rendering pipeline
   // and causing the terminal to appear frozen or not scroll to the bottom.
-  const WRITE_CHUNK_SIZE = 128 * 1024; // 128KB max per term.write() call
+  const WRITE_CHUNK_SIZE = 16 * 1024; // 16KB max per term.write() call (matches server PTY read buffer)
   const MAX_BUFFER_SIZE = 2 * 1024 * 1024; // 2MB cap to prevent unbounded memory growth
+  const WRITE_PENDING_TIMEOUT = 2000; // 2s recovery timeout if term.write() callback never fires
+  const SCROLL_THROTTLE_MS = 100; // During burst output, scroll at most every 100ms
   let writeBuffer = '';
   let writeRafId: number | null = null;
   let writePending = false;
+  let writePendingTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastScrollToBottomTime = 0;
 
   // Auto-scroll tracking: we always scroll to bottom on new output UNLESS the user
   // has explicitly scrolled up (e.g., to read earlier output). This avoids a race
@@ -251,11 +255,41 @@
       : writeBuffer.slice(WRITE_CHUNK_SIZE);
 
     writePending = true;
+
+    // Safety timeout: if term.write() callback never fires (e.g. WebGL context loss,
+    // xterm parser error), force-clear writePending to prevent permanent pipeline freeze.
+    // Without this, a single lost callback deadlocks all future output permanently.
+    if (writePendingTimer !== null) clearTimeout(writePendingTimer);
+    writePendingTimer = setTimeout(() => {
+      if (writePending) {
+        console.warn('[Terminal] write callback did not fire within timeout — recovering pipeline');
+        writePending = false;
+        writePendingTimer = null;
+        scheduleFlush();
+      }
+    }, WRITE_PENDING_TIMEOUT);
+
     term.write(chunk, () => {
       writePending = false;
-      if ($autoScroll && $settingsStore.autoScroll && term) {
-        term.scrollToBottom();
+      if (writePendingTimer !== null) {
+        clearTimeout(writePendingTimer);
+        writePendingTimer = null;
       }
+
+      if ($autoScroll && $settingsStore.autoScroll && term) {
+        const now = Date.now();
+        if (!writeBuffer) {
+          // Last chunk in buffer — always scroll so final position is correct
+          term.scrollToBottom();
+          lastScrollToBottomTime = now;
+        } else if (now - lastScrollToBottomTime >= SCROLL_THROTTLE_MS) {
+          // Intermediate chunk but throttle interval elapsed — scroll for visual feedback
+          term.scrollToBottom();
+          lastScrollToBottomTime = now;
+        }
+        // Otherwise skip — next chunk or trailing call will handle it
+      }
+
       // If there's more data in the buffer, schedule another flush
       scheduleFlush();
     });
@@ -736,6 +770,7 @@
   onDestroy(() => {
     console.log(`[Terminal:${terminalInstanceId}] Destroying terminal component. Session: ${currentAttachedSessionId?.slice(0, 8)}`);
     if (writeRafId !== null) cancelAnimationFrame(writeRafId);
+    if (writePendingTimer !== null) clearTimeout(writePendingTimer);
     writeBuffer = '';
     writePending = false;
     if (resizeTimeout) clearTimeout(resizeTimeout);
