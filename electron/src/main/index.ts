@@ -1,79 +1,122 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, Menu, nativeImage } from 'electron';
 import path from 'path';
-import { ServerManager } from './ServerManager.js';
-import { AutoUpdater } from './AutoUpdater.js';
+import { fileURLToPath } from 'url';
 
-// Global server manager instance
-export const serverManager = new ServerManager();
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Auto-updater (checks for updates on launch)
-export const autoUpdater = new AutoUpdater();
+// Single instance lock
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+}
 
-/**
- * Creates the main application window with secure defaults.
- */
-export function createWindow(): void {
-  const mainWindow = new BrowserWindow({
+function getIconPath(): string {
+  // Use the 256x256 icon from tray icons for the app window
+  const appRoot = app.isPackaged
+    ? path.join(process.resourcesPath)
+    : path.resolve(__dirname, '..', '..', '..');
+  return path.join(appRoot, 'tray', 'icons', 'icon.png');
+}
+
+function createWindow(): BrowserWindow {
+  const iconPath = getIconPath();
+  const icon = nativeImage.createFromPath(iconPath);
+
+  const win = new BrowserWindow({
     width: 1200,
     height: 800,
+    minWidth: 800,
+    minHeight: 600,
+    title: 'terminar',
+    icon,
     webPreferences: {
+      preload: path.join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
     },
   });
 
-  // Load the renderer's index.html
-  const indexPath = path.join(__dirname, '../renderer/index.html');
-  mainWindow.loadFile(indexPath);
-}
-
-// Single instance lock: only one instance of the app should run
-const gotTheLock = app.requestSingleInstanceLock();
-if (!gotTheLock) {
-  app.quit();
-} else {
-  app.on('second-instance', () => {
-    // Focus the existing window when a second instance is attempted
-    const windows = BrowserWindow.getAllWindows();
-    if (windows.length > 0) {
-      if (windows[0].isMinimized()) windows[0].restore();
-      windows[0].focus();
-    }
-  });
-}
-
-// Wait for the app to be ready before creating the window
-app.whenReady().then(async () => {
-  // Start the embedded server
-  try {
-    await serverManager.start();
-    console.log('[Electron] Server started on port', serverManager.getPort());
-  } catch (err) {
-    console.error('[Electron] Failed to start server:', err);
+  // Load the renderer
+  const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL'];
+  if (VITE_DEV_SERVER_URL) {
+    void win.loadURL(VITE_DEV_SERVER_URL);
+  } else {
+    void win.loadFile(path.join(__dirname, '../../dist/index.html'));
   }
 
+  return win;
+}
+
+function buildMenu(): void {
+  const isMac = process.platform === 'darwin';
+
+  const template: Electron.MenuItemConstructorOptions[] = [
+    ...(isMac
+      ? [
+          {
+            label: app.name,
+            submenu: [
+              { role: 'about' as const },
+              { type: 'separator' as const },
+              { role: 'hide' as const },
+              { role: 'hideOthers' as const },
+              { role: 'unhide' as const },
+              { type: 'separator' as const },
+              { role: 'quit' as const },
+            ],
+          },
+        ]
+      : []),
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'copy' },
+        { role: 'paste' },
+        { type: 'separator' },
+        { role: 'selectAll' },
+      ],
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { role: 'resetZoom' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+      ],
+    },
+  ];
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+app.whenReady().then(() => {
+  buildMenu();
   createWindow();
-
-  // Check for updates (non-blocking)
-  autoUpdater.checkForUpdates();
 });
 
-// Graceful shutdown: stop server before quitting
-app.on('before-quit', () => {
-  serverManager.stop();
-});
-
-// Quit when all windows are closed, except on macOS
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
 });
 
-// On macOS, re-create a window when the dock icon is clicked and no windows are open
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
+  }
+});
+
+app.on('second-instance', () => {
+  const windows = BrowserWindow.getAllWindows();
+  if (windows.length > 0) {
+    if (windows[0].isMinimized()) windows[0].restore();
+    windows[0].focus();
   }
 });
