@@ -393,6 +393,20 @@
     resizeDebouncer.resize(dims.cols, dims.rows, immediate);
   }
 
+  // After fitAddon.fit(), xterm may allocate a partial extra row when the
+  // container height doesn't divide evenly by cell height. This causes a
+  // phantom cursor line at the bottom of the pane. Detect and trim it.
+  function trimPartialRow() {
+    if (!term || !terminalContainer) return;
+    const screenEl = terminalContainer.querySelector('.xterm-screen');
+    if (!screenEl) return;
+    const containerHeight = terminalContainer.getBoundingClientRect().height;
+    const screenHeight = screenEl.getBoundingClientRect().height;
+    if (screenHeight > containerHeight + 1 && term.rows > 1) {
+      term.resize(term.cols, term.rows - 1);
+    }
+  }
+
   // Guard to prevent fitAddon.fit() from re-triggering ResizeObserver loop
   let isApplyingResize = false;
 
@@ -409,6 +423,7 @@
       // reflows the buffer but can leave the viewport scrollHeight stale,
       // preventing users from scrolling to the end of long output.
       fitAddon.fit();
+      trimPartialRow();
       lastCols = term.cols;
       lastRows = term.rows;
     } catch {
@@ -668,6 +683,7 @@
     // when the actual container is wider (e.g., Claude Code rendering issues).
     try {
       fitAddon.fit();
+      trimPartialRow();
       lastCols = term.cols;
       lastRows = term.rows;
       initialSizingComplete = true;
@@ -678,6 +694,7 @@
       requestAnimationFrame(() => {
         try {
           fitAddon.fit();
+          trimPartialRow();
         } catch {
           // Still no dimensions — will be corrected by ResizeObserver
         }
