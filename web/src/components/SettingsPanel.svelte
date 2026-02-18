@@ -65,11 +65,6 @@
     settingsStore.updateSetting('showPaneTitleBars', target.checked);
   }
 
-  function handleStatusBarChange(event: Event) {
-    const target = event.target as HTMLInputElement;
-    settingsStore.updateSetting('showStatusBar', target.checked);
-  }
-
   function handleAutoScrollChange(event: Event) {
     const target = event.target as HTMLInputElement;
     settingsStore.updateSetting('autoScroll', target.checked);
@@ -371,20 +366,6 @@
               id="showPaneTitleBars"
               checked={settings.showPaneTitleBars}
               on:change={handlePaneTitleBarsChange}
-            />
-            <span class="slider"></span>
-          </label>
-        </div>
-
-        <!-- Status Bar -->
-        <div class="setting-group toggle-group">
-          <label for="showStatusBar">Status Bar</label>
-          <label class="toggle">
-            <input
-              type="checkbox"
-              id="showStatusBar"
-              checked={settings.showStatusBar}
-              on:change={handleStatusBarChange}
             />
             <span class="slider"></span>
           </label>

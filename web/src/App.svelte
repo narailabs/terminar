@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import WorkspaceView from './components/WorkspaceView.svelte';
-  import StatusBar from './components/StatusBar.svelte';
+
   import LoginPage from './components/LoginPage.svelte';
   import Sidebar from './components/Sidebar.svelte';
   import SettingsPanel from './components/SettingsPanel.svelte';
@@ -850,27 +850,7 @@
   // Keep broadcast store's session manager in sync
   $: setSessionManager(manager);
 
-  // Derive active session info for the status bar
-  $: activeSessionInfo = (() => {
-    const ws = $workspaceStore;
-    const tab = ws.tabs.find(t => t.id === ws.activeTabId);
-    if (!tab) return null;
 
-    // Find the first pane's sessionId (simple approach)
-    function findFirstPaneSession(node: any): string | null {
-      if (!node) return null;
-      if (node.type === 'pane') return node.sessionId || null;
-      for (const child of (node.children || [])) {
-        const found = findFirstPaneSession(child);
-        if (found) return found;
-      }
-      return null;
-    }
-
-    const sessionId = findFirstPaneSession(tab.root);
-    if (!sessionId) return null;
-    return sessions.find(s => s.id === sessionId) || null;
-  })();
 </script>
 
 <main>
@@ -906,14 +886,6 @@
         {#if showBroadcastBar}
           <BroadcastBar onClose={closeBroadcastBar} />
         {/if}
-        <StatusBar
-          sessionName={activeSessionInfo?.name || ''}
-          shellType={activeSessionInfo?.shell || ''}
-          {connectionState}
-          sessionCount={sessions.length}
-          cwd={activeSessionInfo?.cwd || ''}
-          startedAt={activeSessionInfo?.started_at || ''}
-        />
       </div>
       <Sidebar
         {sessions}
