@@ -1,5 +1,5 @@
 /**
- * Key Binding Registry for termiNar
+ * Key Binding Registry for terminar
  *
  * Provides a centralized registry for keyboard shortcuts with:
  * - Default keybindings for common actions
@@ -20,7 +20,7 @@ export interface KeyBinding {
 }
 
 /**
- * Default keybindings for termiNar.
+ * Default keybindings for terminar.
  * Both Ctrl and Meta variants are provided for cross-platform support.
  */
 export const DEFAULT_KEYBINDINGS: KeyBinding[] = [

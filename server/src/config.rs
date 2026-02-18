@@ -1,11 +1,11 @@
-//! Command-line interface configuration for the termiNar server.
+//! Command-line interface configuration for the terminar server.
 //!
 //! Uses `clap` derive macros for argument parsing. The `Cli` struct defines
 //! all supported flags, options, and subcommands.
 
 use clap::{Parser, Subcommand};
 
-/// Command-line arguments for the termiNar server.
+/// Command-line arguments for the terminar server.
 ///
 /// Parse with `Cli::load()` or `Cli::try_parse_from(args)` for testing.
 #[derive(Parser, Debug, Clone)]

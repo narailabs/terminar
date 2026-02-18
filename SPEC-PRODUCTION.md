@@ -1,10 +1,10 @@
-# Specification: VS Code termiNar - Production Readiness
+# Specification: VS Code terminar - Production Readiness
 
 *Created: 2026-01-16T19:48:46.244Z*
 
 ## Summary
 
-This specification defines the requirements for: VS Code termiNar - Production Readiness
+This specification defines the requirements for: VS Code terminar - Production Readiness
 
 Primary users: End users (external)
 

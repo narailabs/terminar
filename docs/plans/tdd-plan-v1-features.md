@@ -1,4 +1,4 @@
-# TDD Plan: termiNar v1 Features
+# TDD Plan: terminar v1 Features
 
 ## Scope
 

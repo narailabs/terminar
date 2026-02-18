@@ -74,7 +74,7 @@
 </script>
 
 <div class="login-container">
-  <h1>termiNar</h1>
+  <h1>terminar</h1>
 
   {#if isLocal && connectionState === 'connecting'}
     <div class="status-row">

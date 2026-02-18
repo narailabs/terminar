@@ -26,11 +26,11 @@
 </script>
 
 <div class="container">
-  <h1>Install termiNar Gateway</h1>
+  <h1>Install terminar Gateway</h1>
 
   {#if status === "idle"}
     <p class="description">
-      termiNar will install a system service that manages your terminal
+      terminar will install a system service that manages your terminal
       sessions. This requires administrator privileges.
     </p>
     <p class="detail">

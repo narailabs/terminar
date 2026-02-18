@@ -1,6 +1,6 @@
 # API Documentation
 
-This document describes the protocol messages, REST endpoints, and communication formats used by the termiNar server.
+This document describes the protocol messages, REST endpoints, and communication formats used by the terminar server.
 
 ## Table of Contents
 

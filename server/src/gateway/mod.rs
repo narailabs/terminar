@@ -1,4 +1,4 @@
-//! Multi-user gateway for termiNar.
+//! Multi-user gateway for terminar.
 //!
 //! The gateway is a reverse proxy that:
 //! 1. Terminates TLS and authenticates clients (password or SSH key)
@@ -64,7 +64,7 @@ pub async fn run_gateway(config: GatewayConfig) -> Result<(), Box<dyn std::error
         server_bin = %config.server_bin,
         socket_dir = %config.socket_dir,
         idle_timeout = config.idle_timeout,
-        "termiNar gateway starting"
+        "terminar gateway starting"
     );
 
     // Create shutdown broadcast channel

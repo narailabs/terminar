@@ -43,9 +43,9 @@ export const DEFAULT_CONFIG: Config = {
  * Uses electron-store for cross-platform JSON file persistence.
  *
  * Storage locations:
- * - macOS: ~/Library/Application Support/termiNar/config.json
- * - Windows: %APPDATA%/termiNar/config.json
- * - Linux: ~/.config/termiNar/config.json
+ * - macOS: ~/Library/Application Support/terminar/config.json
+ * - Windows: %APPDATA%/terminar/config.json
+ * - Linux: ~/.config/terminar/config.json
  */
 export class ConfigStore {
   private store: Store;

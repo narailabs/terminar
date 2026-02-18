@@ -1,4 +1,4 @@
-# VSCode termiNar - TDD Task: Phase 1 Critical Bug Fixes
+# VSCode terminar - TDD Task: Phase 1 Critical Bug Fixes
 
 ## Overview
 

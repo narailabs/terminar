@@ -1,4 +1,4 @@
-//! Security tests for the termiNar server
+//! Security tests for the terminar server
 //!
 //! Tests authentication bypass attempts, malformed message handling,
 //! path traversal, environment injection, and rate limiting.

@@ -1,5 +1,5 @@
 /**
- * Protocol message types for the termiNar WebSocket protocol.
+ * Protocol message types for the terminar WebSocket protocol.
  *
  * These types are now backed by the shared shell-protocol parse module.
  * This file maintains backward-compatible re-exports.

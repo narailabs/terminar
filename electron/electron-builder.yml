@@ -1,5 +1,5 @@
 appId: com.narai.terminar
-productName: termiNar
+productName: terminar
 directories:
   buildResources: build
   output: release
@@ -74,7 +74,7 @@ linux:
   category: Development
   maintainer: narai
   desktop:
-    Name: termiNar
+    Name: terminar
     Comment: Persistent terminal sessions that survive restarts
     Categories: Development;TerminalEmulator;
     Keywords: terminal;shell;persistent;tmux;

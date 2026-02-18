@@ -1,13 +1,13 @@
-//! CLI configuration for the termiNar gateway.
+//! CLI configuration for the terminar gateway.
 //!
 //! The gateway is a multi-user reverse proxy that authenticates clients
 //! and routes WebSocket connections to per-user terminar-server instances.
 
 use clap::Parser;
 
-/// Command-line arguments for the termiNar gateway.
+/// Command-line arguments for the terminar gateway.
 #[derive(Parser, Debug, Clone)]
-#[command(name = "terminar-gateway", version, about = "Multi-user gateway for termiNar")]
+#[command(name = "terminar-gateway", version, about = "Multi-user gateway for terminar")]
 pub struct GatewayConfig {
     /// Port to listen on for HTTP/WebSocket connections
     #[arg(short, long, default_value_t = 6749)]

@@ -1,4 +1,4 @@
-//! Error types for the termiNar server.
+//! Error types for the terminar server.
 //!
 //! Uses `thiserror` for structured, ergonomic error handling.
 

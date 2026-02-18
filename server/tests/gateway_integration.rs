@@ -1,4 +1,4 @@
-//! Integration tests for the termiNar gateway.
+//! Integration tests for the terminar gateway.
 //!
 //! Tests the gateway's WebSocket authentication flow, health endpoint,
 //! error handling, and rate limiting. The full end-to-end test that spawns

@@ -68,7 +68,7 @@ export class TrayManager {
     }
 
     this.tray = new Tray(icon);
-    this.tray.setToolTip('termiNar Gateway');
+    this.tray.setToolTip('terminar Gateway');
     this.updateMenu();
   }
 

@@ -1,4 +1,4 @@
-# termiNar
+# terminar
 
 A VS Code extension backed by a Rust server that provides persistent terminal sessions. Sessions survive VS Code crashes, restarts, and disconnections. Includes a web-based terminal frontend and remote pairing support.
 
@@ -71,8 +71,8 @@ pnpm run compile
 1. Open the repo root in VS Code.
 2. Press `F5` to launch the Extension Development Host.
 3. In the new window, use the command palette (`Cmd+Shift+P`) and run:
-   - `termiNar: New Persistent Session`
-4. Or click the **termiNars** icon in the Activity Bar.
+   - `terminar: New Persistent Session`
+4. Or click the **terminars** icon in the Activity Bar.
 
 ### 5. Run the server standalone
 
@@ -149,12 +149,12 @@ Configure these in VS Code settings (`Cmd+,`):
 
 | Command | Description |
 |---------|-------------|
-| `termiNar: New Persistent Session` | Create a new terminal session |
-| `termiNar: Attach to Session` | Attach to an existing session |
-| `termiNar: Connect to Remote Server` | Connect to a remote server via pairing |
-| `termiNar: Stop Server` | Stop the background server |
-| `termiNar: Rename Session` | Rename an existing session |
-| `termiNar: Kill Session` | Terminate a session |
+| `terminar: New Persistent Session` | Create a new terminal session |
+| `terminar: Attach to Session` | Attach to an existing session |
+| `terminar: Connect to Remote Server` | Connect to a remote server via pairing |
+| `terminar: Stop Server` | Stop the background server |
+| `terminar: Rename Session` | Rename an existing session |
+| `terminar: Kill Session` | Terminate a session |
 
 ## Remote Pairing
 
@@ -165,7 +165,7 @@ To connect to a server running on a remote machine:
    terminar-server pair
    ```
 2. Note the 8-digit pairing code (valid for 5 minutes).
-3. In VS Code on the client, run `termiNar: Connect to Remote Server`.
+3. In VS Code on the client, run `terminar: Connect to Remote Server`.
 4. Enter the host address and pairing code.
 
 ## Bazel Workflow (CI/Build)

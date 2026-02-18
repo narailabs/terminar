@@ -1,5 +1,5 @@
 /**
- * Action Dispatcher for termiNar keybindings.
+ * Action Dispatcher for terminar keybindings.
  *
  * Maps keybinding action strings (e.g., 'search.open') to callable callback functions.
  */

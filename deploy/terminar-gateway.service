@@ -1,6 +1,6 @@
 # terminar-gateway.service
 #
-# Systemd unit file for the termiNar Gateway.
+# Systemd unit file for the terminar Gateway.
 #
 # The gateway is a multi-user reverse proxy that authenticates clients
 # and spawns per-user terminar-server instances via sudo.
@@ -27,7 +27,7 @@
 #   TERMINAR_GW_IDLE_TIMEOUT=1800
 
 [Unit]
-Description=termiNar Gateway - Multi-user terminal session proxy
+Description=terminar Gateway - Multi-user terminal session proxy
 Documentation=https://github.com/narai/terminar
 After=network.target
 Wants=network.target

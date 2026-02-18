@@ -1,5 +1,5 @@
 /**
- * Key Event Handler factory for termiNar.
+ * Key Event Handler factory for terminar.
  *
  * Creates a handler function suitable for xterm's customKeyEventHandler.
  * It intercepts keydown events that match registered keybindings and

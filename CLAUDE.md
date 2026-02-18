@@ -1,4 +1,4 @@
-# CLAUDE.md - termiNar
+# CLAUDE.md - terminar
 
 ## No Mocking Policy (MANDATORY)
 

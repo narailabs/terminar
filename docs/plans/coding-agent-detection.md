@@ -195,7 +195,7 @@ Users can add custom entries or override built-in ones:
 
 ```
 ┌─────────────────────────────────────────────────┐
-│ [Claude Icon] termiNar: /bin/zsh  │  [x]        │  ← tab with agent icon
+│ [Claude Icon] terminar: /bin/zsh  │  [x]        │  ← tab with agent icon
 ├─────────────────────────────────────────────────┤
 │                                                  │
 │  $ claude                                        │

@@ -1,6 +1,6 @@
 # terminar-server.service
 #
-# Systemd unit file for the termiNar Server.
+# Systemd unit file for the terminar Server.
 #
 # Installation:
 #   1. Copy this file to /etc/systemd/system/terminar-server.service
@@ -19,7 +19,7 @@
 #   TERMINAR_CORS_ORIGINS=http://localhost:6749,http://localhost:5173
 
 [Unit]
-Description=termiNar Server - Terminal session multiplexer
+Description=terminar Server - Terminal session multiplexer
 Documentation=https://github.com/narai/terminar-server
 After=network.target
 Wants=network.target
