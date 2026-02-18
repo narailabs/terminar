@@ -12,6 +12,7 @@ extension/out-test/
 
 # Electron build output
 electron/dist/
+electron/dist-electron/
 
 # Web build output
 web/dist/
