@@ -131,21 +131,19 @@
   let boundOutputHandler: ((sessionId: string, data: string) => void) | null = null;
   let currentAttachedSessionId: string | null = null;
 
-  // Write queue: coalesces rapid output into a single term.write() per animation frame.
-  // Uses an array-based queue instead of string concatenation to avoid O(n) copying
-  // and GC pressure from repeated string += and slice() operations.
-  const WRITE_CHUNK_SIZE = 64 * 1024; // 64KB per term.write() — let xterm batch more parsing
+  // Write buffer: coalesces rapid output into a single term.write() per animation frame.
+  // Without this, high-throughput programs (Claude Code, cat large-file, etc.) flood
+  // xterm.js with many small write() calls per frame, overwhelming the rendering pipeline
+  // and causing the terminal to appear frozen or not scroll to the bottom.
+  const WRITE_CHUNK_SIZE = 16 * 1024; // 16KB max per term.write() call (matches server PTY read buffer)
   const MAX_BUFFER_SIZE = 2 * 1024 * 1024; // 2MB cap to prevent unbounded memory growth
   const WRITE_PENDING_TIMEOUT = 2000; // 2s recovery timeout if term.write() callback never fires
-  const SCROLL_THROTTLE_MS = 200; // During burst output, scroll at most every 200ms
-  let writeQueue: string[] = [];
-  let writeQueueBytes = 0;
+  const SCROLL_THROTTLE_MS = 100; // During burst output, scroll at most every 100ms
+  let writeBuffer = '';
   let writeRafId: number | null = null;
   let writePending = false;
   let writePendingTimer: ReturnType<typeof setTimeout> | null = null;
   let lastScrollToBottomTime = 0;
-  // Flag to skip forced reflow in scroll listener when we caused the scroll
-  let scrolledByUs = false;
 
   // Auto-scroll tracking: we always scroll to bottom on new output UNLESS the user
   // has explicitly scrolled up (e.g., to read earlier output). This avoids a race
@@ -221,14 +219,6 @@
     // Adding guards (e.g. `if (isOutputActive) return`) causes scroll-up to
     // stop working while commands are running. See git history for proof.
     viewportElement.addEventListener('scroll', () => {
-      // Skip expensive DOM measurement when we caused the scroll via safeScrollToBottom().
-      // isAtBottom() reads scrollTop/scrollHeight/clientHeight which forces a synchronous
-      // layout reflow. During heavy output, this fires on every write chunk and becomes
-      // the primary cause of UI freezes.
-      if (scrolledByUs) {
-        scrolledByUs = false;
-        return;
-      }
       if (isAtBottom()) {
         autoScroll.set(true);
       } else {
@@ -238,65 +228,37 @@
   }
 
   function bufferedWrite(data: string) {
-    writeQueue.push(data);
-    writeQueueBytes += data.length;
-    // Cap total buffer by dropping oldest chunks
-    while (writeQueueBytes > MAX_BUFFER_SIZE && writeQueue.length > 1) {
-      const dropped = writeQueue.shift()!;
-      writeQueueBytes -= dropped.length;
+    writeBuffer += data;
+    // Cap buffer to prevent unbounded memory growth during heavy output
+    if (writeBuffer.length > MAX_BUFFER_SIZE) {
+      writeBuffer = writeBuffer.slice(-MAX_BUFFER_SIZE);
     }
     scheduleFlush();
   }
 
   function scheduleFlush() {
-    if (writeRafId === null && !writePending && writeQueueBytes > 0) {
+    if (writeRafId === null && !writePending && writeBuffer) {
       writeRafId = requestAnimationFrame(flushWriteBuffer);
-    }
-  }
-
-  // Scroll to bottom, setting flag to prevent forced reflow in scroll listener
-  function safeScrollToBottom() {
-    if (term) {
-      scrolledByUs = true;
-      term.scrollToBottom();
     }
   }
 
   function flushWriteBuffer() {
     writeRafId = null;
-    if (writeQueueBytes === 0 || !term) return;
+    if (!writeBuffer || !term) return;
 
-    // Build a chunk up to WRITE_CHUNK_SIZE from queued strings
-    let chunk: string;
-    if (writeQueue.length === 1 && writeQueue[0].length <= WRITE_CHUNK_SIZE) {
-      // Fast path: single small chunk, no copying
-      chunk = writeQueue[0];
-      writeQueue.length = 0;
-      writeQueueBytes = 0;
-    } else {
-      const parts: string[] = [];
-      let size = 0;
-      while (writeQueue.length > 0 && size < WRITE_CHUNK_SIZE) {
-        const next = writeQueue[0];
-        if (size + next.length <= WRITE_CHUNK_SIZE) {
-          parts.push(writeQueue.shift()!);
-          size += next.length;
-        } else {
-          // Split this chunk at the boundary
-          const take = WRITE_CHUNK_SIZE - size;
-          parts.push(next.slice(0, take));
-          writeQueue[0] = next.slice(take);
-          size += take;
-        }
-      }
-      chunk = parts.join('');
-      writeQueueBytes -= chunk.length;
-    }
+    // Take at most WRITE_CHUNK_SIZE from the front of the buffer
+    const chunk = writeBuffer.length <= WRITE_CHUNK_SIZE
+      ? writeBuffer
+      : writeBuffer.slice(0, WRITE_CHUNK_SIZE);
+    writeBuffer = writeBuffer.length <= WRITE_CHUNK_SIZE
+      ? ''
+      : writeBuffer.slice(WRITE_CHUNK_SIZE);
 
     writePending = true;
 
     // Safety timeout: if term.write() callback never fires (e.g. WebGL context loss,
     // xterm parser error), force-clear writePending to prevent permanent pipeline freeze.
+    // Without this, a single lost callback deadlocks all future output permanently.
     if (writePendingTimer !== null) clearTimeout(writePendingTimer);
     writePendingTimer = setTimeout(() => {
       if (writePending) {
@@ -316,18 +278,20 @@
 
       if ($autoScroll && $settingsStore.autoScroll && term) {
         const now = Date.now();
-        if (writeQueueBytes === 0) {
-          // Last chunk — always scroll so final position is correct
-          safeScrollToBottom();
+        if (!writeBuffer) {
+          // Last chunk in buffer — always scroll so final position is correct
+          term.scrollToBottom();
           lastScrollToBottomTime = now;
         } else if (now - lastScrollToBottomTime >= SCROLL_THROTTLE_MS) {
-          // Intermediate chunk but throttle interval elapsed
-          safeScrollToBottom();
+          // Intermediate chunk but throttle interval elapsed — scroll for visual feedback
+          term.scrollToBottom();
           lastScrollToBottomTime = now;
         }
+        // Otherwise skip — next chunk or trailing call will handle it
       }
 
-      if (writeQueueBytes > 0) scheduleFlush();
+      // If there's more data in the buffer, schedule another flush
+      scheduleFlush();
     });
   }
 
@@ -372,33 +336,28 @@
     });
   }
 
-  // Mark output as active. Uses a single persistent timer instead of clearing/recreating
-  // on every chunk, reducing timer churn from hundreds/sec to ~2/sec under heavy output.
+  // Mark output as active and schedule inactive marking
   function markOutputActive() {
     lastOutputTime = Date.now();
+    isOutputActive = true;
 
-    if (!isOutputActive) {
-      isOutputActive = true;
+    // Notify debouncer of output activity
+    if (resizeDebouncer) {
+      resizeDebouncer.setOutputActive(true);
+    }
+
+    if (outputActivityTimeout) {
+      clearTimeout(outputActivityTimeout);
+    }
+
+    outputActivityTimeout = setTimeout(() => {
+      isOutputActive = false;
+      // Notify debouncer that output has settled
       if (resizeDebouncer) {
-        resizeDebouncer.setOutputActive(true);
+        resizeDebouncer.setOutputActive(false);
       }
-    }
-
-    // Only create the timer once; let it self-reschedule if output is still active
-    if (!outputActivityTimeout) {
-      outputActivityTimeout = setTimeout(function checkQuiet() {
-        if (Date.now() - lastOutputTime >= OUTPUT_QUIET_PERIOD) {
-          isOutputActive = false;
-          if (resizeDebouncer) {
-            resizeDebouncer.setOutputActive(false);
-          }
-          outputActivityTimeout = null;
-        } else {
-          // Still active — reschedule
-          outputActivityTimeout = setTimeout(checkQuiet, OUTPUT_QUIET_PERIOD);
-        }
-      }, OUTPUT_QUIET_PERIOD);
-    }
+      outputActivityTimeout = null;
+    }, OUTPUT_QUIET_PERIOD);
   }
 
   // Get proposed dimensions from fit addon - no column limiting
@@ -747,11 +706,17 @@
     }
 
     term.onData((data) => {
+        // Only send input if this terminal is in the active pane
+        // This prevents duplicate input when session is mirrored to multiple panes
+        // Note: We read isActive directly to get the current prop value
+        console.log(`[Terminal:${terminalInstanceId}] onData: isActive=${isActive}, data="${data.replace(/[\x00-\x1f]/g, c => '\\x' + c.charCodeAt(0).toString(16).padStart(2, '0'))}"`);
         if (manager && activeSessionId && isActive) {
             // Filter out focus in/out sequences that can interfere with TUI apps
+            // \x1b[I = focus in, \x1b[O = focus out
             if (data === '\x1b[I' || data === '\x1b[O') {
-                return;
+                return; // Don't send focus events to the server
             }
+            console.log(`[Terminal:${terminalInstanceId}] SENDING input to session ${activeSessionId.slice(0, 8)}`);
             manager.sendInput(activeSessionId, data);
         }
     });
@@ -823,8 +788,7 @@
     console.log(`[Terminal:${terminalInstanceId}] Destroying terminal component. Session: ${currentAttachedSessionId?.slice(0, 8)}`);
     if (writeRafId !== null) cancelAnimationFrame(writeRafId);
     if (writePendingTimer !== null) clearTimeout(writePendingTimer);
-    writeQueue = [];
-    writeQueueBytes = 0;
+    writeBuffer = '';
     writePending = false;
     if (resizeTimeout) clearTimeout(resizeTimeout);
     if (outputActivityTimeout) clearTimeout(outputActivityTimeout);
