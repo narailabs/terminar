@@ -1,11 +1,11 @@
-# termiNar Architecture Reference
+# terminar Architecture Reference
 
-> This document is the authoritative reference for the termiNar codebase architecture.
+> This document is the authoritative reference for the terminar codebase architecture.
 > Keep it updated when adding new modules, binaries, or major features.
 
 ## System Overview
 
-termiNar provides persistent terminal sessions across VS Code, browsers, and desktop apps. It has two deployment modes:
+terminar provides persistent terminal sessions across VS Code, browsers, and desktop apps. It has two deployment modes:
 
 1. **Single-user** — `terminar-server` runs locally, connects via Unix socket (VS Code) or WebSocket (browser)
 2. **Multi-user** — `terminar-gateway` runs on a shared server, authenticates users, spawns per-user `terminar-server` instances via `sudo`

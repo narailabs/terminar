@@ -1,8 +1,8 @@
-# VSCode termiNar - TDD Task
+# VSCode terminar - TDD Task
 
 ## Overview
 
-~~Implement the remaining phases of the VSCode termiNar refactoring based on `SPECIFICATION.md`.~~
+~~Implement the remaining phases of the VSCode terminar refactoring based on `SPECIFICATION.md`.~~
 
 **STATUS: ALL PHASES COMPLETE** ✅
 

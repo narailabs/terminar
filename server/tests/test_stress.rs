@@ -1,4 +1,4 @@
-//! Stress tests for the termiNar server
+//! Stress tests for the terminar server
 //!
 //! These tests verify the server's behavior under high load conditions.
 //! Run with: cargo test --test test_stress -- --ignored

@@ -1,5 +1,5 @@
 /**
- * Foreground Process Store for termiNar (F9b)
+ * Foreground Process Store for terminar (F9b)
  *
  * Tracks the foreground process name for each terminal session.
  * Used by the UI to display agent icons/badges.

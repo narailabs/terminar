@@ -4,7 +4,7 @@
 
 ## Summary
 
-Add OS-level authentication (PAM password + SSH public key challenge-response + JWT session tokens) and an Electron desktop app (bundled Rust server + web frontend, system tray control panel, local/remote modes) to the termiNar project.
+Add OS-level authentication (PAM password + SSH public key challenge-response + JWT session tokens) and an Electron desktop app (bundled Rust server + web frontend, system tray control panel, local/remote modes) to the terminar project.
 
 - **Primary users**: Developers who want persistent terminal sessions accessible locally and remotely
 - **User model**: Single-user now, multi-user ready

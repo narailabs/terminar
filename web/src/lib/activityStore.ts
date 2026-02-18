@@ -1,5 +1,5 @@
 /**
- * Activity state store for termiNar
+ * Activity state store for terminar
  *
  * Tracks per-session activity indicators (activity, bell, silence).
  * Used to show visual indicators on tabs and sidebar when a session

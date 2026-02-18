@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Harden termiNar for remote access and multi-user deployment across four incremental phases.
+**Goal:** Harden terminar for remote access and multi-user deployment across four incremental phases.
 
 **Architecture:** Bottom-up hardening — each phase is independently shippable. Phase 1 hardens TLS/headers/rate-limiting, Phase 2 adds audit logging, Phase 3 overhauls token lifecycle and auth enforcement, Phase 4 adds the multi-user gateway with per-user server isolation.
 
@@ -1710,7 +1710,7 @@ git commit -m "feat(gateway): wire auth, proxy, and user server manager into run
 
 ```ini
 [Unit]
-Description=termiNar Gateway
+Description=terminar Gateway
 After=network.target
 
 [Service]

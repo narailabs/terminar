@@ -3,7 +3,7 @@
 <!--
   com.terminar.gateway.plist
 
-  macOS launchd configuration for the termiNar Gateway.
+  macOS launchd configuration for the terminar Gateway.
 
   Installation:
     1. Create the service user:

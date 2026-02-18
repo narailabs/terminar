@@ -74,7 +74,7 @@
 
   async function uninstall() {
     const confirmed = await api.confirm(
-      "This will stop and remove the termiNar gateway service. Are you sure?",
+      "This will stop and remove the terminar gateway service. Are you sure?",
       { title: "Uninstall Service", kind: "warning" },
     );
     if (confirmed) {

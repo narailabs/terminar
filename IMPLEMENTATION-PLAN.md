@@ -1,4 +1,4 @@
-# Implementation Plan: termiNar System
+# Implementation Plan: terminar System
 
 This plan details the roadmap to take `terminar` from a prototype to a stable production release. It follows a Test-Driven Development (TDD) approach.
 
@@ -55,7 +55,7 @@ Goal: Functional persistent terminal in VS Code.
     -   Handle resizing and input forwarding.
     -   *Test*: Webview message passing tests.
 - [ ] **Task 3.3: Session Management UI**
-    -   Implement TreeView for "termiNars".
+    -   Implement TreeView for "terminars".
     -   Commands: `Create`, `Rename`, `Kill`, `Attach`.
     -   *Test*: TreeDataProvider tests.
 
@@ -72,7 +72,7 @@ Goal: Allow remote connection with "Pairing" flow.
     -   Endpoint to exchange Code for Auth Token.
     -   *Test*: API tests.
 - [ ] **Task 4.3: Remote Connection Command (Extension)**
-    -   Command `termiNar: Connect to Remote`.
+    -   Command `terminar: Connect to Remote`.
     -   Input: Host, Pairing Code.
     -   Storage: Save token in `SecretStorage`.
     -   *Test*: Mock remote connection flow.

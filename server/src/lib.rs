@@ -1,6 +1,6 @@
-//! termiNar Server library.
+//! terminar Server library.
 //!
-//! This crate implements the backend for the termiNar VS Code extension.
+//! This crate implements the backend for the terminar VS Code extension.
 //! It manages terminal sessions via PTY processes, exposes them over Unix sockets
 //! (for local VS Code communication) and HTTP/WebSocket (for web frontends and
 //! remote pairing), and supports session persistence, history compression, and
@@ -452,7 +452,7 @@ fn write_token_file(token: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Starts the termiNar server with both HTTP/WebSocket and Unix socket listeners.
+/// Starts the terminar server with both HTTP/WebSocket and Unix socket listeners.
 ///
 /// This is the main entry point for the server. It initializes logging, loads
 /// persisted sessions, writes the API token file, starts both HTTP and Unix socket
@@ -471,7 +471,7 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
     let _log_guard = logging::init_logging(&cli);
 
     let start_time = Instant::now();
-    info!("Starting termiNar Server...");
+    info!("Starting terminar Server...");
 
     let sessions: SessionMap = Arc::new(Mutex::new(HashMap::new()));
     let api_key = Uuid::new_v4().to_string();

@@ -12,7 +12,7 @@ suite('Settings Schema (package.json)', () => {
 
     test('contributes.configuration exists', () => {
         assert.ok(packageJson.contributes.configuration, 'Should have configuration section');
-        assert.strictEqual(packageJson.contributes.configuration.title, 'termiNar');
+        assert.strictEqual(packageJson.contributes.configuration.title, 'terminar');
     });
 
     test('serverPath property is defined', () => {

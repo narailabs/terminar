@@ -20,7 +20,7 @@ class TerminarExtension {
     private knownSessions = new Set<string>();
 
     constructor(private context: vscode.ExtensionContext) {
-        this.outputChannel = vscode.window.createOutputChannel("termiNar");
+        this.outputChannel = vscode.window.createOutputChannel("terminar");
         this.outputChannel.appendLine("Extension activated.");
 
         this.serverController = new ServerController(context.extensionPath);
@@ -46,7 +46,7 @@ class TerminarExtension {
             this.outputChannel.appendLine("Connected to backend.");
             this.manager!.listSessions();
         }).catch(err => {
-            vscode.window.showErrorMessage("Failed to start termiNar server: " + err);
+            vscode.window.showErrorMessage("Failed to start terminar server: " + err);
         });
 
         this.registerCommands();
@@ -214,7 +214,7 @@ class TerminarExtension {
         this.activeTerminals.set(sessionId, pt);
 
         const terminal = vscode.window.createTerminal({
-            name: `termiNar: ${shell}`,
+            name: `terminar: ${shell}`,
             pty: pt.getPty()
         });
 
@@ -230,7 +230,7 @@ class TerminarExtension {
         this.activeTerminals.set(`remote-${sessionId}`, pt);
 
         const terminal = vscode.window.createTerminal({
-            name: `termiNar Remote (${host}): ${shell}`,
+            name: `terminar Remote (${host}): ${shell}`,
             pty: pt.getPty()
         });
 

@@ -1,4 +1,4 @@
-# VS Code termiNar - Production Roadmap
+# VS Code terminar - Production Roadmap
 
 **Created**: January 15, 2026
 **Target**: Production-ready release
@@ -8,7 +8,7 @@
 
 ## Overview
 
-This document provides a comprehensive, hierarchical task list to bring the VS Code termiNar from prototype to production quality. Tasks are organized by phase, priority, and component.
+This document provides a comprehensive, hierarchical task list to bring the VS Code terminar from prototype to production quality. Tasks are organized by phase, priority, and component.
 
 ---
 

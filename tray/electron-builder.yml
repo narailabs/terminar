@@ -1,5 +1,5 @@
 appId: com.terminar.tray
-productName: termiNar
+productName: terminar
 directories:
   buildResources: build
   output: release

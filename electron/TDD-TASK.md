@@ -1,8 +1,8 @@
-# termiNar Electron App - TDD Task
+# terminar Electron App - TDD Task
 
 ## Overview
 
-Implement a standalone Electron desktop app for the termiNar system. The app wraps the existing Svelte web client and adds native desktop features.
+Implement a standalone Electron desktop app for the terminar system. The app wraps the existing Svelte web client and adds native desktop features.
 
 ## Reference Specification
 

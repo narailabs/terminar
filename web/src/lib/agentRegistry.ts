@@ -1,5 +1,5 @@
 /**
- * Agent Registry for termiNar (F9a)
+ * Agent Registry for terminar (F9a)
  *
  * Detects AI coding agents by their process name and provides
  * display metadata (name, color, icon) for UI rendering.

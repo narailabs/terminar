@@ -8,7 +8,7 @@ import { ServerController } from './ServerController';
  */
 export async function showServerError(err: Error, onRetry?: () => void): Promise<void> {
     const result = await vscode.window.showErrorMessage(
-        `termiNar server error: ${err.message}`,
+        `terminar server error: ${err.message}`,
         'Retry'
     );
     if (result === 'Retry' && onRetry) {

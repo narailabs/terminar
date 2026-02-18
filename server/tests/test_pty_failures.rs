@@ -1,4 +1,4 @@
-//! PTY failure scenario tests for the termiNar server
+//! PTY failure scenario tests for the terminar server
 //!
 //! Tests shell exit with error code, PTY creation failure simulation,
 //! and session error state transitions.

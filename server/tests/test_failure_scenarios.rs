@@ -1,4 +1,4 @@
-//! Failure scenario tests for the termiNar server
+//! Failure scenario tests for the terminar server
 //!
 //! These tests verify the server's behavior under failure conditions,
 //! including invalid inputs, authentication bypass attempts, and error recovery.

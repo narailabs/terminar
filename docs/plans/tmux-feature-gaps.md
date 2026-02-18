@@ -1,8 +1,8 @@
-# termiNar vs tmux — Feature Gap Analysis
+# terminar vs tmux — Feature Gap Analysis
 
 ## Status: Decisions Made
 
-This document catalogs features tmux has that termiNar lacks, with decisions on each.
+This document catalogs features tmux has that terminar lacks, with decisions on each.
 
 ---
 
@@ -77,7 +77,7 @@ This document catalogs features tmux has that termiNar lacks, with decisions on 
 **Approach:** Leverage xterm.js `registerCustomKeyEventHandler` API.
 
 - Configurable in client settings (web UI settings panel / VS Code settings)
-- Map keyboard shortcuts to termiNar actions: new session, switch tab, split, close pane, toggle sidebar, etc.
+- Map keyboard shortcuts to terminar actions: new session, switch tab, split, close pane, toggle sidebar, etc.
 - Default keybindings provided, user can override
 - No server-side key table system — all handled at the client level
 
@@ -176,7 +176,7 @@ This is partially implemented today (workspace store saves to localStorage). Gap
 
 ### Server's Role
 
-The server remains focused on **PTY management**: session lifecycle, I/O, auth, history, and activity tracking. Layout, tabs, and visual organization are client concerns. This is an intentional architectural divergence from tmux's server-owns-everything model — it plays to termiNar's strengths as a multi-client, multi-frontend system.
+The server remains focused on **PTY management**: session lifecycle, I/O, auth, history, and activity tracking. Layout, tabs, and visual organization are client concerns. This is an intentional architectural divergence from tmux's server-owns-everything model — it plays to terminar's strengths as a multi-client, multi-frontend system.
 
 ---
 

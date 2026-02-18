@@ -2,7 +2,7 @@
 
 ## Goal
 
-A cross-platform system tray application that installs and controls the termiNar gateway as a system service, providing a GUI for security settings and session monitoring.
+A cross-platform system tray application that installs and controls the terminar gateway as a system service, providing a GUI for security settings and session monitoring.
 
 ## Architecture
 
@@ -40,7 +40,7 @@ A cross-platform system tray application that installs and controls the termiNar
 2. If **not installed**:
    - Show a small "Install" window explaining what will happen.
    - User clicks "Install" → tray app requests admin privileges.
-   - Copies `terminar-gateway` and `terminar-server` binaries to `/usr/local/bin/` (macOS/Linux) or `C:\Program Files\termiNar\` (Windows).
+   - Copies `terminar-gateway` and `terminar-server` binaries to `/usr/local/bin/` (macOS/Linux) or `C:\Program Files\terminar\` (Windows).
    - Writes the service definition from `deploy/` templates, substituting config values (port, TLS mode, audit level).
    - On Linux: creates `terminar` system user, installs sudoers fragment.
    - On macOS: creates `terminar` system user via `sysadminctl`.
@@ -210,7 +210,7 @@ The tray app finds the gateway and server binaries in this order:
 2. **Workspace dev** — `../server/target/release/terminar-gateway` or `../server/target/debug/terminar-gateway`
 3. **System path** — `which terminar-gateway`
 
-The install step copies binaries to `/usr/local/bin/` (macOS/Linux) or `C:\Program Files\termiNar\` (Windows).
+The install step copies binaries to `/usr/local/bin/` (macOS/Linux) or `C:\Program Files\terminar\` (Windows).
 
 ---
 

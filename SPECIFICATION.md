@@ -1,4 +1,4 @@
-# termiNar - System Specification
+# terminar - System Specification
 
 **Version**: 2.1
 **Status**: Draft
@@ -27,7 +27,7 @@
 
 ### 1.1 Purpose
 
-The termiNar System provides terminal sessions that survive application restarts, window closures, and system crashes. Users can disconnect from a session and reconnect later, finding their work exactly as they left it.
+The terminar System provides terminal sessions that survive application restarts, window closures, and system crashes. Users can disconnect from a session and reconnect later, finding their work exactly as they left it.
 
 ### 1.2 Goals
 

@@ -1,4 +1,4 @@
-//! Centralized constants for the termiNar server.
+//! Centralized constants for the terminar server.
 //!
 //! All magic numbers, configuration defaults, and security constants
 //! are defined here to ensure consistency and discoverability.

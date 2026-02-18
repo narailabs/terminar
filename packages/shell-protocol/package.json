@@ -1,7 +1,7 @@
 {
   "name": "@narai/terminar-protocol",
   "version": "0.1.0",
-  "description": "Shared protocol logic for termiNar",
+  "description": "Shared protocol logic for terminar",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {

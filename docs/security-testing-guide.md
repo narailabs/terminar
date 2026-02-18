@@ -369,7 +369,7 @@ sudo chown $USER /run/terminar
 cargo run --bin terminar-gateway -- --port 4000 --socket-dir /tmp/terminar-test --server-bin ./target/debug/terminar-server
 
 # Expected output:
-#   termiNar gateway listening on 0.0.0.0:4000
+#   terminar gateway listening on 0.0.0.0:4000
 #   Socket dir: /tmp/terminar-test
 ```
 

@@ -6,7 +6,7 @@
 
 ## Goals
 
-- Harden termiNar for remote access and multi-user deployment
+- Harden terminar for remote access and multi-user deployment
 - Support three deployment models: local-only, personal remote, shared multi-user
 - All remote communication encrypted via TLS (WSS/HTTPS)
 - Per-user session isolation in multi-user mode

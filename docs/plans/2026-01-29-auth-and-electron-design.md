@@ -6,7 +6,7 @@
 
 ## Overview
 
-This document defines the authentication system and Electron app architecture for termiNar. The goal is to support both local and remote access securely, with OS-level authentication (password via PAM + SSH public key challenge-response), packaged as an Electron app with system tray controls.
+This document defines the authentication system and Electron app architecture for terminar. The goal is to support both local and remote access securely, with OS-level authentication (password via PAM + SSH public key challenge-response), packaged as an Electron app with system tray controls.
 
 ## Design Decisions
 
@@ -180,7 +180,7 @@ electron/
 
 ```
 ┌─────────────────────────────────┐
-│ ● termiNar           │
+│ ● terminar           │
 ├─────────────────────────────────┤
 │ Server: Running (local)         │
 │ ─────────────────────────────── │

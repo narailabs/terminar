@@ -31,7 +31,7 @@ export class WindowManager {
       width: 400,
       height: 350,
       resizable: false,
-      title: 'Install termiNar Gateway',
+      title: 'Install terminar Gateway',
       webPreferences: {
         preload: this.preloadPath(),
         contextIsolation: true,
@@ -55,7 +55,7 @@ export class WindowManager {
     const win = new BrowserWindow({
       width: 500,
       height: 550,
-      title: 'termiNar Settings',
+      title: 'terminar Settings',
       webPreferences: {
         preload: this.preloadPath(),
         contextIsolation: true,

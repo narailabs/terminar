@@ -1,4 +1,4 @@
-# termiNar - Electron Desktop App Specification
+# terminar - Electron Desktop App Specification
 
 **Version**: 1.0
 **Status**: Draft
@@ -129,7 +129,7 @@ The Electron desktop app provides a standalone, native application for accessing
 
 ```
 ┌─────────────────────────┐
-│ 🖥️  termiNar     │
+│ 🖥️  terminar     │
 ├─────────────────────────┤
 │ ● Session 1 (bash)      │
 │ ● Session 2 (zsh)       │
@@ -211,7 +211,7 @@ File    Edit    View    Session    Help
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ ☰  termiNar                              _ □ ✕     │
+│ ☰  terminar                              _ □ ✕     │
 ├─────────────────────────────────────────────────────────────┤
 │ ┌─────────────────┐ ┌─────────────────────────────────────┐ │
 │ │ SESSIONS        │ │                                     │ │
@@ -387,9 +387,9 @@ interface Config {
 ```
 
 **Storage**: Uses `electron-store` for persistent JSON storage at:
-- macOS: `~/Library/Application Support/termiNar/config.json`
-- Windows: `%APPDATA%/termiNar/config.json`
-- Linux: `~/.config/termiNar/config.json`
+- macOS: `~/Library/Application Support/terminar/config.json`
+- Windows: `%APPDATA%/terminar/config.json`
+- Linux: `~/.config/terminar/config.json`
 
 #### 5.1.4 ShortcutManager
 

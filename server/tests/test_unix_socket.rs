@@ -1,4 +1,4 @@
-//! Unix socket integration tests for the termiNar server
+//! Unix socket integration tests for the terminar server
 //!
 //! Tests session lifecycle via Unix socket (create, input, output, kill),
 //! concurrent connections, large message handling, and reconnection.

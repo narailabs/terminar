@@ -107,7 +107,7 @@ describe('App Component - Remote Server (Auth Required)', () => {
 
   it('should show login screen initially for remote server', () => {
     render(App, { props: remoteServerProps });
-    expect(screen.getByText(/termiNar/)).toBeTruthy();
+    expect(screen.getByText(/terminar/)).toBeTruthy();
     // Should show tab-based login with auth tabs
     expect(screen.getByText('SSH Key')).toBeTruthy();
     expect(screen.getByText('Token')).toBeTruthy();
@@ -834,7 +834,7 @@ describe('App - connectWithCookie', () => {
     await new Promise(r => setTimeout(r, 100));
 
     // The login page should still be visible (cookie auth failed silently)
-    expect(screen.getByText(/termiNar/)).toBeTruthy();
+    expect(screen.getByText(/terminar/)).toBeTruthy();
     expect(screen.getByText('Token')).toBeTruthy();
     expect(screen.getByText('SSH Key')).toBeTruthy();
   });

@@ -1,6 +1,6 @@
 {
   "name": "terminar",
-  "displayName": "termiNar",
+  "displayName": "terminar",
   "description": "Persistent terminal sessions backed by a Rust server. Sessions survive VS Code crashes and restarts.",
   "version": "0.0.1",
   "publisher": "narai",
@@ -38,7 +38,7 @@
       "activitybar": [
         {
           "id": "terminar-container",
-          "title": "termiNar",
+          "title": "terminar",
           "icon": "resources/terminal-icon.svg"
         }
       ]
@@ -52,7 +52,7 @@
       ]
     },
     "configuration": {
-      "title": "termiNar",
+      "title": "terminar",
       "properties": {
         "terminar.serverPath": {
           "type": "string",
@@ -75,32 +75,32 @@
       {
         "command": "terminar.newSession",
         "title": "New Persistent Session",
-        "category": "termiNar"
+        "category": "terminar"
       },
       {
         "command": "terminar.attachSession",
         "title": "Attach to Session",
-        "category": "termiNar"
+        "category": "terminar"
       },
       {
         "command": "terminar.connectRemote",
         "title": "Connect to Remote Server",
-        "category": "termiNar"
+        "category": "terminar"
       },
       {
         "command": "terminar.killServer",
         "title": "Stop Server",
-        "category": "termiNar"
+        "category": "terminar"
       },
       {
         "command": "terminar.renameSession",
         "title": "Rename Session",
-        "category": "termiNar"
+        "category": "terminar"
       },
       {
         "command": "terminar.killSession",
         "title": "Kill Session",
-        "category": "termiNar"
+        "category": "terminar"
       }
     ],
     "menus": {

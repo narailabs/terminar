@@ -1,5 +1,5 @@
 // ServiceManager.ts — Port of tray/src-tauri/src/service.rs
-// Platform-specific service management for the termiNar gateway.
+// Platform-specific service management for the terminar gateway.
 //
 // Generates shell scripts for privileged operations (install, uninstall,
 // start, stop). The caller is responsible for executing these scripts with
@@ -174,7 +174,7 @@ if ! id -u terminar >/dev/null 2>&1; then
     dscl . -create /Users/terminar UniqueID 499
     dscl . -create /Users/terminar PrimaryGroupID 20
     dscl . -create /Users/terminar NFSHomeDirectory /var/lib/terminar
-    dscl . -create /Users/terminar RealName "termiNar Service"
+    dscl . -create /Users/terminar RealName "terminar Service"
     dscl . -create /Users/terminar IsHidden 1
 fi
 if ! id -u terminar >/dev/null 2>&1; then
@@ -250,7 +250,7 @@ fi
 # --------------------------------------------------
 launchctl bootout system/com.terminar.gateway 2>/dev/null || true
 launchctl bootstrap system /Library/LaunchDaemons/com.terminar.gateway.plist
-echo "termiNar gateway service installed and started"
+echo "terminar gateway service installed and started"
 `;
   }
 
@@ -300,7 +300,7 @@ UNIT
 # Enable and start
 systemctl daemon-reload
 systemctl enable --now terminar-gateway
-echo "termiNar gateway service installed and started"
+echo "terminar gateway service installed and started"
 `;
   }
 
@@ -313,7 +313,7 @@ launchctl bootout system/com.terminar.gateway 2>/dev/null || true
 rm -f /Library/LaunchDaemons/com.terminar.gateway.plist
 rm -f /etc/sudoers.d/terminar
 rm -f /var/log/terminar-gateway.log
-echo "termiNar gateway service uninstalled"
+echo "terminar gateway service uninstalled"
 `;
     }
     if (process.platform === 'linux') {
@@ -324,7 +324,7 @@ systemctl disable terminar-gateway 2>/dev/null || true
 rm -f /etc/systemd/system/terminar-gateway.service
 rm -f /etc/sudoers.d/terminar
 systemctl daemon-reload
-echo "termiNar gateway service uninstalled"
+echo "terminar gateway service uninstalled"
 `;
     }
     return "echo 'Service uninstall not supported on this platform'";
@@ -587,7 +587,7 @@ ${argsStr}
     const execStart = execArgs.join(' \\\n    ');
 
     return `[Unit]
-Description=termiNar Gateway - Multi-user terminal session proxy
+Description=terminar Gateway - Multi-user terminal session proxy
 After=network.target
 Wants=network.target
 

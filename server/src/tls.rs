@@ -1,4 +1,4 @@
-//! TLS configuration and server setup for the termiNar server.
+//! TLS configuration and server setup for the terminar server.
 //!
 //! Provides optional TLS support using `rustls` and `axum-server`. When a TLS
 //! certificate and key are provided via CLI flags, an additional HTTPS/WSS

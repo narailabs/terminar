@@ -1,5 +1,5 @@
 /**
- * Search state store for termiNar
+ * Search state store for terminar
  *
  * Manages the search UI state including:
  * - Open/close state

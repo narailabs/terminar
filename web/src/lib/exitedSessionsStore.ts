@@ -1,5 +1,5 @@
 /**
- * Exited sessions store for termiNar
+ * Exited sessions store for terminar
  *
  * Tracks which terminal sessions have exited, along with their exit codes
  * and timestamps. Used to display exited session UI indicators.

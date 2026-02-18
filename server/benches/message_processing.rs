@@ -1,4 +1,4 @@
-//! Benchmarks for the termiNar server.
+//! Benchmarks for the terminar server.
 //!
 //! Run with: cargo bench
 //!
