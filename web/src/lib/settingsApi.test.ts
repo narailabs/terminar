@@ -14,7 +14,6 @@ const mockSettings: TerminalSettings = {
   cursorBlink: true,
   lineHeight: 1.2,
   showPaneTitleBars: true,
-  showStatusBar: true,
   autoScroll: true,
 };
 

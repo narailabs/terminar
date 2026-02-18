@@ -216,16 +216,6 @@ describe('SettingsPanel - Settings Controls', () => {
     spy.mockRestore();
   });
 
-  it('status bar checkbox toggle updates settingsStore', async () => {
-    const spy = vi.spyOn(settingsStore, 'updateSetting');
-    render(SettingsPanel, { props: { isOpen: true } });
-    const checkbox = document.querySelector('#showStatusBar') as HTMLInputElement;
-    expect(checkbox).toBeTruthy();
-    await fireEvent.change(checkbox, { target: { checked: false } });
-    expect(spy).toHaveBeenCalledWith('showStatusBar', false);
-    spy.mockRestore();
-  });
-
   it('auto-scroll checkbox toggle updates settingsStore', async () => {
     const spy = vi.spyOn(settingsStore, 'updateSetting');
     render(SettingsPanel, { props: { isOpen: true } });

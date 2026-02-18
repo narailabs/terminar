@@ -465,6 +465,7 @@
     min-width: 100px;
     min-height: 50px;
     background: var(--ui-bg-primary, #1e1e1e);
+    box-sizing: border-box;
     border: 1px solid transparent;
     overflow: hidden;
     display: flex;
