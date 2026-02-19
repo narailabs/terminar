@@ -157,8 +157,8 @@
           </svg>
         </span>
       {/if}
-      {#if isHovered && !isEditing}
-        <button class="close-btn" on:click={handleClose} title="Close terminal">
+      {#if !isEditing}
+        <button class="close-btn" class:visible={isHovered} on:click={handleClose} title="Close terminal">
           ×
         </button>
       {/if}
@@ -286,6 +286,13 @@
     font-size: 16px;
     line-height: 1;
     padding: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .close-btn.visible {
+    opacity: 1;
+    pointer-events: auto;
   }
 
   .close-btn:hover {

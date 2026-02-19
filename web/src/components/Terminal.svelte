@@ -143,6 +143,11 @@
   let writeRafId: number | null = null;
   let writePending = false;
   let writePendingTimer: ReturnType<typeof setTimeout> | null = null;
+  // Flag set synchronously around programmatic scrollToBottom() calls so the
+  // scroll event listener can skip the deferred isAtBottom() check. Setting
+  // scrollTop fires the scroll event synchronously, so this flag is only true
+  // for exactly that event — user scrolls (wheel, drag) are unaffected.
+  let scrolledByUs = false;
   let lastScrollToBottomTime = 0;
 
   // Auto-scroll tracking: we always scroll to bottom on new output UNLESS the user
@@ -219,6 +224,13 @@
     // Adding guards (e.g. `if (isOutputActive) return`) causes scroll-up to
     // stop working while commands are running. See git history for proof.
     viewportElement.addEventListener('scroll', () => {
+      // Skip when we caused the scroll via our own scrollToBottom() in the write
+      // callback. Those calls set scrolledByUs synchronously around the call, so
+      // the flag is only true for exactly those scroll events. This avoids the
+      // expensive isAtBottom() DOM measurement (which forces a synchronous layout
+      // reflow) on every write-chunk during heavy output — the primary cause of
+      // UI freezes. User scrolls (wheel, drag, touch) are unaffected.
+      if (scrolledByUs) return;
       if (isAtBottom()) {
         autoScroll.set(true);
       } else {
@@ -280,11 +292,15 @@
         const now = Date.now();
         if (!writeBuffer) {
           // Last chunk in buffer — always scroll so final position is correct
+          scrolledByUs = true;
           term.scrollToBottom();
+          scrolledByUs = false;
           lastScrollToBottomTime = now;
         } else if (now - lastScrollToBottomTime >= SCROLL_THROTTLE_MS) {
           // Intermediate chunk but throttle interval elapsed — scroll for visual feedback
+          scrolledByUs = true;
           term.scrollToBottom();
+          scrolledByUs = false;
           lastScrollToBottomTime = now;
         }
         // Otherwise skip — next chunk or trailing call will handle it
@@ -336,28 +352,34 @@
     });
   }
 
-  // Mark output as active and schedule inactive marking
+  // Mark output as active. Uses a single self-rescheduling timer instead of
+  // clearing/recreating on every chunk, reducing timer churn from hundreds/sec
+  // to ~2/sec under heavy output.
   function markOutputActive() {
     lastOutputTime = Date.now();
-    isOutputActive = true;
 
-    // Notify debouncer of output activity
-    if (resizeDebouncer) {
-      resizeDebouncer.setOutputActive(true);
-    }
-
-    if (outputActivityTimeout) {
-      clearTimeout(outputActivityTimeout);
-    }
-
-    outputActivityTimeout = setTimeout(() => {
-      isOutputActive = false;
-      // Notify debouncer that output has settled
+    if (!isOutputActive) {
+      isOutputActive = true;
       if (resizeDebouncer) {
-        resizeDebouncer.setOutputActive(false);
+        resizeDebouncer.setOutputActive(true);
       }
-      outputActivityTimeout = null;
-    }, OUTPUT_QUIET_PERIOD);
+    }
+
+    // Only create the timer once; it self-reschedules while output is active
+    if (!outputActivityTimeout) {
+      outputActivityTimeout = setTimeout(function checkQuiet() {
+        if (Date.now() - lastOutputTime >= OUTPUT_QUIET_PERIOD) {
+          isOutputActive = false;
+          if (resizeDebouncer) {
+            resizeDebouncer.setOutputActive(false);
+          }
+          outputActivityTimeout = null;
+        } else {
+          // Still active — check again later
+          outputActivityTimeout = setTimeout(checkQuiet, OUTPUT_QUIET_PERIOD);
+        }
+      }, OUTPUT_QUIET_PERIOD);
+    }
   }
 
   // Get proposed dimensions from fit addon - no column limiting
@@ -709,14 +731,12 @@
         // Only send input if this terminal is in the active pane
         // This prevents duplicate input when session is mirrored to multiple panes
         // Note: We read isActive directly to get the current prop value
-        console.log(`[Terminal:${terminalInstanceId}] onData: isActive=${isActive}, data="${data.replace(/[\x00-\x1f]/g, c => '\\x' + c.charCodeAt(0).toString(16).padStart(2, '0'))}"`);
         if (manager && activeSessionId && isActive) {
             // Filter out focus in/out sequences that can interfere with TUI apps
             // \x1b[I = focus in, \x1b[O = focus out
             if (data === '\x1b[I' || data === '\x1b[O') {
                 return; // Don't send focus events to the server
             }
-            console.log(`[Terminal:${terminalInstanceId}] SENDING input to session ${activeSessionId.slice(0, 8)}`);
             manager.sendInput(activeSessionId, data);
         }
     });
