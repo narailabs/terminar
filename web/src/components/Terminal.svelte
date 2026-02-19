@@ -66,10 +66,15 @@
       term.clear();
       term.reset();
       manager.attach(activeSessionId);
-      // Scroll to bottom after history replay
+      // Scroll to bottom after history replay — wrap in scrolledByUs to
+      // prevent expensive isAtBottom() reflows in the scroll listener
       for (const delay of [200, 500, 1000]) {
         setTimeout(() => {
-          if (term) term.scrollToBottom();
+          if (term) {
+            scrolledByUs = true;
+            term.scrollToBottom();
+            scrolledByUs = false;
+          }
         }, delay);
       }
     }
@@ -135,14 +140,16 @@
   // Without this, high-throughput programs (Claude Code, cat large-file, etc.) flood
   // xterm.js with many small write() calls per frame, overwhelming the rendering pipeline
   // and causing the terminal to appear frozen or not scroll to the bottom.
-  const WRITE_CHUNK_SIZE = 16 * 1024; // 16KB max per term.write() call (matches server PTY read buffer)
-  const MAX_BUFFER_SIZE = 2 * 1024 * 1024; // 2MB cap to prevent unbounded memory growth
-  const WRITE_PENDING_TIMEOUT = 2000; // 2s recovery timeout if term.write() callback never fires
+  const WRITE_CHUNK_SIZE = 64 * 1024; // 64KB max per term.write() call
+  const MAX_BUFFER_SIZE = 512 * 1024; // 512KB cap to prevent unbounded memory growth (and GC pressure from large string copies)
+  const WRITE_PENDING_TIMEOUT = 500; // 500ms recovery timeout if term.write() callback never fires (e.g. WebGL context loss)
   const SCROLL_THROTTLE_MS = 100; // During burst output, scroll at most every 100ms
+  const FLUSH_TIME_BUDGET_MS = 8; // Max ms to spend flushing before yielding to browser
   let writeBuffer = '';
   let writeRafId: number | null = null;
   let writePending = false;
   let writePendingTimer: ReturnType<typeof setTimeout> | null = null;
+  let flushBurstStart = 0; // Timestamp of first flush in current burst
   // Flag set synchronously around programmatic scrollToBottom() calls so the
   // scroll event listener can skip the deferred isAtBottom() check. Setting
   // scrollTop fires the scroll event synchronously, so this flag is only true
@@ -255,6 +262,9 @@
   }
 
   function flushWriteBuffer() {
+    // Reset burst timer only when entering via rAF (not on direct calls from callback).
+    // This ensures the 8ms budget spans the entire burst, not each individual chunk.
+    if (writeRafId !== null) flushBurstStart = performance.now();
     writeRafId = null;
     if (!writeBuffer || !term) return;
 
@@ -306,8 +316,17 @@
         // Otherwise skip — next chunk or trailing call will handle it
       }
 
-      // If there's more data in the buffer, schedule another flush
-      scheduleFlush();
+      // If there's more data, flush immediately to batch writes in the same
+      // frame. This prevents TUI screen clear+redraw from being split across
+      // multiple browser paints (which shows as flicker). Yield via rAF only
+      // if we've exceeded the time budget to keep the UI responsive.
+      if (writeBuffer) {
+        if (performance.now() - flushBurstStart < FLUSH_TIME_BUDGET_MS) {
+          flushWriteBuffer();
+        } else {
+          scheduleFlush();
+        }
+      }
     });
   }
 
@@ -415,19 +434,12 @@
     resizeDebouncer.resize(dims.cols, dims.rows, immediate);
   }
 
-  // After fitAddon.fit(), xterm may allocate a partial extra row when the
-  // container height doesn't divide evenly by cell height. This causes a
-  // phantom cursor line at the bottom of the pane. Detect and trim it.
-  function trimPartialRow() {
-    if (!term || !terminalContainer) return;
-    const screenEl = terminalContainer.querySelector('.xterm-screen');
-    if (!screenEl) return;
-    const containerHeight = terminalContainer.getBoundingClientRect().height;
-    const screenHeight = screenEl.getBoundingClientRect().height;
-    if (screenHeight > containerHeight + 1 && term.rows > 1) {
-      term.resize(term.cols, term.rows - 1);
-    }
-  }
+  // trimPartialRow was removed: fitAddon.fit() may allocate a partial extra
+  // row when the container height doesn't divide evenly by cell height.
+  // Previously we trimmed the row (term.resize to rows-1) but this created
+  // inconsistent bottom gaps across panes. Instead, we let the partial row
+  // render and clip it via CSS (overflow: hidden on .xterm), which is visually
+  // seamless — the partial row is simply not visible.
 
   // Guard to prevent fitAddon.fit() from re-triggering ResizeObserver loop
   let isApplyingResize = false;
@@ -445,7 +457,7 @@
       // reflows the buffer but can leave the viewport scrollHeight stale,
       // preventing users from scrolling to the end of long output.
       fitAddon.fit();
-      trimPartialRow();
+
       lastCols = term.cols;
       lastRows = term.rows;
     } catch {
@@ -468,7 +480,9 @@
     // re-entry from fitAddon.fit() DOM changes resetting scroll position.
     setTimeout(() => {
       if ($autoScroll && $settingsStore.autoScroll && term) {
+        scrolledByUs = true;
         term.scrollToBottom();
+        scrolledByUs = false;
       }
       isApplyingResize = false;
     }, 100);
@@ -598,9 +612,14 @@
                       // After attach replays history, scroll to bottom so user sees latest output.
                       // History replay streams data over WebSocket in chunks. We scroll multiple
                       // times with increasing delays to handle both small and large histories.
+                      // Wrap in scrolledByUs to prevent isAtBottom() reflows.
                       for (const delay of [200, 500, 1000]) {
                           setTimeout(() => {
-                              if (term) term.scrollToBottom();
+                              if (term) {
+                                  scrolledByUs = true;
+                                  term.scrollToBottom();
+                                  scrolledByUs = false;
+                              }
                           }, delay);
                       }
                   }
@@ -705,7 +724,7 @@
     // when the actual container is wider (e.g., Claude Code rendering issues).
     try {
       fitAddon.fit();
-      trimPartialRow();
+
       lastCols = term.cols;
       lastRows = term.rows;
       initialSizingComplete = true;
@@ -716,7 +735,7 @@
       requestAnimationFrame(() => {
         try {
           fitAddon.fit();
-          trimPartialRow();
+    
         } catch {
           // Still no dimensions — will be corrected by ResizeObserver
         }
@@ -726,6 +745,22 @@
         console.log(`[Terminal:${terminalInstanceId}] Initial sizing complete (deferred): ${lastCols}x${lastRows}`);
       });
     }
+
+    // Shift+Enter → CSI u encoding (\x1b[13;2u) per the fixterms/CSI u protocol.
+    // This is the same behavior as iTerm2, Kitty, WezTerm, and Ghostty.
+    // Apps like Claude Code recognize this as "insert newline" vs Enter (submit).
+    // Regular shells ignore unknown CSI sequences harmlessly.
+    // Uses DOM capture listener so preventDefault() fully suppresses the browser's
+    // default handling (inserting \r into xterm's hidden textarea).
+    terminalContainer.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (manager && activeSessionId && isActive) {
+          manager.sendInput(activeSessionId, '\x1b[13;2u');
+        }
+      }
+    }, true); // capture phase — fires before xterm's own handler
 
     term.onData((data) => {
         // Only send input if this terminal is in the active pane
@@ -845,7 +880,7 @@
   <button
     class="scroll-to-bottom-badge"
     class:visible={!$autoScroll}
-    on:click={() => { autoScroll.set(true); if (term) term.scrollToBottom(); }}
+    on:click={() => { autoScroll.set(true); if (term) { scrolledByUs = true; term.scrollToBottom(); scrolledByUs = false; } }}
   >
     Scroll to bottom
   </button>
@@ -894,10 +929,13 @@
     color: var(--ui-text, #ccc);
   }
 
-  /* Ensure xterm takes full space and doesn't overflow */
+  /* Ensure xterm takes full space and clips partial rows at the bottom.
+     fitAddon.fit() may allocate a partial extra row when the container height
+     doesn't divide evenly by cell height — overflow:hidden clips it seamlessly. */
   .terminal-container :global(.xterm) {
     width: 100%;
     height: 100%;
+    overflow: hidden;
   }
 
   .terminal-container :global(.xterm-viewport) {
