@@ -6,8 +6,10 @@ import {
   Menu,
   nativeImage,
   app,
+  shell,
 } from 'electron';
 import path from 'path';
+import { spawn } from 'child_process';
 import { getAppRoot } from './paths.js';
 import { computeMenuSpec } from './menuSpec.js';
 import { ConfigStore } from './ConfigStore.js';
@@ -105,6 +107,13 @@ export class TrayManager {
       label: 'Open Web UI',
       enabled: spec.webui_enabled,
       click: () => this.handleMenuEvent('open-webui'),
+    });
+
+    // Open Desktop App
+    menuTemplate.push({
+      label: 'Open Desktop App',
+      enabled: spec.webui_enabled,
+      click: () => this.handleMenuEvent('open-desktop-app'),
     });
 
     menuTemplate.push({ type: 'separator' });
@@ -208,6 +217,20 @@ export class TrayManager {
     switch (id) {
       case 'open-webui': {
         void this.webUIManager.open();
+        break;
+      }
+
+      case 'open-desktop-app': {
+        // Launch the electron desktop app from the electron/ directory.
+        // In dev, this runs `npx electron .` in the electron workspace.
+        // In production, this would open the packaged .app bundle.
+        const electronDir = path.resolve(getAppRoot(), '..', 'electron');
+        const child = spawn('npx', ['electron', '.'], {
+          cwd: electronDir,
+          detached: true,
+          stdio: 'ignore',
+        });
+        child.unref();
         break;
       }
 
