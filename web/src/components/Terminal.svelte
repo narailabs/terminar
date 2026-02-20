@@ -148,14 +148,21 @@
   // and causing the terminal to appear frozen or not scroll to the bottom.
   const WRITE_CHUNK_SIZE = 64 * 1024; // 64KB max per term.write() call
   const MAX_BUFFER_SIZE = 512 * 1024; // 512KB cap to prevent unbounded memory growth (and GC pressure from large string copies)
-  const WRITE_PENDING_TIMEOUT = 500; // 500ms recovery timeout if term.write() callback never fires (e.g. WebGL context loss)
+  const WRITE_PENDING_TIMEOUT = 150; // 150ms recovery timeout if term.write() callback never fires (e.g. WebGL context loss)
   const SCROLL_THROTTLE_MS = 100; // During burst output, scroll at most every 100ms
   const FLUSH_TIME_BUDGET_MS = 8; // Max ms to spend flushing before yielding to browser
+  const REFRESH_INTERVAL_MS = 200; // During sustained output, force a screen repaint every 200ms
   let writeBuffer = '';
   let writeRafId: number | null = null;
   let writePending = false;
   let writePendingTimer: ReturnType<typeof setTimeout> | null = null;
   let flushBurstStart = 0; // Timestamp of first flush in current burst
+  let lastRefreshTime = 0; // Last time we forced a term.refresh() during sustained output
+  // Independent screen refresh timer — runs during active output regardless of
+  // write pipeline state. Without this, if term.write() callback is delayed
+  // (xterm defers heavy ANSI parsing, or WebGL context loss recovery), the screen
+  // freezes because the only refresh calls lived inside the write callback.
+  let refreshIntervalId: ReturnType<typeof setInterval> | null = null;
   // Flag set synchronously around programmatic scrollToBottom() calls so the
   // scroll event listener can skip the deferred isAtBottom() check. Setting
   // scrollTop fires the scroll event synchronously, so this flag is only true
@@ -250,9 +257,20 @@
 
   function bufferedWrite(data: string) {
     writeBuffer += data;
-    // Cap buffer to prevent unbounded memory growth during heavy output
+    // Cap buffer to prevent unbounded memory growth during heavy output.
+    // When truncating, find a safe boundary (newline) to avoid slicing in the
+    // middle of an ANSI escape sequence, which would corrupt xterm's parser
+    // state and cause garbled/frozen rendering.
     if (writeBuffer.length > MAX_BUFFER_SIZE) {
-      writeBuffer = writeBuffer.slice(-MAX_BUFFER_SIZE);
+      let truncated = writeBuffer.slice(-MAX_BUFFER_SIZE);
+      // Find the first newline after the truncation point so we start on a
+      // clean line boundary. Search only the first 4KB to avoid scanning the
+      // entire buffer — if no newline is found, accept the raw slice.
+      const nl = truncated.indexOf('\n', 0);
+      if (nl > 0 && nl < 4096) {
+        truncated = truncated.slice(nl + 1);
+      }
+      writeBuffer = truncated;
     }
     scheduleFlush();
   }
@@ -289,6 +307,8 @@
         console.warn('[Terminal] write callback did not fire within timeout -- recovering pipeline');
         writePending = false;
         writePendingTimer = null;
+        // Force a screen repaint so the user sees whatever has been parsed so far
+        if (term) term.refresh(0, term.rows - 1);
         scheduleFlush();
       }
     }, WRITE_PENDING_TIMEOUT);
@@ -300,6 +320,32 @@
         writePendingTimer = null;
       }
 
+      if (term) {
+        const now = performance.now();
+        if (!writeBuffer) {
+          // Last chunk in buffer — force a full repaint after each output burst completes.
+          // This ensures xterm's DOM rows are up-to-date even if the internal
+          // render loop missed a frame during heavy output (e.g. after WebGL
+          // context loss or renderer fallback). Without this, the terminal can
+          // appear frozen (stale rows, missing cursor) while the data is in the
+          // buffer but not painted. This MUST NOT be gated on autoScroll —
+          // repainting the screen is independent of scroll position.
+          lastRefreshTime = now;
+          requestAnimationFrame(() => {
+            if (term) term.refresh(0, term.rows - 1);
+          });
+        } else if (now - lastRefreshTime >= REFRESH_INTERVAL_MS) {
+          // Sustained output — buffer hasn't drained yet. Force a periodic repaint
+          // so the screen stays live during long bursts (e.g. large colored output).
+          // Without this, the terminal can appear frozen for the entire burst duration
+          // because term.refresh() only fires when the buffer fully drains.
+          lastRefreshTime = now;
+          requestAnimationFrame(() => {
+            if (term) term.refresh(0, term.rows - 1);
+          });
+        }
+      }
+
       if (autoScroll && settingsStore.value.autoScroll && term) {
         const now = Date.now();
         if (!writeBuffer) {
@@ -308,14 +354,6 @@
           term.scrollToBottom();
           scrolledByUs = false;
           lastScrollToBottomTime = now;
-          // Force a full repaint after each output burst completes.
-          // This ensures xterm's DOM rows are up-to-date even if the internal
-          // render loop missed a frame during heavy output. Without this,
-          // the terminal can appear frozen (stale rows) while all metrics
-          // show healthy -- the data is in the buffer but not painted.
-          requestAnimationFrame(() => {
-            if (term) term.refresh(0, term.rows - 1);
-          });
         } else if (now - lastScrollToBottomTime >= SCROLL_THROTTLE_MS) {
           // Intermediate chunk but throttle interval elapsed -- scroll for visual feedback
           scrolledByUs = true;
@@ -394,6 +432,14 @@
       if (resizeDebouncer) {
         resizeDebouncer.setOutputActive(true);
       }
+      // Start independent screen refresh timer. This runs outside the write
+      // pipeline so the screen stays live even when term.write() callback is
+      // delayed (heavy ANSI parsing deferral, WebGL context loss recovery).
+      if (!refreshIntervalId) {
+        refreshIntervalId = setInterval(() => {
+          if (term) term.refresh(0, term.rows - 1);
+        }, REFRESH_INTERVAL_MS);
+      }
     }
 
     // Only create the timer once; it self-reschedules while output is active
@@ -403,6 +449,11 @@
           isOutputActive = false;
           if (resizeDebouncer) {
             resizeDebouncer.setOutputActive(false);
+          }
+          // Stop independent refresh timer — output has settled
+          if (refreshIntervalId) {
+            clearInterval(refreshIntervalId);
+            refreshIntervalId = null;
           }
           outputActivityTimeout = null;
         } else {
@@ -735,12 +786,19 @@
       try {
         webglAddon = new WebglAddon();
 
-        // Handle WebGL context loss - browser may drop it for various reasons
+        // Handle WebGL context loss - browser may drop it under GPU memory
+        // pressure (common during heavy colored output with many draw calls).
+        // After disposal, xterm falls back to the DOM renderer, but the DOM rows
+        // are stale — we must force a full repaint so the screen doesn't appear
+        // frozen with a missing cursor.
         webglAddon.onContextLoss(() => {
-          console.warn('[Terminal] WebGL context lost, disposing addon');
+          console.warn('[Terminal] WebGL context lost, disposing addon and refreshing');
           webglAddon?.dispose();
           webglAddon = null;
-          // Terminal will fall back to DOM renderer automatically
+          // Force DOM renderer to repaint all rows after takeover
+          requestAnimationFrame(() => {
+            if (term) term.refresh(0, term.rows - 1);
+          });
         });
 
         term.loadAddon(webglAddon);
@@ -880,6 +938,7 @@
     console.log(`[Terminal:${terminalInstanceId}] Destroying terminal component. Session: ${currentAttachedSessionId?.slice(0, 8)}`);
     if (writeRafId !== null) cancelAnimationFrame(writeRafId);
     if (writePendingTimer !== null) clearTimeout(writePendingTimer);
+    if (refreshIntervalId) clearInterval(refreshIntervalId);
     writeBuffer = '';
     writePending = false;
     if (resizeTimeout) clearTimeout(resizeTimeout);
