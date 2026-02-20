@@ -29,9 +29,10 @@ const { TerminalMock, FitAddonMock } = vi.hoisted(() => {
     cols = 80;
     rows = 24;
     options = {};
-    buffer = { normal: { length: 0 }, active: { length: 0 } };
+    buffer = { normal: { length: 0 }, active: { length: 0, viewportY: 0, baseY: 0 } };
     unicode = { activeVersion: '6' };
     attachCustomKeyEventHandler = vi.fn();
+    onScroll = vi.fn();
   }
 
   class FitAddonMockImpl {

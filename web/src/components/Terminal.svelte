@@ -171,34 +171,33 @@
   // bottom" badge visibility (`{#if !$autoScroll}`) updates correctly when
   // autoScroll changes inside wheel/scroll/keydown event listeners.
   const autoScroll = writable(true);
-  let viewportElement: Element | null = null;
 
-  // Threshold (px) for "close enough to bottom" — covers sub-pixel rounding.
-  const BOTTOM_THRESHOLD = 5;
-
+  // xterm v6 uses VS Code's SmoothScrollableElement instead of native scroll
+  // on .xterm-viewport. DOM scrollTop/scrollHeight are no longer reliable.
+  // Use the buffer API: viewportY (top visible line) vs baseY (max scroll).
   function isAtBottom(): boolean {
-    if (!viewportElement) return true;
-    const el = viewportElement as HTMLElement;
-    return el.scrollTop >= el.scrollHeight - el.clientHeight - BOTTOM_THRESHOLD;
+    if (!term) return true;
+    return term.buffer.active.viewportY >= term.buffer.active.baseY;
   }
 
   function initAutoScroll() {
-    viewportElement = terminalContainer?.querySelector('.xterm-viewport');
-    if (!viewportElement) return;
+    if (!term) return;
 
     // --- Mouse / trackpad ---
-    viewportElement.addEventListener('wheel', ((e: WheelEvent) => {
+    // Listen on terminalContainer because xterm v6's SmoothScrollableElement
+    // intercepts wheel events before they reach .xterm-viewport.
+    terminalContainer.addEventListener('wheel', ((e: WheelEvent) => {
       if (e.deltaY < 0) {
         // Immediately disable auto-scroll so the next flushWriteBuffer() won't
         // call scrollToBottom() before the browser applies this wheel scroll.
         autoScroll.set(false);
-        // After the browser applies the scroll, check if viewport is still at
+        // After xterm processes the scroll, check if viewport is still at
         // the bottom (e.g. tiny accidental trackpad gesture). If so, re-enable.
         requestAnimationFrame(() => {
           if (isAtBottom()) autoScroll.set(true);
         });
       } else if (e.deltaY > 0 && !$autoScroll) {
-        // User scrolling down → check if reached bottom AFTER browser applies scroll
+        // User scrolling down → check if reached bottom AFTER xterm applies scroll
         requestAnimationFrame(() => {
           if (isAtBottom()) autoScroll.set(true);
         });
@@ -221,7 +220,8 @@
     }, true);
 
     // --- Scrollbar drag and any other scroll source ---
-    // Covers cases not caught by wheel/keydown (e.g. scrollbar drag, touch).
+    // xterm v6 fires onScroll(viewportY) for ALL scroll sources: wheel, drag,
+    // touch, keyboard, programmatic. This replaces the old DOM scroll listener.
     //
     // WARNING: DO NOT add isOutputActive guards or any other conditional logic
     // here. This simple form has been broken and restored multiple times.
@@ -230,7 +230,7 @@
     // that scrollbar drags and touch scrolls also work during active output.
     // Adding guards (e.g. `if (isOutputActive) return`) causes scroll-up to
     // stop working while commands are running. See git history for proof.
-    viewportElement.addEventListener('scroll', () => {
+    term.onScroll(() => {
       // Skip when we caused the scroll via our own scrollToBottom() in the write
       // callback. Those calls set scrolledByUs synchronously around the call, so
       // the flag is only true for exactly those scroll events.
@@ -241,7 +241,7 @@
       } else if (!atBottom && $autoScroll) {
         autoScroll.set(false);
       }
-    }, { passive: true });
+    });
   }
 
   function bufferedWrite(data: string) {
@@ -831,18 +831,15 @@
     resizeObserver.observe(terminalContainer);
 
     // Re-focus terminal after scrolling so keyboard input continues working.
-    // Scrolling the xterm-viewport can steal focus from the terminal's textarea.
-    const viewport = terminalContainer.querySelector('.xterm-viewport');
-    if (viewport) {
-      scrollEndHandler = () => {
-        if (isActive && term && !isNonTerminalFocused()) {
-          term.focus();
-        }
-      };
-      viewport.addEventListener('scrollend', scrollEndHandler);
-      // Fallback: also re-focus on mouseup after a scroll drag
-      viewport.addEventListener('mouseup', scrollEndHandler);
-    }
+    // xterm v6 uses SmoothScrollableElement — listen on the container.
+    scrollEndHandler = () => {
+      if (isActive && term && !isNonTerminalFocused()) {
+        term.focus();
+      }
+    };
+    terminalContainer.addEventListener('scrollend', scrollEndHandler);
+    // Fallback: also re-focus on mouseup after a scroll drag
+    terminalContainer.addEventListener('mouseup', scrollEndHandler);
 
     // Handle window resize
     windowResizeHandler = handleResize;
@@ -884,12 +881,9 @@
     if (resizeObserver) resizeObserver.disconnect();
     // Use new cleanup function to properly remove listener
     cleanupOutputListener();
-    if (scrollEndHandler) {
-      const viewport = terminalContainer?.querySelector('.xterm-viewport');
-      if (viewport) {
-        viewport.removeEventListener('scrollend', scrollEndHandler);
-        viewport.removeEventListener('mouseup', scrollEndHandler);
-      }
+    if (scrollEndHandler && terminalContainer) {
+      terminalContainer.removeEventListener('scrollend', scrollEndHandler);
+      terminalContainer.removeEventListener('mouseup', scrollEndHandler);
     }
     if (windowResizeHandler) {
       window.removeEventListener('resize', windowResizeHandler);
@@ -968,24 +962,9 @@
     overflow: hidden;
   }
 
-  .terminal-container :global(.xterm-viewport) {
-    overflow-y: auto !important;
-  }
-
-  .terminal-container :global(.xterm-viewport::-webkit-scrollbar) {
-    width: 10px;
-  }
-
-  .terminal-container :global(.xterm-viewport::-webkit-scrollbar-track) {
-    background: transparent;
-  }
-
-  .terminal-container :global(.xterm-viewport::-webkit-scrollbar-thumb) {
-    background: var(--ui-scrollbar-thumb, rgba(121,121,121,0.4));
+  /* xterm v6 uses VS Code's SmoothScrollableElement with class .xterm-scrollable-element.
+     The old .xterm-viewport native scrollbar is no longer used for scrolling. */
+  .terminal-container :global(.xterm-scrollable-element > .scrollbar > .slider) {
     border-radius: 5px;
-  }
-
-  .terminal-container :global(.xterm-viewport::-webkit-scrollbar-thumb:hover) {
-    background: var(--ui-scrollbar-thumb-hover, rgba(121,121,121,0.7));
   }
 </style>

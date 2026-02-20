@@ -19,6 +19,7 @@ const { TerminalMock, FitAddonMock, mockTerm, mockFit } = vi.hoisted(() => {
     getSelection: vi.fn().mockReturnValue(''),
     selectAll: vi.fn(),
     attachCustomKeyEventHandler: vi.fn(),
+    onScroll: vi.fn(),
     cols: 80,
     rows: 24,
     options: {
@@ -62,6 +63,7 @@ const { TerminalMock, FitAddonMock, mockTerm, mockFit } = vi.hoisted(() => {
     buffer = mockTerm.buffer;
     unicode = mockTerm.unicode;
     attachCustomKeyEventHandler = mockTerm.attachCustomKeyEventHandler;
+    onScroll = mockTerm.onScroll;
   }
 
   class FitAddonMockImpl {
