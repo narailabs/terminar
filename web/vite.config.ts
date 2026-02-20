@@ -1,5 +1,5 @@
 /// <reference types="vitest" />
-import { defineConfig } from 'vite'
+import { defineConfig, defaultClientConditions } from 'vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 
 // https://vitejs.dev/config/
@@ -9,7 +9,7 @@ export default defineConfig({
     port: 3001,
   },
   resolve: {
-    conditions: ['browser'],
+    conditions: ['browser', ...defaultClientConditions],
   },
   test: {
     globals: true,
