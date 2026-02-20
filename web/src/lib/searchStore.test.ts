@@ -1,19 +1,14 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import {
-  createSearchStore,
-  type SearchState,
-} from './searchStore';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { searchStore } from './searchStore.svelte';
 
 describe('searchStore', () => {
-  let store: ReturnType<typeof createSearchStore>;
-
   beforeEach(() => {
-    store = createSearchStore();
+    searchStore.close();
   });
 
-  describe('F4a: Search state management', () => {
+  describe('Search state management', () => {
     it('should start with search closed', () => {
-      const state = store.get();
+      const state = searchStore.get();
       expect(state.isOpen).toBe(false);
       expect(state.query).toBe('');
       expect(state.currentMatch).toBe(0);
@@ -21,16 +16,22 @@ describe('searchStore', () => {
     });
 
     it('should open search bar', () => {
-      store.open();
-      const state = store.get();
+      searchStore.open();
+      expect(searchStore.get().isOpen).toBe(true);
+    });
+
+    it('should open search bar with paneId', () => {
+      searchStore.open('pane-1');
+      const state = searchStore.get();
       expect(state.isOpen).toBe(true);
+      expect(state.paneId).toBe('pane-1');
     });
 
     it('should close search bar and clear state', () => {
-      store.open();
-      store.setQuery('hello');
-      store.close();
-      const state = store.get();
+      searchStore.open();
+      searchStore.setQuery('hello');
+      searchStore.close();
+      const state = searchStore.get();
       expect(state.isOpen).toBe(false);
       expect(state.query).toBe('');
       expect(state.currentMatch).toBe(0);
@@ -38,59 +39,53 @@ describe('searchStore', () => {
     });
 
     it('should update query', () => {
-      store.open();
-      store.setQuery('test');
-      expect(store.get().query).toBe('test');
+      searchStore.open();
+      searchStore.setQuery('test');
+      expect(searchStore.get().query).toBe('test');
     });
 
     it('should update match count', () => {
-      store.open();
-      store.setQuery('test');
-      store.setMatchInfo(3, 17);
-      const state = store.get();
+      searchStore.open();
+      searchStore.setQuery('test');
+      searchStore.setMatchInfo(3, 17);
+      const state = searchStore.get();
       expect(state.currentMatch).toBe(3);
       expect(state.totalMatches).toBe(17);
     });
 
     it('should toggle case sensitivity', () => {
-      expect(store.get().caseSensitive).toBe(false);
-      store.toggleCaseSensitive();
-      expect(store.get().caseSensitive).toBe(true);
-      store.toggleCaseSensitive();
-      expect(store.get().caseSensitive).toBe(false);
+      expect(searchStore.get().caseSensitive).toBe(false);
+      searchStore.toggleCaseSensitive();
+      expect(searchStore.get().caseSensitive).toBe(true);
+      searchStore.toggleCaseSensitive();
+      expect(searchStore.get().caseSensitive).toBe(false);
     });
 
     it('should toggle regex mode', () => {
-      expect(store.get().useRegex).toBe(false);
-      store.toggleRegex();
-      expect(store.get().useRegex).toBe(true);
-      store.toggleRegex();
-      expect(store.get().useRegex).toBe(false);
+      expect(searchStore.get().useRegex).toBe(false);
+      searchStore.toggleRegex();
+      expect(searchStore.get().useRegex).toBe(true);
+      searchStore.toggleRegex();
+      expect(searchStore.get().useRegex).toBe(false);
     });
 
     it('should reset match info when query changes', () => {
-      store.open();
-      store.setQuery('test');
-      store.setMatchInfo(3, 17);
-      store.setQuery('different');
-      const state = store.get();
+      searchStore.open();
+      searchStore.setQuery('test');
+      searchStore.setMatchInfo(3, 17);
+      searchStore.setQuery('different');
+      const state = searchStore.get();
       expect(state.currentMatch).toBe(0);
       expect(state.totalMatches).toBe(0);
     });
-  });
 
-  describe('F4a: Subscribability', () => {
-    it('should notify subscribers on state change', () => {
-      const callback = vi.fn();
-      const unsub = store.subscribe(callback);
-
-      // Initial call
-      expect(callback).toHaveBeenCalledTimes(1);
-
-      store.open();
-      expect(callback).toHaveBeenCalledTimes(2);
-
-      unsub();
+    it('should expose state via .state getter', () => {
+      searchStore.open('pane-x');
+      searchStore.setQuery('hello');
+      const s = searchStore.state;
+      expect(s.isOpen).toBe(true);
+      expect(s.paneId).toBe('pane-x');
+      expect(s.query).toBe('hello');
     });
   });
 });

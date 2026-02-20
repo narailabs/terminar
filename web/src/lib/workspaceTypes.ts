@@ -1,15 +1,7 @@
 /**
  * Workspace types for split-pane terminal layouts
  */
-
-/** Session info from the server */
-export interface SessionInfo {
-  id: string;
-  name: string;
-  shell: string;
-  cwd: string;
-  started_at: string;
-}
+export type { SessionInfo } from './shared-protocol';
 
 /** Unique identifier for panes, tabs, etc. */
 export type PaneId = string;

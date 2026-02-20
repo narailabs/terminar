@@ -8,23 +8,22 @@
   import { WebSocketSessionManager } from './lib/WebSocketSessionManager';
   import type { ConnectionState, SessionManager } from './lib/SessionManager';
   import { LocalEchoManager } from './lib/LocalEchoManager';
-  import { settingsStore } from './lib/settingsStore';
+  import { settingsStore } from './lib/settingsStore.svelte';
   import { initializeSettings } from './lib/settingsApi';
   import { workspaceStore } from './lib/workspaceStore';
-  import { applyUIThemeCSS, themeState, initAutoMode } from './lib/themeStore';
+  import { applyUIThemeCSS, themeState, initAutoMode } from './lib/themeStore.svelte';
   import type { Workspace } from './lib/workspaceTypes';
 
   import AppToolbar from './components/AppToolbar.svelte';
   import BroadcastBar from './components/BroadcastBar.svelte';
-  import { broadcastEnabled, clearTargets, setSessionManager } from './lib/broadcastStore';
-  import { getEffectiveEnv } from './lib/envStore';
+  import { broadcastEnabled, clearTargets, setSessionManager } from './lib/broadcastStore.svelte';
+  import { getEffectiveEnv } from './lib/envStore.svelte';
   import { getKeyBindingRegistry } from './lib/keybindings';
-  import { activityStore } from './lib/activityStore';
-  import { markExited } from './lib/exitedSessionsStore';
-  import { foregroundStore } from './lib/foregroundStore';
+  import { activityStore } from './lib/activityStore.svelte';
+  import { markExited } from './lib/exitedSessionsStore.svelte';
+  import { foregroundStore } from './lib/foregroundStore.svelte';
   import { parseSshPrivateKey } from './lib/sshKeyParser';
-  import { writable } from 'svelte/store';
-  import { setManagerContext, setSessionsContext, setActionsContext, type AppActions } from './lib/sessionContext';
+  import { reactiveBox, setManagerContext, setSessionsContext, setActionsContext, type AppActions } from './lib/sessionContext.svelte';
 
   // Check for local-echo mode via URL parameter or localStorage (for e2e tests)
   const isLocalEchoMode = typeof window !== 'undefined' && (
@@ -41,34 +40,43 @@
   }
 
   // Props for server URLs (allows testing with different URLs)
-  export let serverHttpUrl = 'http://localhost:6749';
-  export let serverWsUrl = 'ws://localhost:6749/ws';
+  let {
+    serverHttpUrl = 'http://localhost:6749',
+    serverWsUrl = 'ws://localhost:6749/ws',
+  }: {
+    serverHttpUrl?: string;
+    serverWsUrl?: string;
+  } = $props();
 
-  let token = '';
-  let pairingCode = '';
-  let pairingError = '';
-  let isPairingMode = false;
-  let isExchangingCode = false;
-  let isConnected = false;
-  let authError = '';
-  let isAuthenticating = false;
-  let manager: SessionManager | null = null;
+  let token = $state('');
+  let pairingCode = $state('');
+  let pairingError = $state('');
+  let isPairingMode = $state(false);
+  let isExchangingCode = $state(false);
+  let isConnected = $state(false);
+  let authError = $state('');
+  let isAuthenticating = $state(false);
+  let manager = $state<SessionManager | null>(null);
 
   // Session state
-  let sessions: SessionInfo[] = [];
-  let sidebarOpen = true;
-  let pendingNewTerminal = false;
-  let pendingNewTerminalPaneId: string | null = null;
+  let sessions = $state<SessionInfo[]>([]);
+  let sidebarOpen = $state(true);
+  let pendingNewTerminal = $state(false);
+  let pendingNewTerminalPaneId = $state<string | null>(null);
 
-  // Context stores for child components
-  const managerStore = writable<SessionManager | null>(null);
-  const sessionsStore = writable<SessionInfo[]>([]);
-  setManagerContext(managerStore);
-  setSessionsContext(sessionsStore);
+  // Context reactive boxes for child components
+  const managerBox = reactiveBox<SessionManager | null>(null);
+  const sessionsBox = reactiveBox<SessionInfo[]>([]);
+  setManagerContext(managerBox);
+  setSessionsContext(sessionsBox);
 
-  // Keep stores in sync with local state
-  $: managerStore.set(manager);
-  $: sessionsStore.set(sessions);
+  // Keep boxes in sync with local state
+  $effect(() => {
+    managerBox.value = manager;
+  });
+  $effect(() => {
+    sessionsBox.value = sessions;
+  });
 
   // Actions context for child components (replaces event bubbling)
   const appActions: AppActions = {
@@ -80,20 +88,20 @@
   setActionsContext(appActions);
 
   // Settings panel state
-  let showSettingsPanel = false;
+  let showSettingsPanel = $state(false);
 
   // Broadcast bar state
-  let showBroadcastBar = false;
+  let showBroadcastBar = $state(false);
 
   function toggleBroadcast() {
-    if ($broadcastEnabled) {
+    if (broadcastEnabled.value) {
       // Disabling broadcast mode: close bar and clear targets
       showBroadcastBar = false;
-      broadcastEnabled.set(false);
+      broadcastEnabled.value = false;
       clearTargets();
     } else {
       // Enabling broadcast mode: open bar
-      broadcastEnabled.set(true);
+      broadcastEnabled.value = true;
       showBroadcastBar = true;
     }
   }
@@ -104,9 +112,9 @@
   }
 
   // Connection state tracking
-  let connectionState: ConnectionState = 'disconnected';
-  let reconnectAttempt = 0;
-  let reconnectDelay = 0;
+  let connectionState = $state<ConnectionState>('disconnected');
+  let reconnectAttempt = $state(0);
+  let reconnectDelay = $state(0);
 
   // Detect if connecting to localhost (no auth needed)
   function isLocalServer(url: string): boolean {
@@ -137,7 +145,7 @@
     return url;
   }
 
-  // Cookie-based auth helpers — replaces localStorage token persistence.
+  // Cookie-based auth helpers -- replaces localStorage token persistence.
   // After successful WebSocket auth, POST the token to /auth/session to set HttpOnly cookies.
   // The server sets Secure; HttpOnly; SameSite=Strict cookies that the browser sends
   // automatically on WebSocket upgrade requests, enabling transparent reconnection.
@@ -191,17 +199,19 @@
     }
   }
 
-  $: isLocal = isLocalServer(serverWsUrl);
+  let isLocal = $derived(isLocalServer(serverWsUrl));
 
   // Apply UI theme CSS variables whenever the theme state changes
-  $: if ($themeState) {
-    applyUIThemeCSS();
-  }
+  $effect(() => {
+    if (themeState.value) {
+      applyUIThemeCSS();
+    }
+  });
 
   // Listen for OS color scheme changes when mode is 'auto'
   initAutoMode();
 
-  // Global keyboard shortcuts — delegates to the centralized KeyBindingRegistry
+  // Global keyboard shortcuts -- delegates to the centralized KeyBindingRegistry
   function handleGlobalKeydown(event: KeyboardEvent) {
     // Skip if already handled by the terminal's custom key event handler
     if (event.defaultPrevented) return;
@@ -542,7 +552,7 @@
 
   // Cookie-based reconnection: the browser sends HttpOnly cookies automatically
   // on the WebSocket upgrade request. The server validates the cookie and sends AuthOk.
-  // This runs silently (no isAuthenticating UI state) — if it fails, the login page shows.
+  // This runs silently (no isAuthenticating UI state) -- if it fails, the login page shows.
   async function connectWithCookie(): Promise<boolean> {
     const wsUrl = enforceSecureConnection(serverWsUrl);
     const wsManager = new WebSocketSessionManager(wsUrl);
@@ -559,7 +569,7 @@
       });
 
       await wsManager.connect();
-      // No auth message needed — the cookie is sent with the upgrade request
+      // No auth message needed -- the cookie is sent with the upgrade request
 
       await Promise.race([
         authPromise,
@@ -577,7 +587,7 @@
       workspaceStore.setSaveCallback(saveWorkspace);
       return true;
     } catch {
-      // Cookie auth failed — clean up the manager to avoid resource leaks
+      // Cookie auth failed -- clean up the manager to avoid resource leaks
       // (WebSocketSessionManager registers a beforeunload listener in constructor)
       wsManager.disconnect();
       manager = null;
@@ -735,21 +745,21 @@
   }
 
   // Handle login events from LoginPage component
-  function handlePasswordAuth(event: CustomEvent<{ username: string; password: string; rememberMe: boolean }>) {
-    connectWithPassword(event.detail.username, event.detail.password, event.detail.rememberMe);
+  function handlePasswordAuth(detail: { username: string; password: string; rememberMe: boolean }) {
+    connectWithPassword(detail.username, detail.password, detail.rememberMe);
   }
 
-  function handleSshKeyAuth(event: CustomEvent<{ username: string; privateKeyPem: string; rememberMe: boolean }>) {
-    connectWithSshKey(event.detail.username, event.detail.privateKeyPem, event.detail.rememberMe);
+  function handleSshKeyAuth(detail: { username: string; privateKeyPem: string; rememberMe: boolean }) {
+    connectWithSshKey(detail.username, detail.privateKeyPem, detail.rememberMe);
   }
 
-  function handleTokenAuth(event: CustomEvent<{ token: string }>) {
-    token = event.detail.token;
+  function handleTokenAuth(detail: { token: string }) {
+    token = detail.token;
     connect();
   }
 
-  function handlePairingAuth(event: CustomEvent<{ code: string }>) {
-    pairingCode = event.detail.code;
+  function handlePairingAuth(detail: { code: string }) {
+    pairingCode = detail.code;
     exchangeCode();
   }
 
@@ -797,7 +807,7 @@
     sidebarOpen = !sidebarOpen;
   }
 
-  function handleSidebarSelect(event: CustomEvent<string>) {
+  function handleSidebarSelect(sessionId: string) {
     // When clicking a session in sidebar, assign it to active pane
     const ws = workspaceStore.get();
     const tab = ws.tabs.find(t => t.id === ws.activeTabId);
@@ -813,17 +823,17 @@
       }
       const paneId = findFirstPane(tab.root);
       if (paneId) {
-        workspaceStore.assignSession(paneId, event.detail);
+        workspaceStore.assignSession(paneId, sessionId);
       }
     }
   }
 
-  function handleSidebarClose(event: CustomEvent<string>) {
-    closeTerminal(event.detail);
+  function handleSidebarClose(sessionId: string) {
+    closeTerminal(sessionId);
   }
 
-  function handleSidebarRename(event: CustomEvent<{ id: string; newName: string }>) {
-    renameTerminal(event.detail.id, event.detail.newName);
+  function handleSidebarRename(detail: { id: string; newName: string }) {
+    renameTerminal(detail.id, detail.newName);
   }
 
   function handleSidebarCreate() {
@@ -839,16 +849,14 @@
     showSettingsPanel = false;
   }
 
-  function handleSettingsFromSidebar(event: CustomEvent) {
-    openSettings();
-  }
-
-  function handleSidebarPaneDrop(event: CustomEvent<{ sourcePaneId: string }>) {
-    workspaceStore.detachPane(event.detail.sourcePaneId);
+  function handleSidebarPaneDrop(detail: { sourcePaneId: string }) {
+    workspaceStore.detachPane(detail.sourcePaneId);
   }
 
   // Keep broadcast store's session manager in sync
-  $: setSessionManager(manager);
+  $effect(() => {
+    setSessionManager(manager);
+  });
 
 
 </script>
@@ -860,11 +868,11 @@
       {connectionState}
       {authError}
       {isAuthenticating}
-      on:passwordAuth={handlePasswordAuth}
-      on:sshKeyAuth={handleSshKeyAuth}
-      on:tokenAuth={handleTokenAuth}
-      on:pairingAuth={handlePairingAuth}
-      on:retryLocal={handleRetryLocal}
+      onpasswordauth={(detail) => handlePasswordAuth(detail)}
+      onsshkeyauth={(detail) => handleSshKeyAuth(detail)}
+      ontokenauth={(detail) => handleTokenAuth(detail)}
+      onpairingauth={(detail) => handlePairingAuth(detail)}
+      onretrylocal={() => handleRetryLocal()}
     />
   {:else}
     <div class="app-container">
@@ -891,20 +899,20 @@
         {sessions}
         activeSessionId={null}
         isOpen={sidebarOpen}
-        broadcastMode={$broadcastEnabled}
-        on:toggle={handleSidebarToggle}
-        on:select={handleSidebarSelect}
-        on:close={handleSidebarClose}
-        on:rename={handleSidebarRename}
-        on:create={handleSidebarCreate}
-        on:settings={handleSettingsFromSidebar}
-        on:paneDrop={handleSidebarPaneDrop}
+        broadcastMode={broadcastEnabled.value}
+        ontoggle={() => handleSidebarToggle()}
+        onselect={(sessionId) => handleSidebarSelect(sessionId)}
+        onclose={(sessionId) => handleSidebarClose(sessionId)}
+        onrename={(detail) => handleSidebarRename(detail)}
+        oncreate={() => handleSidebarCreate()}
+        onsettings={() => openSettings()}
+        onpanedrop={(detail) => handleSidebarPaneDrop(detail)}
       />
     </div>
   {/if}
 
   <!-- Settings Panel Modal -->
-  <SettingsPanel isOpen={showSettingsPanel} on:close={closeSettings} />
+  <SettingsPanel isOpen={showSettingsPanel} onclose={() => closeSettings()} />
 </main>
 
 <style>

@@ -120,23 +120,19 @@ pub fn resolve_process_name(pid: i32) -> Option<String> {
     let name = resolve_process_name_raw(pid)?;
 
     // If the process name is a wrapper (node, python, etc.), try to get the real binary
-    if WRAPPER_PROCESSES.contains(&name.as_str()) {
-        if let Some(cmdline) = get_process_cmdline(pid) {
-            if let Some(real_name) = extract_binary_name_from_cmdline(&cmdline) {
-                return Some(real_name);
-            }
+    if WRAPPER_PROCESSES.contains(&name.as_str())
+        && let Some(cmdline) = get_process_cmdline(pid)
+        && let Some(real_name) = extract_binary_name_from_cmdline(&cmdline) {
+            return Some(real_name);
         }
-    }
 
     // If the name looks like a version string (e.g., proc_pidpath resolved a symlink
     // to a versioned directory like ~/.claude/local/2.1.29), extract from the cmdline
-    if looks_like_version(&name) {
-        if let Some(cmdline) = get_process_cmdline(pid) {
-            if let Some(real_name) = extract_binary_from_first_arg(&cmdline) {
-                return Some(real_name);
-            }
+    if looks_like_version(&name)
+        && let Some(cmdline) = get_process_cmdline(pid)
+        && let Some(real_name) = extract_binary_from_first_arg(&cmdline) {
+            return Some(real_name);
         }
-    }
 
     Some(name)
 }

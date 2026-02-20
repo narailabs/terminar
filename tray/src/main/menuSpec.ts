@@ -21,8 +21,8 @@ export function computeMenuSpec(
   config: TrayConfig,
 ): MenuSpec {
   // Status line
-  let statusIcon: string;
-  let statusLabel: string;
+  let statusIcon = '\u25CB'; // open circle
+  let statusLabel = 'Unknown';
 
   if (serviceStatus === 'notinstalled') {
     statusIcon = '\u25CB'; // open circle
@@ -48,7 +48,7 @@ export function computeMenuSpec(
     config.tls_mode === 'auto' || config.tls_mode === 'custom'
       ? ', TLS'
       : '';
-  const statusText = `Gateway: ${statusIcon!} ${statusLabel!} (port ${config.gateway_port}${tlsLabel})`;
+  const statusText = `Gateway: ${statusIcon} ${statusLabel} (port ${config.gateway_port}${tlsLabel})`;
 
   const isInstalled = serviceStatus !== 'notinstalled';
   const isRunning = isInstalled && health.status === 'running';

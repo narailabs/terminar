@@ -90,7 +90,7 @@ class ProtocolError extends ShellProtocolError {
   }
 }
 
-const ERROR_CODE_TO_CLASS: Record<string, new (message: string) => ShellProtocolError> = {
+const ERROR_CODE_TO_CLASS: Record<ErrorCode, new (message: string) => ShellProtocolError> = {
   AUTH_FAILED: AuthError,
   SESSION_NOT_FOUND: SessionError,
   PTY_ERROR: PtyError,
@@ -103,14 +103,17 @@ const ERROR_CODE_TO_CLASS: Record<string, new (message: string) => ShellProtocol
   VALIDATION_ERROR: ValidationError,
 };
 
+function isErrorCode(code: string): code is ErrorCode {
+  return code in ERROR_CODE_TO_CLASS;
+}
+
 /**
  * Create a typed error from a server error code and message.
  * Falls back to InternalError if the code is unknown or missing.
  */
 export function createErrorFromCode(message: string, errorCode?: string): ShellProtocolError {
-  const ErrorClass = errorCode ? ERROR_CODE_TO_CLASS[errorCode] : undefined;
-  if (ErrorClass) {
-    return new ErrorClass(message);
+  if (errorCode && isErrorCode(errorCode)) {
+    return new ERROR_CODE_TO_CLASS[errorCode](message);
   }
   return new InternalError(message);
 }

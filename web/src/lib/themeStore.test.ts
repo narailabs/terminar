@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { get } from 'svelte/store';
 
 // Mock localStorage
 const localStorageMock = (() => {
@@ -14,7 +13,7 @@ const localStorageMock = (() => {
 Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock });
 
 // We need to dynamically import after mocking localStorage
-let themeStore: typeof import('./themeStore');
+let themeStore: typeof import('./themeStore.svelte');
 
 describe('themeStore', () => {
   beforeEach(async () => {
@@ -27,20 +26,20 @@ describe('themeStore', () => {
         root.style.removeProperty(prop);
       }
     });
-    themeStore = await import('./themeStore');
+    themeStore = await import('./themeStore.svelte');
   });
 
   // ── Default state ────────────────────────────────────────────────────────
 
   it('should initialize with dark theme as default', () => {
-    const state = get(themeStore.themeState);
+    const state = themeStore.themeState.value;
     expect(state.uiMode).toBe('dark');
     expect(state.activeUIThemeId).toBe('dark');
     expect(state.activeTerminalThemeId).toBe('dark');
   });
 
   it('should have empty custom themes and overrides by default', () => {
-    const state = get(themeStore.themeState);
+    const state = themeStore.themeState.value;
     expect(state.customUIThemes).toEqual([]);
     expect(state.customTerminalThemes).toEqual([]);
     expect(state.terminalOverrides).toEqual({});
@@ -50,25 +49,25 @@ describe('themeStore', () => {
 
   it('should set active UI theme', () => {
     themeStore.setActiveUITheme('light');
-    expect(get(themeStore.themeState).activeUIThemeId).toBe('light');
+    expect(themeStore.themeState.value.activeUIThemeId).toBe('light');
   });
 
   it('should set active terminal theme', () => {
     themeStore.setActiveTerminalTheme('dark-green');
-    expect(get(themeStore.themeState).activeTerminalThemeId).toBe('dark-green');
+    expect(themeStore.themeState.value.activeTerminalThemeId).toBe('dark-green');
   });
 
   // ── Per-pane terminal overrides ──────────────────────────────────────────
 
   it('should set a per-pane terminal override', () => {
     themeStore.setTerminalOverride('pane-1', 'light');
-    expect(get(themeStore.themeState).terminalOverrides['pane-1']).toBe('light');
+    expect(themeStore.themeState.value.terminalOverrides['pane-1']).toBe('light');
   });
 
   it('should clear a per-pane terminal override', () => {
     themeStore.setTerminalOverride('pane-1', 'light');
     themeStore.clearTerminalOverride('pane-1');
-    expect(get(themeStore.themeState).terminalOverrides['pane-1']).toBeUndefined();
+    expect(themeStore.themeState.value.terminalOverrides['pane-1']).toBeUndefined();
   });
 
   // ── getTerminalTheme helper ──────────────────────────────────────────────
@@ -97,7 +96,6 @@ describe('themeStore', () => {
 
   it('should apply CSS variables to document.documentElement on UI theme change', () => {
     themeStore.setActiveUITheme('light');
-    // Force the derived store to evaluate
     themeStore.applyUIThemeCSS();
     const root = document.documentElement;
     expect(root.style.getPropertyValue('--ui-bg-primary')).toBe('#ffffff');
@@ -151,8 +149,8 @@ describe('themeStore', () => {
       destructiveHover: '#e00',
     };
     themeStore.addCustomUITheme(custom);
-    expect(get(themeStore.themeState).customUIThemes).toHaveLength(1);
-    expect(get(themeStore.themeState).customUIThemes[0].id).toBe('my-ui');
+    expect(themeStore.themeState.value.customUIThemes).toHaveLength(1);
+    expect(themeStore.themeState.value.customUIThemes[0].id).toBe('my-ui');
   });
 
   it('should add a custom terminal theme', () => {
@@ -174,7 +172,7 @@ describe('themeStore', () => {
       },
     };
     themeStore.addCustomTerminalTheme(custom);
-    expect(get(themeStore.themeState).customTerminalThemes).toHaveLength(1);
+    expect(themeStore.themeState.value.customTerminalThemes).toHaveLength(1);
   });
 
   it('should delete a custom UI theme and fall back if active', () => {
@@ -189,11 +187,11 @@ describe('themeStore', () => {
     };
     themeStore.addCustomUITheme(custom);
     themeStore.setActiveUITheme('to-delete');
-    expect(get(themeStore.themeState).activeUIThemeId).toBe('to-delete');
+    expect(themeStore.themeState.value.activeUIThemeId).toBe('to-delete');
 
     themeStore.deleteCustomUITheme('to-delete');
-    expect(get(themeStore.themeState).customUIThemes).toHaveLength(0);
-    expect(get(themeStore.themeState).activeUIThemeId).toBe('dark');
+    expect(themeStore.themeState.value.customUIThemes).toHaveLength(0);
+    expect(themeStore.themeState.value.activeUIThemeId).toBe('dark');
   });
 
   it('should update a custom UI theme in place', () => {
@@ -207,12 +205,12 @@ describe('themeStore', () => {
       destructive: '#f00', destructiveHover: '#e00',
     };
     themeStore.addCustomUITheme(custom);
-    expect(get(themeStore.themeState).customUIThemes[0].name).toBe('Original');
+    expect(themeStore.themeState.value.customUIThemes[0].name).toBe('Original');
 
     themeStore.updateCustomUITheme('update-ui', { ...custom, name: 'Updated' });
-    expect(get(themeStore.themeState).customUIThemes).toHaveLength(1);
-    expect(get(themeStore.themeState).customUIThemes[0].name).toBe('Updated');
-    expect(get(themeStore.themeState).customUIThemes[0].id).toBe('update-ui');
+    expect(themeStore.themeState.value.customUIThemes).toHaveLength(1);
+    expect(themeStore.themeState.value.customUIThemes[0].name).toBe('Updated');
+    expect(themeStore.themeState.value.customUIThemes[0].id).toBe('update-ui');
   });
 
   it('should update a custom terminal theme in place', () => {
@@ -229,12 +227,12 @@ describe('themeStore', () => {
       },
     };
     themeStore.addCustomTerminalTheme(custom);
-    expect(get(themeStore.themeState).customTerminalThemes[0].name).toBe('Original');
+    expect(themeStore.themeState.value.customTerminalThemes[0].name).toBe('Original');
 
     themeStore.updateCustomTerminalTheme('update-term', { ...custom, name: 'Updated', foreground: '#fff' });
-    expect(get(themeStore.themeState).customTerminalThemes).toHaveLength(1);
-    expect(get(themeStore.themeState).customTerminalThemes[0].name).toBe('Updated');
-    expect(get(themeStore.themeState).customTerminalThemes[0].foreground).toBe('#fff');
+    expect(themeStore.themeState.value.customTerminalThemes).toHaveLength(1);
+    expect(themeStore.themeState.value.customTerminalThemes[0].name).toBe('Updated');
+    expect(themeStore.themeState.value.customTerminalThemes[0].foreground).toBe('#fff');
   });
 
   it('should delete a custom terminal theme and clear overrides using it', () => {
@@ -254,8 +252,8 @@ describe('themeStore', () => {
     themeStore.setTerminalOverride('pane-1', 'to-delete-term');
 
     themeStore.deleteCustomTerminalTheme('to-delete-term');
-    expect(get(themeStore.themeState).customTerminalThemes).toHaveLength(0);
-    expect(get(themeStore.themeState).terminalOverrides['pane-1']).toBeUndefined();
+    expect(themeStore.themeState.value.customTerminalThemes).toHaveLength(0);
+    expect(themeStore.themeState.value.terminalOverrides['pane-1']).toBeUndefined();
   });
 
   // ── Persistence ──────────────────────────────────────────────────────────
@@ -264,7 +262,6 @@ describe('themeStore', () => {
     localStorageMock.setItem.mockClear();
     themeStore.setActiveUITheme('light');
     expect(localStorageMock.setItem).toHaveBeenCalled();
-    // Get the last call to setItem with the theme-state key
     const calls = localStorageMock.setItem.mock.calls.filter(
       (c: string[]) => c[0] === 'theme-state'
     );
@@ -285,8 +282,8 @@ describe('themeStore', () => {
     localStorageMock.setItem('theme-state', JSON.stringify(saved));
 
     vi.resetModules();
-    const freshStore = await import('./themeStore');
-    const state = get(freshStore.themeState);
+    const freshStore = await import('./themeStore.svelte');
+    const state = freshStore.themeState.value;
     expect(state.uiMode).toBe('light');
     expect(state.activeUIThemeId).toBe('light');
     expect(state.activeTerminalThemeId).toBe('dark-green');
@@ -297,27 +294,26 @@ describe('themeStore', () => {
 
   it('setUIMode should update uiMode and activeUIThemeId', () => {
     themeStore.setUIMode('light');
-    const state = get(themeStore.themeState);
+    const state = themeStore.themeState.value;
     expect(state.uiMode).toBe('light');
     expect(state.activeUIThemeId).toBe('light');
   });
 
   it('setUIMode dark should set activeUIThemeId to dark', () => {
     themeStore.setUIMode('dark');
-    const state = get(themeStore.themeState);
+    const state = themeStore.themeState.value;
     expect(state.uiMode).toBe('dark');
     expect(state.activeUIThemeId).toBe('dark');
   });
 
   it('setUIMode auto should resolve based on matchMedia', () => {
-    // Mock matchMedia for auto mode
     const matchMediaMock = vi.fn().mockReturnValue({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() });
     vi.stubGlobal('matchMedia', matchMediaMock);
 
     themeStore.setUIMode('auto');
-    const state = get(themeStore.themeState);
+    const state = themeStore.themeState.value;
     expect(state.uiMode).toBe('auto');
-    // matches=false → light
+    // matches=false -> light
     expect(state.activeUIThemeId).toBe('light');
 
     vi.unstubAllGlobals();
@@ -328,7 +324,7 @@ describe('themeStore', () => {
     vi.stubGlobal('matchMedia', matchMediaMock);
 
     themeStore.setUIMode('auto');
-    const state = get(themeStore.themeState);
+    const state = themeStore.themeState.value;
     expect(state.uiMode).toBe('auto');
     expect(state.activeUIThemeId).toBe('dark');
 
@@ -366,8 +362,8 @@ describe('themeStore', () => {
     localStorageMock.setItem('theme-state', JSON.stringify(saved));
 
     vi.resetModules();
-    const freshStore = await import('./themeStore');
-    const state = get(freshStore.themeState);
+    const freshStore = await import('./themeStore.svelte');
+    const state = freshStore.themeState.value;
     expect(state.uiMode).toBe('dark');
   });
 
@@ -382,8 +378,8 @@ describe('themeStore', () => {
     localStorageMock.setItem('theme-state', JSON.stringify(saved));
 
     vi.resetModules();
-    const freshStore = await import('./themeStore');
-    const state = get(freshStore.themeState);
+    const freshStore = await import('./themeStore.svelte');
+    const state = freshStore.themeState.value;
     expect(state.uiMode).toBe('light');
   });
 
@@ -398,8 +394,8 @@ describe('themeStore', () => {
     localStorageMock.setItem('theme-state', JSON.stringify(saved));
 
     vi.resetModules();
-    const freshStore = await import('./themeStore');
-    const state = get(freshStore.themeState);
+    const freshStore = await import('./themeStore.svelte');
+    const state = freshStore.themeState.value;
     expect(state.uiMode).toBe('dark');
     expect(state.activeUIThemeId).toBe('dark');
   });

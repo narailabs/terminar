@@ -1,33 +1,46 @@
 <script lang="ts">
-  import { createEventDispatcher, onMount, onDestroy } from 'svelte';
+  import { onDestroy } from 'svelte';
 
-  export let isOpen: boolean = false;
-  export let currentMatch: number = 0;
-  export let totalMatches: number = 0;
-  export let caseSensitive: boolean = false;
-  export let useRegex: boolean = false;
+  let {
+    isOpen = false,
+    currentMatch = 0,
+    totalMatches = 0,
+    caseSensitive = false,
+    useRegex = false,
+    onsearch,
+    onnext,
+    onprevious,
+    onclose,
+    ontogglecasesensitive,
+    ontoggleregex,
+  }: {
+    isOpen?: boolean;
+    currentMatch?: number;
+    totalMatches?: number;
+    caseSensitive?: boolean;
+    useRegex?: boolean;
+    onsearch?: (detail: { query: string; caseSensitive: boolean; useRegex: boolean }) => void;
+    onnext?: () => void;
+    onprevious?: () => void;
+    onclose?: () => void;
+    ontogglecasesensitive?: () => void;
+    ontoggleregex?: () => void;
+  } = $props();
 
-  let inputElement: HTMLInputElement;
-  let query = '';
+  let inputElement = $state<HTMLInputElement>();
+  let query = $state('');
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const dispatch = createEventDispatcher<{
-    search: { query: string; caseSensitive: boolean; useRegex: boolean };
-    next: void;
-    previous: void;
-    close: void;
-    toggleCaseSensitive: void;
-    toggleRegex: void;
-  }>();
-
   // Focus input when search bar opens
-  $: if (isOpen && inputElement) {
-    // Use microtask to ensure DOM is updated
-    queueMicrotask(() => {
-      inputElement?.focus();
-      inputElement?.select();
-    });
-  }
+  $effect(() => {
+    if (isOpen && inputElement) {
+      // Use microtask to ensure DOM is updated
+      queueMicrotask(() => {
+        inputElement?.focus();
+        inputElement?.select();
+      });
+    }
+  });
 
   function handleInput() {
     // Debounce incremental search at 150ms
@@ -35,7 +48,7 @@
       clearTimeout(debounceTimer);
     }
     debounceTimer = setTimeout(() => {
-      dispatch('search', { query, caseSensitive, useRegex });
+      onsearch?.({ query, caseSensitive, useRegex });
       debounceTimer = null;
     }, 150);
   }
@@ -48,9 +61,9 @@
     } else if (event.key === 'Enter') {
       event.preventDefault();
       if (event.shiftKey) {
-        dispatch('previous');
+        onprevious?.();
       } else {
-        dispatch('next');
+        onnext?.();
       }
     }
   }
@@ -61,29 +74,29 @@
       clearTimeout(debounceTimer);
       debounceTimer = null;
     }
-    dispatch('close');
+    onclose?.();
   }
 
   function handleNext() {
-    dispatch('next');
+    onnext?.();
   }
 
   function handlePrevious() {
-    dispatch('previous');
+    onprevious?.();
   }
 
   function handleToggleCaseSensitive() {
-    dispatch('toggleCaseSensitive');
+    ontogglecasesensitive?.();
     // Re-search with updated settings after a tick
     queueMicrotask(() => {
-      dispatch('search', { query, caseSensitive: !caseSensitive, useRegex });
+      onsearch?.({ query, caseSensitive: !caseSensitive, useRegex });
     });
   }
 
   function handleToggleRegex() {
-    dispatch('toggleRegex');
+    ontoggleregex?.();
     queueMicrotask(() => {
-      dispatch('search', { query, caseSensitive, useRegex: !useRegex });
+      onsearch?.({ query, caseSensitive, useRegex: !useRegex });
     });
   }
 
@@ -100,8 +113,8 @@
       <input
         bind:this={inputElement}
         bind:value={query}
-        on:input={handleInput}
-        on:keydown={handleKeydown}
+        oninput={handleInput}
+        onkeydown={handleKeydown}
         type="text"
         class="search-input"
         placeholder="Search..."
@@ -120,7 +133,7 @@
       <button
         class="search-toggle-btn"
         class:active={caseSensitive}
-        on:click={handleToggleCaseSensitive}
+        onclick={handleToggleCaseSensitive}
         title="Match Case"
         aria-label="Toggle case sensitivity"
         aria-pressed={caseSensitive}
@@ -129,7 +142,7 @@
       <button
         class="search-toggle-btn"
         class:active={useRegex}
-        on:click={handleToggleRegex}
+        onclick={handleToggleRegex}
         title="Use Regular Expression"
         aria-label="Toggle regex"
         aria-pressed={useRegex}
@@ -137,7 +150,7 @@
 
       <button
         class="search-nav-btn"
-        on:click={handlePrevious}
+        onclick={handlePrevious}
         title="Previous Match (Shift+Enter)"
         aria-label="Previous match"
         disabled={totalMatches === 0}
@@ -149,7 +162,7 @@
 
       <button
         class="search-nav-btn"
-        on:click={handleNext}
+        onclick={handleNext}
         title="Next Match (Enter)"
         aria-label="Next match"
         disabled={totalMatches === 0}
@@ -161,7 +174,7 @@
 
       <button
         class="search-close-btn"
-        on:click={close}
+        onclick={close}
         title="Close (Escape)"
         aria-label="Close search"
       >

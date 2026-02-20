@@ -5,7 +5,6 @@ use tokio::net::TcpListener;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use futures::{SinkExt, StreamExt};
 use std::time::Duration;
-use url::Url;
 use std::collections::HashMap;
 
 async fn spawn_server() -> (String, tokio::task::JoinHandle<()>) {
@@ -53,7 +52,7 @@ async fn test_concurrent_clients() {
     for i in 0..client_count {
         let url = ws_url.clone();
         handles.push(tokio::spawn(async move {
-            let (mut socket, _) = connect_async(Url::parse(&url).unwrap())
+            let (mut socket, _) = connect_async(&url)
                 .await
                 .expect("Failed to connect");
 

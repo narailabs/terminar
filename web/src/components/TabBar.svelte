@@ -1,15 +1,32 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
   import type { Tab, TabId } from '../lib/workspaceTypes';
 
-  export let tabs: Tab[] = [];
-  export let activeTabId: TabId | null = null;
-  /** Map of tabId -> activity type (for background tab activity badges) */
-  export let tabActivities: Map<string, string> = new Map();
-  /** Map of tabId -> { exited: boolean, exitCode: number | null } */
-  export let tabExitStates: Map<string, { exited: boolean; exitCode: number | null }> = new Map();
-  /** @deprecated No longer displayed - kept for prop compat */
-  export let tabAgents: Map<string, { icon: string; color: string; displayName: string }> = new Map();
+  let {
+    tabs = [],
+    activeTabId = null,
+    tabActivities = new Map(),
+    tabExitStates = new Map(),
+    tabAgents = new Map(),
+    onselect,
+    onclose,
+    oncreate,
+    onrename,
+    onreorder,
+  }: {
+    tabs?: Tab[];
+    activeTabId?: TabId | null;
+    /** Map of tabId -> activity type (for background tab activity badges) */
+    tabActivities?: Map<string, string>;
+    /** Map of tabId -> { exited: boolean, exitCode: number | null } */
+    tabExitStates?: Map<string, { exited: boolean; exitCode: number | null }>;
+    /** @deprecated No longer displayed - kept for prop compat */
+    tabAgents?: Map<string, { icon: string; color: string; displayName: string }>;
+    onselect?: (detail: { tabId: TabId }) => void;
+    onclose?: (detail: { tabId: TabId }) => void;
+    oncreate?: () => void;
+    onrename?: (detail: { tabId: TabId; name: string }) => void;
+    onreorder?: (detail: { fromIndex: number; toIndex: number }) => void;
+  } = $props();
 
   function getActivityIcon(activityType: string): string {
     switch (activityType) {
@@ -25,28 +42,20 @@
     return '[exited]';
   }
 
-  const dispatch = createEventDispatcher<{
-    select: { tabId: TabId };
-    close: { tabId: TabId };
-    create: void;
-    rename: { tabId: TabId; name: string };
-    reorder: { fromIndex: number; toIndex: number };
-  }>();
-
-  let editingTabId: TabId | null = null;
-  let editingName = '';
-  let draggedTabIndex: number | null = null;
-  let dragOverIndex: number | null = null;
+  let editingTabId: TabId | null = $state(null);
+  let editingName = $state('');
+  let draggedTabIndex: number | null = $state(null);
+  let dragOverIndex: number | null = $state(null);
 
   function handleTabClick(tabId: TabId) {
     if (editingTabId !== tabId) {
-      dispatch('select', { tabId });
+      onselect?.({ tabId });
     }
   }
 
   function handleTabClose(event: MouseEvent, tabId: TabId) {
     event.stopPropagation();
-    dispatch('close', { tabId });
+    onclose?.({ tabId });
   }
 
   function handleDoubleClick(tabId: TabId, currentName: string) {
@@ -56,7 +65,7 @@
 
   function handleRenameSubmit(tabId: TabId) {
     if (editingName.trim()) {
-      dispatch('rename', { tabId, name: editingName.trim() });
+      onrename?.({ tabId, name: editingName.trim() });
     }
     editingTabId = null;
     editingName = '';
@@ -76,7 +85,7 @@
   }
 
   function handleCreateTab() {
-    dispatch('create');
+    oncreate?.();
   }
 
   // Drag and drop for reordering tabs
@@ -102,7 +111,7 @@
   function handleDrop(event: DragEvent, toIndex: number) {
     event.preventDefault();
     if (draggedTabIndex !== null && draggedTabIndex !== toIndex) {
-      dispatch('reorder', { fromIndex: draggedTabIndex, toIndex });
+      onreorder?.({ fromIndex: draggedTabIndex, toIndex });
     }
     draggedTabIndex = null;
     dragOverIndex = null;
@@ -123,13 +132,13 @@
         class:dragging={draggedTabIndex === index}
         class:drag-over={dragOverIndex === index}
         draggable="true"
-        on:click={() => handleTabClick(tab.id)}
-        on:dblclick={() => handleDoubleClick(tab.id, tab.name)}
-        on:dragstart={(e) => handleDragStart(e, index)}
-        on:dragover={(e) => handleDragOver(e, index)}
-        on:dragleave={handleDragLeave}
-        on:drop={(e) => handleDrop(e, index)}
-        on:dragend={handleDragEnd}
+        onclick={() => handleTabClick(tab.id)}
+        ondblclick={() => handleDoubleClick(tab.id, tab.name)}
+        ondragstart={(e) => handleDragStart(e, index)}
+        ondragover={(e) => handleDragOver(e, index)}
+        ondragleave={handleDragLeave}
+        ondrop={(e) => handleDrop(e, index)}
+        ondragend={handleDragEnd}
         role="tab"
         aria-selected={tab.id === activeTabId}
         tabindex="0"
@@ -139,8 +148,8 @@
             type="text"
             class="tab-rename-input"
             bind:value={editingName}
-            on:keydown={(e) => handleRenameKeydown(e, tab.id)}
-            on:blur={() => handleRenameBlur(tab.id)}
+            onkeydown={(e) => handleRenameKeydown(e, tab.id)}
+            onblur={() => handleRenameBlur(tab.id)}
             autofocus
           />
         {:else}
@@ -154,7 +163,7 @@
         {/if}
         <button
           class="tab-close"
-          on:click={(e) => handleTabClose(e, tab.id)}
+          onclick={(e) => handleTabClose(e, tab.id)}
           aria-label="Close tab"
         >
           <svg width="12" height="12" viewBox="0 0 12 12">
@@ -165,7 +174,7 @@
     {/each}
   </div>
 
-  <button class="new-tab-button" on:click={handleCreateTab} aria-label="New tab">
+  <button class="new-tab-button" onclick={handleCreateTab} aria-label="New tab">
     <svg width="14" height="14" viewBox="0 0 14 14">
       <path d="M7 2 L7 12 M2 7 L12 7" stroke="currentColor" stroke-width="1.5" fill="none"/>
     </svg>

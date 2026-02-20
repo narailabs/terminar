@@ -1,16 +1,14 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
-  import { startResize, endResize } from '../lib/resizeStore';
+  import { startResize, endResize } from '../lib/resizeStore.svelte';
 
-  export let direction: 'horizontal' | 'vertical';
-  export let index: number;
+  let { direction, index, onresize, onresizeend }: {
+    direction: 'horizontal' | 'vertical';
+    index: number;
+    onresize?: (detail: { index: number; delta: number }) => void;
+    onresizeend?: () => void;
+  } = $props();
 
-  const dispatch = createEventDispatcher<{
-    resize: { index: number; delta: number };
-    resizeEnd: void;
-  }>();
-
-  let isDragging = false;
+  let isDragging = $state(false);
   let startPos = 0;
 
   function handleMouseDown(event: MouseEvent) {
@@ -32,7 +30,7 @@
     const delta = currentPos - startPos;
     startPos = currentPos;
 
-    dispatch('resize', { index, delta });
+    onresize?.({ index, delta });
   }
 
   function handleMouseUp() {
@@ -43,7 +41,7 @@
     // Signal that resize has ended (terminals will now fit)
     endResize();
 
-    dispatch('resizeEnd');
+    onresizeend?.();
   }
 </script>
 
@@ -52,7 +50,7 @@
   class:horizontal={direction === 'horizontal'}
   class:vertical={direction === 'vertical'}
   class:dragging={isDragging}
-  on:mousedown={handleMouseDown}
+  onmousedown={handleMouseDown}
   role="separator"
   aria-orientation={direction}
   tabindex="0"

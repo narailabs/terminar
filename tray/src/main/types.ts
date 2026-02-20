@@ -1,16 +1,8 @@
-// types.ts — Shared TypeScript types for the Electron tray app.
+// types.ts — TypeScript types for the Electron tray app main process.
 // Ported from config.rs, health.rs, service.rs, and tray.rs.
 
-export interface TrayConfig {
-  gateway_port: number;
-  tls_mode: 'off' | 'auto' | 'custom';
-  tls_cert: string | null;
-  tls_key: string | null;
-  tls_port: number;
-  require_auth: boolean;
-  audit_level: string;
-  idle_timeout: number;
-}
+// TrayConfig is shared between main and renderer — import from shared location
+export type { TrayConfig } from '../shared/types.js';
 
 export const DEFAULT_CONFIG: TrayConfig = {
   gateway_port: 6749,

@@ -1,14 +1,16 @@
 <script lang="ts">
   import type { ConnectionState } from '../lib/SessionManager';
 
-  export let state: ConnectionState;
-  export let reconnectAttempt: number = 0;
-  export let reconnectDelay: number = 0;
-  export let onReconnect: (() => void) | undefined = undefined;
+  let { state, reconnectAttempt = 0, reconnectDelay = 0, onReconnect = undefined }: {
+    state: ConnectionState;
+    reconnectAttempt?: number;
+    reconnectDelay?: number;
+    onReconnect?: (() => void) | undefined;
+  } = $props();
 
-  $: statusText = getStatusText(state, reconnectAttempt, reconnectDelay);
-  $: statusClass = getStatusClass(state);
-  $: showReconnectButton = state === 'disconnected' && onReconnect;
+  let statusText = $derived(getStatusText(state, reconnectAttempt, reconnectDelay));
+  let statusClass = $derived(getStatusClass(state));
+  let showReconnectButton = $derived(state === 'disconnected' && onReconnect);
 
   function getStatusText(s: ConnectionState, attempt: number, delay: number): string {
     switch (s) {
@@ -44,7 +46,7 @@
   <div class="status-indicator"></div>
   <span class="status-text">{statusText}</span>
   {#if showReconnectButton}
-    <button class="reconnect-button" on:click={onReconnect}>
+    <button class="reconnect-button" onclick={onReconnect}>
       Reconnect
     </button>
   {/if}

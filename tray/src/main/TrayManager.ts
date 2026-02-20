@@ -21,6 +21,23 @@ import type { WindowManager } from './WindowManager.js';
 // Re-export for backward compatibility
 export { computeMenuSpec } from './menuSpec.js';
 
+type MenuAction =
+  | 'open-webui'
+  | 'open-desktop-app'
+  | 'toggle-tls'
+  | 'toggle-auth'
+  | 'audit-off'
+  | 'audit-auth'
+  | 'audit-standard'
+  | 'audit-verbose'
+  | 'install-service'
+  | 'start-service'
+  | 'uninstall-service'
+  | 'restart-service'
+  | 'stop-service'
+  | 'settings'
+  | 'quit';
+
 export class TrayManager {
   private tray: Tray | null = null;
   private configStore: ConfigStore;
@@ -211,7 +228,7 @@ export class TrayManager {
    * Handle tray menu item clicks.
    * Port of handle_menu_event() from lib.rs.
    */
-  private handleMenuEvent(id: string): void {
+  private handleMenuEvent(id: MenuAction): void {
     console.log(`[tray] menu event: ${id}`);
     switch (id) {
       case 'open-webui': {
@@ -320,8 +337,10 @@ export class TrayManager {
         break;
       }
 
-      default:
-        break;
+      default: {
+        const _exhaustive: never = id;
+        console.warn(`[tray] unhandled menu action: ${_exhaustive}`);
+      }
     }
   }
 

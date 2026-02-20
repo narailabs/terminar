@@ -76,7 +76,7 @@ describe('protocol-types', () => {
     it('should support SessionList message type', () => {
       const msg: ServerMessage = {
         type: 'SessionList',
-        sessions: [{ id: '1', name: 'test', shell: 'bash', started_at: '2025-01-01' }],
+        sessions: [{ id: '1', name: 'test', shell: 'bash', cwd: '/home/user', started_at: '2025-01-01' }],
       };
       expect(msg.type).toBe('SessionList');
     });
@@ -119,7 +119,7 @@ describe('protocol-types', () => {
 
   describe('parseServerMessage', () => {
     it('should parse a valid SessionList message', () => {
-      const raw = { type: 'SessionList', sessions: [{ id: '1', name: 'test', shell: 'bash', started_at: '2025-01-01' }] };
+      const raw = { type: 'SessionList', sessions: [{ id: '1', name: 'test', shell: 'bash', cwd: '/home/user', started_at: '2025-01-01' }] };
       const result = parseServerMessage(raw);
       expect(result).not.toBeNull();
       expect(result!.type).toBe('SessionList');

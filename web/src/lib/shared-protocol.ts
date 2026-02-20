@@ -26,3 +26,12 @@ export {
 export {
     createErrorFromCode,
 } from '../../../packages/shell-protocol/src/errors';
+
+export {
+    type IShellSocket,
+} from '../../../packages/shell-protocol/src/client';
+
+export {
+    type SessionInfo,
+    SessionInfoSchema,
+} from '../../../packages/shell-protocol/src/messages';

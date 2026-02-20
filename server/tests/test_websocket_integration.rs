@@ -5,7 +5,6 @@ use tokio::net::TcpListener;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use futures::{SinkExt, StreamExt};
 use std::time::Duration;
-use url::Url;
 use std::collections::HashMap;
 use serial_test::serial;
 
@@ -51,7 +50,7 @@ async fn spawn_test_server() -> (String, tokio::task::JoinHandle<()>) {
 async fn test_websocket_flow_full() {
     let (ws_url, _server_handle) = spawn_test_server().await;
     
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -167,7 +166,7 @@ async fn test_localhost_connection_skips_auth() {
     let (ws_url, _server_handle) = spawn_test_server_with_auth().await;
 
     // Connect from localhost without sending auth message
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 

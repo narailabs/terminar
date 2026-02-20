@@ -111,12 +111,14 @@ global.ResizeObserver = class {
   disconnect = vi.fn();
 } as any;
 
-// Helper to flush requestAnimationFrame callbacks
+// Helper to flush requestAnimationFrame callbacks and Svelte 5 effects
 async function flushRAF() {
   await new Promise<void>(resolve => {
     requestAnimationFrame(() => resolve());
   });
-  // Allow Svelte reactivity to process
+  // Allow Svelte 5 effects to process (effects run in microtasks)
+  await new Promise(resolve => setTimeout(resolve, 0));
+  // Extra tick: Svelte 5 $effect runs asynchronously after $state changes
   await new Promise(resolve => setTimeout(resolve, 0));
 }
 

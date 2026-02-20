@@ -12,7 +12,6 @@ use tokio::net::TcpListener;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use futures::{SinkExt, StreamExt};
 use std::time::Duration;
-use url::Url;
 use std::collections::HashMap;
 
 /// Spawn a server with authentication ENABLED (no_auth = false)
@@ -97,7 +96,7 @@ async fn spawn_noauth_server(name: &str) -> (String, tokio::task::JoinHandle<()>
 async fn test_auth_required_non_auth_first_message() {
     let (ws_url, _server) = spawn_auth_server("no-auth-msg").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -144,7 +143,7 @@ async fn test_auth_required_non_auth_first_message() {
 async fn test_auth_invalid_token_rejected() {
     let (ws_url, _server) = spawn_auth_server("bad-token").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -195,7 +194,7 @@ async fn test_auth_invalid_token_rejected() {
 async fn test_auth_empty_token() {
     let (ws_url, _server) = spawn_auth_server("empty-token").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -231,7 +230,7 @@ async fn test_auth_empty_token() {
 async fn test_deeply_nested_json() {
     let (ws_url, _server) = spawn_noauth_server("deep-json").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -271,7 +270,7 @@ async fn test_deeply_nested_json() {
 async fn test_wrong_field_types() {
     let (ws_url, _server) = spawn_noauth_server("wrong-types").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -304,7 +303,7 @@ async fn test_wrong_field_types() {
 async fn test_extremely_large_json_payload() {
     let (ws_url, _server) = spawn_noauth_server("large-json").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -341,7 +340,7 @@ async fn test_extremely_large_json_payload() {
 async fn test_null_bytes_in_json() {
     let (ws_url, _server) = spawn_noauth_server("null-bytes").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -378,7 +377,7 @@ async fn test_null_bytes_in_json() {
 async fn test_cwd_path_traversal() {
     let (ws_url, _server) = spawn_noauth_server("cwd-traversal").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -414,7 +413,7 @@ async fn test_cwd_path_traversal() {
 async fn test_cwd_dot_dot_embedded() {
     let (ws_url, _server) = spawn_noauth_server("cwd-dotdot").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -448,7 +447,7 @@ async fn test_cwd_dot_dot_embedded() {
 async fn test_ld_preload_filtered() {
     let (ws_url, _server) = spawn_noauth_server("ld-preload").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -484,7 +483,7 @@ async fn test_ld_preload_filtered() {
 async fn test_dyld_insert_libraries_filtered() {
     let (ws_url, _server) = spawn_noauth_server("dyld-inject").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -680,7 +679,7 @@ async fn test_pair_exchange_rate_limiting() {
 async fn test_ws_auth_rate_limit_after_5_failures() {
     let (ws_url, _server) = spawn_auth_server("ws-rate-limit").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -748,7 +747,7 @@ async fn test_ws_auth_rate_limit_after_5_failures() {
 async fn test_ws_auth_allows_retry_after_failure() {
     let (ws_url, _server) = spawn_auth_server("ws-retry").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 

@@ -1,4 +1,4 @@
-import type { TerminalSettings } from './settingsStore';
+import type { TerminalSettings } from './settingsStore.svelte';
 
 /**
  * API client for terminal settings

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createEventDispatcher, onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import ThemeEditor from './ThemeEditor.svelte';
   import {
     addCustomUITheme,
@@ -8,40 +8,40 @@
     deleteCustomTerminalTheme,
     getActiveUITheme,
     getActiveTerminalTheme,
-  } from '../lib/themeStore';
+  } from '../lib/themeStore.svelte';
   import type { UITheme, TerminalTheme } from '../lib/themeTypes';
   import { exportTheme, importTheme, type ExportedTheme } from '../lib/themeExport';
   import {
     settingsStore,
     DEFAULT_SETTINGS,
     type TerminalSettings,
-  } from '../lib/settingsStore';
+  } from '../lib/settingsStore.svelte';
   import {
     themeState,
     setActiveTerminalTheme,
     setUIMode,
     type UIMode,
-  } from '../lib/themeStore';
+  } from '../lib/themeStore.svelte';
   import { BUILT_IN_TERMINAL_THEMES } from '../lib/themeTypes';
   import EnvVarEditor from './EnvVarEditor.svelte';
-  import { globalEnvVars, addEnvVar, updateEnvVar, deleteEnvVar } from '../lib/envStore';
-  import { get } from 'svelte/store';
+  import { globalEnvVars, addEnvVar, updateEnvVar, deleteEnvVar } from '../lib/envStore.svelte';
   import { getKeyBindingRegistry, formatBinding, type KeyBinding } from '../lib/keybindings';
 
-  export let isOpen: boolean = false;
+  let { isOpen = false, onclose }: {
+    isOpen?: boolean;
+    onclose?: () => void;
+  } = $props();
 
-  const dispatch = createEventDispatcher<{ close: void }>();
-
-  let panelElement: HTMLDivElement;
+  let panelElement = $state<HTMLDivElement>();
 
   // Subscribe to settings store
-  let settings: TerminalSettings = DEFAULT_SETTINGS;
+  let settings: TerminalSettings = $state(DEFAULT_SETTINGS);
   const unsubscribe = settingsStore.subscribe((value) => {
     settings = value;
   });
 
   function handleClose() {
-    dispatch('close');
+    onclose?.();
   }
 
   function handleKeydown(event: KeyboardEvent) {
@@ -73,7 +73,7 @@
   // Line height disabled - breaks TUI apps
 
   // All available UI and terminal themes (built-in + custom)
-  $: allTerminalThemes = [...BUILT_IN_TERMINAL_THEMES, ...$themeState.customTerminalThemes];
+  let allTerminalThemes = $derived([...BUILT_IN_TERMINAL_THEMES, ...themeState.value.customTerminalThemes]);
 
   function handleUIModeChange(event: Event) {
     const target = event.target as HTMLSelectElement;
@@ -85,9 +85,9 @@
     setActiveTerminalTheme(target.value);
   }
 
-  let showThemeEditor = false;
-  let editUITheme: UITheme | null = null;
-  let editTerminalTheme: TerminalTheme | null = null;
+  let showThemeEditor = $state(false);
+  let editUITheme: UITheme | null = $state(null);
+  let editTerminalTheme: TerminalTheme | null = $state(null);
 
   interface GroupedCustomTheme {
     name: string;
@@ -95,24 +95,24 @@
     terminalTheme: TerminalTheme;
   }
 
-  $: groupedCustomThemes = (() => {
+  let groupedCustomThemes = $derived((() => {
     const groups: GroupedCustomTheme[] = [];
-    for (const ui of $themeState.customUIThemes) {
-      const term = $themeState.customTerminalThemes.find(t => t.name === ui.name);
+    for (const ui of themeState.value.customUIThemes) {
+      const term = themeState.value.customTerminalThemes.find(t => t.name === ui.name);
       if (term) {
         groups.push({ name: ui.name, uiTheme: ui, terminalTheme: term });
       }
     }
     return groups;
-  })();
+  })());
 
   // Custom themes that don't have a matching pair (orphaned)
-  $: orphanedUIThemes = $themeState.customUIThemes.filter(
-    ui => !$themeState.customTerminalThemes.some(t => t.name === ui.name)
-  );
-  $: orphanedTerminalThemes = $themeState.customTerminalThemes.filter(
-    t => !$themeState.customUIThemes.some(ui => ui.name === t.name)
-  );
+  let orphanedUIThemes = $derived(themeState.value.customUIThemes.filter(
+    ui => !themeState.value.customTerminalThemes.some(t => t.name === ui.name)
+  ));
+  let orphanedTerminalThemes = $derived(themeState.value.customTerminalThemes.filter(
+    t => !themeState.value.customUIThemes.some(ui => ui.name === t.name)
+  ));
 
   function handleCreateTheme() {
     editUITheme = null;
@@ -181,20 +181,16 @@
   }
 
   // Environment variables
-  let currentEnvVars: Record<string, string> = get(globalEnvVars);
-  const unsubscribeEnv = globalEnvVars.subscribe((value) => {
-    currentEnvVars = value;
-  });
+  let currentEnvVars = $derived(globalEnvVars.value);
 
   let envSaveTimer: ReturnType<typeof setTimeout> | null = null;
 
-  function handleEnvChange(event: CustomEvent<Record<string, string>>) {
-    const newVars = event.detail;
+  function handleEnvChange(newVars: Record<string, string>) {
     // Debounce the save to avoid excessive writes
     if (envSaveTimer) clearTimeout(envSaveTimer);
     envSaveTimer = setTimeout(() => {
       // Diff and apply changes
-      const current = get(globalEnvVars);
+      const current = globalEnvVars.value;
       // Delete removed keys
       for (const key of Object.keys(current)) {
         if (!(key in newVars)) {
@@ -215,13 +211,13 @@
   }
 
   // Keyboard shortcuts
-  let recordingAction: string | null = null;
+  let recordingAction: string | null = $state(null);
 
   function getEffectiveBindings() {
     return getKeyBindingRegistry().getEffectiveBindings();
   }
 
-  let effectiveBindings = getEffectiveBindings();
+  let effectiveBindings = $state(getEffectiveBindings());
 
   function refreshBindings() {
     effectiveBindings = getEffectiveBindings();
@@ -272,17 +268,16 @@
   onDestroy(() => {
     document.removeEventListener('keydown', handleKeydown);
     unsubscribe();
-    unsubscribeEnv();
     if (envSaveTimer) clearTimeout(envSaveTimer);
   });
 </script>
 
 {#if isOpen}
-  <div class="modal-backdrop" on:click={handleBackdropClick} role="dialog" aria-modal="true">
+  <div class="modal-backdrop" onclick={handleBackdropClick} role="dialog" aria-modal="true">
     <div class="settings-panel" bind:this={panelElement}>
       <div class="panel-header">
         <h2>Terminal Settings</h2>
-        <button class="close-btn" on:click={handleClose} aria-label="Close settings">
+        <button class="close-btn" onclick={handleClose} aria-label="Close settings">
           <span aria-hidden="true">&times;</span>
         </button>
       </div>
@@ -293,8 +288,8 @@
           <label for="uiMode">Mode</label>
           <select
             id="uiMode"
-            value={$themeState.uiMode}
-            on:change={handleUIModeChange}
+            value={themeState.value.uiMode}
+            onchange={handleUIModeChange}
           >
             <option value="light">Light</option>
             <option value="dark">Dark</option>
@@ -307,8 +302,8 @@
           <label for="terminalTheme">Terminal Theme</label>
           <select
             id="terminalTheme"
-            value={$themeState.activeTerminalThemeId}
-            on:change={handleTerminalThemeChange}
+            value={themeState.value.activeTerminalThemeId}
+            onchange={handleTerminalThemeChange}
           >
             {#each allTerminalThemes as theme}
               <option value={theme.id}>{theme.name}</option>
@@ -318,9 +313,9 @@
 
         <!-- Theme Actions -->
         <div class="theme-actions">
-          <button class="theme-action-btn" on:click={handleCreateTheme}>Create Theme</button>
-          <button class="theme-action-btn" on:click={handleExportTheme}>Export</button>
-          <button class="theme-action-btn" on:click={handleImportTheme}>Import</button>
+          <button class="theme-action-btn" onclick={handleCreateTheme}>Create Theme</button>
+          <button class="theme-action-btn" onclick={handleExportTheme}>Export</button>
+          <button class="theme-action-btn" onclick={handleImportTheme}>Import</button>
         </div>
 
         <!-- Custom Themes -->
@@ -332,8 +327,8 @@
                 <div class="custom-theme-item">
                   <span>{group.name}</span>
                   <div class="custom-theme-actions">
-                    <button class="edit-theme-btn" on:click={() => handleEditTheme(group.uiTheme, group.terminalTheme)}>Edit</button>
-                    <button class="delete-theme-btn" on:click={() => { handleDeleteUITheme(group.uiTheme.id); handleDeleteTerminalTheme(group.terminalTheme.id); }}>×</button>
+                    <button class="edit-theme-btn" onclick={() => handleEditTheme(group.uiTheme, group.terminalTheme)}>Edit</button>
+                    <button class="delete-theme-btn" onclick={() => { handleDeleteUITheme(group.uiTheme.id); handleDeleteTerminalTheme(group.terminalTheme.id); }}>×</button>
                   </div>
                 </div>
               {/each}
@@ -341,7 +336,7 @@
                 <div class="custom-theme-item">
                   <span>{theme.name} (UI)</span>
                   <div class="custom-theme-actions">
-                    <button class="delete-theme-btn" on:click={() => handleDeleteUITheme(theme.id)}>×</button>
+                    <button class="delete-theme-btn" onclick={() => handleDeleteUITheme(theme.id)}>×</button>
                   </div>
                 </div>
               {/each}
@@ -349,7 +344,7 @@
                 <div class="custom-theme-item">
                   <span>{theme.name} (Terminal)</span>
                   <div class="custom-theme-actions">
-                    <button class="delete-theme-btn" on:click={() => handleDeleteTerminalTheme(theme.id)}>×</button>
+                    <button class="delete-theme-btn" onclick={() => handleDeleteTerminalTheme(theme.id)}>×</button>
                   </div>
                 </div>
               {/each}
@@ -365,7 +360,7 @@
               type="checkbox"
               id="showPaneTitleBars"
               checked={settings.showPaneTitleBars}
-              on:change={handlePaneTitleBarsChange}
+              onchange={handlePaneTitleBarsChange}
             />
             <span class="slider"></span>
           </label>
@@ -379,7 +374,7 @@
               type="checkbox"
               id="autoScroll"
               checked={settings.autoScroll}
-              on:change={handleAutoScrollChange}
+              onchange={handleAutoScrollChange}
             />
             <span class="slider"></span>
           </label>
@@ -399,13 +394,13 @@
                     <span class="keybinding-badge recording">Press keys...</span>
                   {:else}
                     {#each bindings as binding}
-                      <button class="keybinding-badge" on:click={() => startRecording(action)}>
+                      <button class="keybinding-badge" onclick={() => startRecording(action)}>
                         {formatBinding(binding)}
                       </button>
                     {/each}
                   {/if}
                   {#if isOverridden}
-                    <button class="keybinding-reset" on:click={() => handleClearOverride(action)} title="Reset to default">
+                    <button class="keybinding-reset" onclick={() => handleClearOverride(action)} title="Reset to default">
                       &#8617;
                     </button>
                   {/if}
@@ -420,13 +415,13 @@
           <EnvVarEditor
             envVars={currentEnvVars}
             label="Global Environment Variables"
-            on:change={handleEnvChange}
+            onchange={handleEnvChange}
           />
         </div>
       </div>
 
       <div class="panel-footer">
-        <button class="reset-btn" on:click={handleReset}>Reset to Defaults</button>
+        <button class="reset-btn" onclick={handleReset}>Reset to Defaults</button>
       </div>
     </div>
   </div>

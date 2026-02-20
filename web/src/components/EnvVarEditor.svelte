@@ -1,14 +1,13 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
-  import { validateEnvKey } from '../lib/envStore';
+  import { validateEnvKey } from '../lib/envStore.svelte';
 
   /** The current env vars to display/edit */
-  export let envVars: Record<string, string> = {};
-
-  /** Optional label shown above the editor */
-  export let label: string = 'Environment Variables';
-
-  const dispatch = createEventDispatcher<{ change: Record<string, string> }>();
+  let { envVars = {}, label = 'Environment Variables', onchange }: {
+    envVars?: Record<string, string>;
+    /** Optional label shown above the editor */
+    label?: string;
+    onchange?: (vars: Record<string, string>) => void;
+  } = $props();
 
   // Internal representation as ordered array of rows
   interface EnvRow {
@@ -19,7 +18,7 @@
   }
 
   let nextId = 0;
-  let rows: EnvRow[] = initRows(envVars);
+  let rows: EnvRow[] = $state(initRows(envVars));
   let lastEnvVarsRef: Record<string, string> = envVars;
 
   function initRows(vars: Record<string, string>): EnvRow[] {
@@ -32,10 +31,12 @@
   }
 
   // Re-initialize rows only when the envVars prop reference changes from outside
-  $: if (envVars !== lastEnvVarsRef) {
-    lastEnvVarsRef = envVars;
-    rows = initRows(envVars);
-  }
+  $effect(() => {
+    if (envVars !== lastEnvVarsRef) {
+      lastEnvVarsRef = envVars;
+      rows = initRows(envVars);
+    }
+  });
 
   function emitChange() {
     const result: Record<string, string> = {};
@@ -44,7 +45,7 @@
         result[row.key] = row.value;
       }
     }
-    dispatch('change', result);
+    onchange?.(result);
   }
 
   function addRow() {
@@ -87,8 +88,8 @@
             data-testid="env-key"
             placeholder="KEY"
             value={row.key}
-            on:input={(e) => handleKeyChange(index, e.target?.value ?? '')}
-            on:blur={handleBlur}
+            oninput={(e) => handleKeyChange(index, (e.target as HTMLInputElement)?.value ?? '')}
+            onblur={handleBlur}
           />
           <span class="env-equals">=</span>
           <input
@@ -97,13 +98,13 @@
             data-testid="env-value"
             placeholder="value"
             value={row.value}
-            on:input={(e) => handleValueChange(index, e.target?.value ?? '')}
-            on:blur={handleBlur}
+            oninput={(e) => handleValueChange(index, (e.target as HTMLInputElement)?.value ?? '')}
+            onblur={handleBlur}
           />
           <button
             class="env-delete-btn"
             data-testid="env-delete"
-            on:click={() => deleteRow(index)}
+            onclick={() => deleteRow(index)}
             title="Remove variable"
             aria-label="Remove variable"
           >
@@ -119,7 +120,7 @@
     <div class="env-empty">No environment variables set</div>
   {/if}
 
-  <button class="env-add-btn" on:click={addRow}>Add Variable</button>
+  <button class="env-add-btn" onclick={addRow}>Add Variable</button>
 </div>
 
 <style>

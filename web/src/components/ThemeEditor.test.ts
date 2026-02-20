@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent, screen, cleanup } from '@testing-library/svelte';
-import { get } from 'svelte/store';
+
 import ThemeEditor from './ThemeEditor.svelte';
 
 // Mock localStorage
@@ -15,8 +15,8 @@ const localStorageMock = (() => {
 })();
 Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock });
 
-import { themeState, addCustomUITheme, addCustomTerminalTheme, updateCustomUITheme, updateCustomTerminalTheme } from '../lib/themeStore';
-import { settingsStore } from '../lib/settingsStore';
+import { themeState, addCustomUITheme, addCustomTerminalTheme, updateCustomUITheme, updateCustomTerminalTheme } from '../lib/themeStore.svelte';
+import { settingsStore } from '../lib/settingsStore.svelte';
 import type { UITheme, TerminalTheme } from '../lib/themeTypes';
 
 describe('ThemeEditor', () => {
@@ -139,14 +139,13 @@ describe('ThemeEditor', () => {
     await fireEvent.input(nameInput, { target: { value: 'My Custom Theme' } });
     await fireEvent.click(screen.getByText('Save'));
 
-    const state = get(themeState);
-    expect(state.customUIThemes.length).toBeGreaterThan(0);
-    expect(state.customTerminalThemes.length).toBeGreaterThan(0);
-    expect(state.customUIThemes[0].name).toBe('My Custom Theme');
-    expect(state.customTerminalThemes[0].name).toBe('My Custom Theme');
+    expect(themeState.value.customUIThemes.length).toBeGreaterThan(0);
+    expect(themeState.value.customTerminalThemes.length).toBeGreaterThan(0);
+    expect(themeState.value.customUIThemes[0].name).toBe('My Custom Theme');
+    expect(themeState.value.customTerminalThemes[0].name).toBe('My Custom Theme');
 
     // Verify the terminal theme has color fields from the base theme (dark defaults)
-    const termTheme = state.customTerminalThemes[0];
+    const termTheme = themeState.value.customTerminalThemes[0];
     expect(termTheme.foreground).toBe('#cccccc');
     expect(termTheme.background).toBe('#1e1e1e');
     expect(termTheme.cursor).toBe('#cccccc');
@@ -231,8 +230,8 @@ describe('ThemeEditor - Edit Mode', () => {
   });
 
   it('should call update functions instead of add on save in edit mode', async () => {
-    const updateUISpy = vi.spyOn(await import('../lib/themeStore'), 'updateCustomUITheme');
-    const updateTermSpy = vi.spyOn(await import('../lib/themeStore'), 'updateCustomTerminalTheme');
+    const updateUISpy = vi.spyOn(await import('../lib/themeStore.svelte'), 'updateCustomUITheme');
+    const updateTermSpy = vi.spyOn(await import('../lib/themeStore.svelte'), 'updateCustomTerminalTheme');
 
     // Add the themes first so update has something to work with
     addCustomUITheme(editUI);

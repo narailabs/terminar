@@ -10,7 +10,6 @@ use tokio::net::TcpListener;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use futures::{SinkExt, StreamExt};
 use std::time::Duration;
-use url::Url;
 use std::collections::HashMap;
 
 async fn spawn_server_with_auth(name: &str, no_auth: bool) -> (String, tokio::task::JoinHandle<()>) {
@@ -58,7 +57,7 @@ async fn spawn_test_server(name: &str) -> (String, tokio::task::JoinHandle<()>) 
 async fn test_malformed_json_rejection() {
     let (ws_url, _server) = spawn_test_server("malformed").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -87,7 +86,7 @@ async fn test_malformed_json_rejection() {
 async fn test_empty_message_handling() {
     let (ws_url, _server) = spawn_test_server("empty").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -117,7 +116,7 @@ async fn test_empty_message_handling() {
 async fn test_unknown_message_type() {
     let (ws_url, _server) = spawn_test_server("unknown").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -145,7 +144,7 @@ async fn test_unknown_message_type() {
 async fn test_nonexistent_session_operations() {
     let (ws_url, _server) = spawn_test_server("nonexistent").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -178,7 +177,7 @@ async fn test_nonexistent_session_operations() {
 async fn test_input_to_nonexistent_session() {
     let (ws_url, _server) = spawn_test_server("input-nonexist").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -209,7 +208,7 @@ async fn test_input_to_nonexistent_session() {
 async fn test_kill_nonexistent_session() {
     let (ws_url, _server) = spawn_test_server("kill-nonexist").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -239,7 +238,7 @@ async fn test_kill_nonexistent_session() {
 async fn test_resize_nonexistent_session() {
     let (ws_url, _server) = spawn_test_server("resize-nonexist").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -271,7 +270,7 @@ async fn test_resize_nonexistent_session() {
 async fn test_double_kill_session() {
     let (ws_url, _server) = spawn_test_server("double-kill").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -339,7 +338,7 @@ async fn test_double_kill_session() {
 async fn test_invalid_resize_dimensions() {
     let (ws_url, _server) = spawn_test_server("invalid-resize").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -403,7 +402,7 @@ async fn test_invalid_resize_dimensions() {
 async fn test_long_shell_name() {
     let (ws_url, _server) = spawn_test_server("long-shell").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -436,7 +435,7 @@ async fn test_long_shell_name() {
 async fn test_binary_message_rejection() {
     let (ws_url, _server) = spawn_test_server("binary").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -470,14 +469,14 @@ async fn test_rapid_connect_disconnect() {
     let (ws_url, _server) = spawn_test_server("rapid-conn").await;
 
     for _ in 0..10 {
-        if let Ok((socket, _)) = connect_async(Url::parse(&ws_url).unwrap()).await {
+        if let Ok((socket, _)) = connect_async(&ws_url).await {
             drop(socket); // Immediately disconnect
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 
     // Verify server still accepts new connections after rapid connect/disconnect
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Server should still accept connections");
 
@@ -503,7 +502,7 @@ async fn test_rapid_connect_disconnect() {
 async fn test_missing_required_fields() {
     let (ws_url, _server) = spawn_test_server("missing-fields").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 

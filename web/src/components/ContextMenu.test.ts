@@ -5,8 +5,7 @@ import { workspaceStore } from '../lib/workspaceStore';
 import { registerPane, unregisterPane } from '../lib/paneRegistry';
 import type { PaneHandle } from '../lib/paneRegistry';
 import { createDefaultWorkspace } from '../lib/workspaceTypes';
-import { themeState, setTerminalOverride, clearTerminalOverride } from '../lib/themeStore';
-import { get } from 'svelte/store';
+import { themeState, setTerminalOverride, clearTerminalOverride } from '../lib/themeStore.svelte';
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
@@ -608,7 +607,6 @@ describe('Context Menu - Terminal Theme Override', () => {
     await openSubmenu('Theme');
     await clickMenuItem('Light');
 
-    const state = get(themeState);
-    expect(state.terminalOverrides[paneId]).toBe('light');
+    expect(themeState.value.terminalOverrides[paneId]).toBe('light');
   });
 });

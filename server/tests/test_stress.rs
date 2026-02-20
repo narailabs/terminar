@@ -10,7 +10,6 @@ use tokio::net::TcpListener;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use futures::{SinkExt, StreamExt};
 use std::time::{Duration, Instant};
-use url::Url;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -65,7 +64,7 @@ async fn test_100_concurrent_sessions() {
         let created_count = created.clone();
 
         handles.push(tokio::spawn(async move {
-            let (mut socket, _) = connect_async(Url::parse(&url).unwrap())
+            let (mut socket, _) = connect_async(&url)
                 .await
                 .expect("Failed to connect");
 
@@ -120,7 +119,7 @@ async fn test_100_concurrent_sessions() {
 async fn test_large_output_streaming() {
     let (ws_url, _server) = spawn_stress_server("largeoutput").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -208,7 +207,7 @@ async fn test_50_concurrent_clients() {
         let connected_count = connected.clone();
 
         handles.push(tokio::spawn(async move {
-            match connect_async(Url::parse(&url).unwrap()).await {
+            match connect_async(&url).await {
                 Ok((mut socket, _)) => {
                     connected_count.fetch_add(1, Ordering::SeqCst);
 
@@ -262,7 +261,7 @@ async fn test_50_concurrent_clients() {
 async fn test_rapid_input_throughput() {
     let (ws_url, _server) = spawn_stress_server("rapidinput").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -335,7 +334,7 @@ async fn test_rapid_input_throughput() {
 async fn test_rapid_session_lifecycle() {
     let (ws_url, _server) = spawn_stress_server("lifecycle").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 

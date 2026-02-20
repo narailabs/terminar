@@ -1,11 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { TrayConfig } from '../main/types.js';
 
 contextBridge.exposeInMainWorld('trayAPI', {
   getConfig: () => ipcRenderer.invoke('tray:get-config'),
-  saveConfig: (config: any) => ipcRenderer.invoke('tray:save-config', config),
+  saveConfig: (config: TrayConfig) => ipcRenderer.invoke('tray:save-config', config),
   getServiceStatus: () => ipcRenderer.invoke('tray:get-service-status'),
   getHealth: () => ipcRenderer.invoke('tray:get-health'),
-  installService: (config: any) => ipcRenderer.invoke('tray:install-service', config),
+  installService: (config: TrayConfig) => ipcRenderer.invoke('tray:install-service', config),
   uninstallService: () => ipcRenderer.invoke('tray:uninstall-service'),
   restartService: () => ipcRenderer.invoke('tray:restart-service'),
   stopService: () => ipcRenderer.invoke('tray:stop-service'),

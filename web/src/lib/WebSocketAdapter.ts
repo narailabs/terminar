@@ -1,18 +1,5 @@
 import { EventEmitter } from 'events';
-
-/**
- * IShellSocket interface from shell-protocol.
- * Duplicated here to avoid direct import from the shell-protocol package
- * until it's properly wired as a dependency.
- */
-export interface IShellSocket {
-    send(data: string): void;
-    close(): void;
-    on(event: 'message', listener: (data: string) => void): this;
-    on(event: 'open', listener: () => void): this;
-    on(event: 'close', listener: () => void): this;
-    on(event: 'error', listener: (err: any) => void): this;
-}
+import type { IShellSocket } from './shared-protocol';
 
 /**
  * Adapts a browser WebSocket to the IShellSocket interface

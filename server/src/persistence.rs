@@ -126,11 +126,10 @@ pub fn load_history(base_dir: &str, session_id: &str) -> Result<Option<Vec<u8>>,
 pub fn delete_history(session_id: &str) {
     let dir = get_history_dir();
     let path = dir.join(format!("{}.history", session_id));
-    if path.exists() {
-        if let Err(e) = std::fs::remove_file(&path) {
+    if path.exists()
+        && let Err(e) = std::fs::remove_file(&path) {
             tracing::warn!("Failed to delete history file {:?}: {}", path, e);
         }
-    }
 }
 
 /// Zstd magic bytes: 0x28 0xB5 0x2F 0xFD

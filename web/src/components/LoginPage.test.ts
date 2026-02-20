@@ -30,8 +30,7 @@ describe('LoginPage', () => {
   it('retry button dispatches retryLocal event', async () => {
     const handler = vi.fn();
     render(LoginPage, {
-      props: { isLocal: true, connectionState: 'disconnected' },
-      events: { retryLocal: handler },
+      props: { isLocal: true, connectionState: 'disconnected', onretrylocal: handler },
     });
 
     const retryBtn = screen.getByText('Retry Connection');
@@ -81,8 +80,7 @@ describe('LoginPage', () => {
   it('password form dispatches passwordAuth with username, password, and rememberMe', async () => {
     const handler = vi.fn();
     render(LoginPage, {
-      props: { isLocal: false },
-      events: { passwordAuth: handler },
+      props: { isLocal: false, onpasswordauth: handler },
     });
 
     const usernameInput = screen.getByPlaceholderText('OS username');
@@ -95,7 +93,7 @@ describe('LoginPage', () => {
     await fireEvent.click(signInBtn);
 
     expect(handler).toHaveBeenCalledOnce();
-    expect(handler.mock.calls[0][0].detail).toEqual({
+    expect(handler.mock.calls[0][0]).toEqual({
       username: 'testuser',
       password: 'testpass',
       rememberMe: true,
@@ -105,8 +103,7 @@ describe('LoginPage', () => {
   it('password form does NOT dispatch when fields are empty (button is disabled)', async () => {
     const handler = vi.fn();
     render(LoginPage, {
-      props: { isLocal: false },
-      events: { passwordAuth: handler },
+      props: { isLocal: false, onpasswordauth: handler },
     });
 
     const signInBtn = screen.getByText('Sign In');
@@ -121,8 +118,7 @@ describe('LoginPage', () => {
   it('SSH key form dispatches sshKeyAuth with username and private key', async () => {
     const handler = vi.fn();
     render(LoginPage, {
-      props: { isLocal: false },
-      events: { sshKeyAuth: handler },
+      props: { isLocal: false, onsshkeyauth: handler },
     });
 
     // Switch to SSH Key tab
@@ -141,7 +137,7 @@ describe('LoginPage', () => {
     await fireEvent.click(submitBtn);
 
     expect(handler).toHaveBeenCalledOnce();
-    expect(handler.mock.calls[0][0].detail).toEqual({
+    expect(handler.mock.calls[0][0]).toEqual({
       username: 'sshuser',
       privateKeyPem: '-----BEGIN OPENSSH PRIVATE KEY-----\ntest\n-----END OPENSSH PRIVATE KEY-----',
       rememberMe: true,
@@ -153,8 +149,7 @@ describe('LoginPage', () => {
   it('token form dispatches tokenAuth with token value', async () => {
     const handler = vi.fn();
     render(LoginPage, {
-      props: { isLocal: false },
-      events: { tokenAuth: handler },
+      props: { isLocal: false, ontokenauth: handler },
     });
 
     // Switch to Token tab
@@ -167,7 +162,7 @@ describe('LoginPage', () => {
     await fireEvent.click(connectBtn);
 
     expect(handler).toHaveBeenCalledOnce();
-    expect(handler.mock.calls[0][0].detail).toEqual({
+    expect(handler.mock.calls[0][0]).toEqual({
       token: 'my-secret-token-123',
     });
   });
@@ -177,8 +172,7 @@ describe('LoginPage', () => {
   it('pairing form dispatches pairingAuth when code is at least 6 chars', async () => {
     const handler = vi.fn();
     render(LoginPage, {
-      props: { isLocal: false },
-      events: { pairingAuth: handler },
+      props: { isLocal: false, onpairingauth: handler },
     });
 
     // Switch to Pairing Code tab
@@ -191,7 +185,7 @@ describe('LoginPage', () => {
     await fireEvent.click(submitBtn);
 
     expect(handler).toHaveBeenCalledOnce();
-    expect(handler.mock.calls[0][0].detail).toEqual({
+    expect(handler.mock.calls[0][0]).toEqual({
       code: '12345678',
     });
   });
@@ -201,8 +195,7 @@ describe('LoginPage', () => {
   it('Enter key submits the active password form', async () => {
     const handler = vi.fn();
     render(LoginPage, {
-      props: { isLocal: false },
-      events: { passwordAuth: handler },
+      props: { isLocal: false, onpasswordauth: handler },
     });
 
     const usernameInput = screen.getByPlaceholderText('OS username');
@@ -215,7 +208,7 @@ describe('LoginPage', () => {
     await fireEvent.keyDown(passwordInput, { key: 'Enter' });
 
     expect(handler).toHaveBeenCalledOnce();
-    expect(handler.mock.calls[0][0].detail).toEqual({
+    expect(handler.mock.calls[0][0]).toEqual({
       username: 'enteruser',
       password: 'enterpass',
       rememberMe: true,

@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { get } from 'svelte/store';
 import {
   exitedSessions,
   markExited,
@@ -7,41 +6,35 @@ import {
   getExitInfo,
   removeExited,
   type ExitedSessionInfo,
-} from './exitedSessionsStore';
+} from './exitedSessionsStore.svelte';
 
 describe('exitedSessionsStore', () => {
   beforeEach(() => {
     // Reset store to initial state before each test
-    // We remove any sessions that might be left from prior tests
-    const current = get(exitedSessions);
-    for (const id of current.keys()) {
+    for (const id of exitedSessions.map.keys()) {
       removeExited(id);
     }
   });
 
   it('starts with an empty sessions map', () => {
-    const state = get(exitedSessions);
-    expect(state).toBeInstanceOf(Map);
-    expect(state.size).toBe(0);
+    expect(exitedSessions.map).toBeInstanceOf(Map);
+    expect(exitedSessions.map.size).toBe(0);
   });
 
   it('markExited adds session with exit code 0', () => {
     markExited('session-1', 0);
-    const state = get(exitedSessions);
-    expect(state.size).toBe(1);
-    expect(state.get('session-1')?.exitCode).toBe(0);
+    expect(exitedSessions.map.size).toBe(1);
+    expect(exitedSessions.map.get('session-1')?.exitCode).toBe(0);
   });
 
   it('markExited adds session with exit code 1', () => {
     markExited('session-1', 1);
-    const state = get(exitedSessions);
-    expect(state.get('session-1')?.exitCode).toBe(1);
+    expect(exitedSessions.map.get('session-1')?.exitCode).toBe(1);
   });
 
   it('markExited adds session with null exit code', () => {
     markExited('session-1', null);
-    const state = get(exitedSessions);
-    expect(state.get('session-1')?.exitCode).toBeNull();
+    expect(exitedSessions.map.get('session-1')?.exitCode).toBeNull();
   });
 
   it('isExited returns true for exited sessions', () => {
@@ -72,13 +65,13 @@ describe('exitedSessionsStore', () => {
     expect(isExited('session-1')).toBe(true);
     removeExited('session-1');
     expect(isExited('session-1')).toBe(false);
-    expect(get(exitedSessions).size).toBe(0);
+    expect(exitedSessions.map.size).toBe(0);
   });
 
   it('removeExited on non-existent session is a no-op', () => {
     markExited('session-1', 0);
     removeExited('does-not-exist');
-    expect(get(exitedSessions).size).toBe(1);
+    expect(exitedSessions.map.size).toBe(1);
   });
 
   it('multiple sessions can be tracked independently', () => {
@@ -86,7 +79,7 @@ describe('exitedSessionsStore', () => {
     markExited('session-b', 1);
     markExited('session-c', null);
 
-    expect(get(exitedSessions).size).toBe(3);
+    expect(exitedSessions.map.size).toBe(3);
     expect(isExited('session-a')).toBe(true);
     expect(isExited('session-b')).toBe(true);
     expect(isExited('session-c')).toBe(true);
@@ -96,7 +89,7 @@ describe('exitedSessionsStore', () => {
     expect(getExitInfo('session-c')?.exitCode).toBeNull();
 
     removeExited('session-b');
-    expect(get(exitedSessions).size).toBe(2);
+    expect(exitedSessions.map.size).toBe(2);
     expect(isExited('session-b')).toBe(false);
     expect(isExited('session-a')).toBe(true);
     expect(isExited('session-c')).toBe(true);
@@ -113,21 +106,20 @@ describe('exitedSessionsStore', () => {
     expect(info!.exitedAt).toBeLessThanOrEqual(after);
   });
 
-  it('subscribe notifies on changes', () => {
-    const values: Map<string, ExitedSessionInfo>[] = [];
-    const unsub = exitedSessions.subscribe((v) => {
-      values.push(new Map(v));
-    });
-
+  it('exitedSessions.has() checks session existence', () => {
+    expect(exitedSessions.has('session-1')).toBe(false);
     markExited('session-1', 0);
-    removeExited('session-1');
+    expect(exitedSessions.has('session-1')).toBe(true);
+  });
 
-    unsub();
+  it('exitedSessions.get() returns exit info', () => {
+    markExited('session-1', 42);
+    const info = exitedSessions.get('session-1');
+    expect(info).toBeDefined();
+    expect(info!.exitCode).toBe(42);
+  });
 
-    // Initial empty + markExited + removeExited = 3
-    expect(values.length).toBe(3);
-    expect(values[0].size).toBe(0);
-    expect(values[1].size).toBe(1);
-    expect(values[2].size).toBe(0);
+  it('exitedSessions.get() returns undefined for missing session', () => {
+    expect(exitedSessions.get('missing')).toBeUndefined();
   });
 });

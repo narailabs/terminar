@@ -4,18 +4,13 @@ import SplitHandle from './SplitHandle.svelte';
 
 // ── Mock resizeStore ────────────────────────────────────────────────────────
 
-vi.mock('../lib/resizeStore', () => ({
+vi.mock('../lib/resizeStore.svelte', () => ({
   startResize: vi.fn(),
   endResize: vi.fn(),
-  isResizing: {
-    subscribe: vi.fn((fn: (v: boolean) => void) => {
-      fn(false);
-      return () => {};
-    }),
-  },
+  resizeState: { isResizing: false },
 }));
 
-import { startResize, endResize } from '../lib/resizeStore';
+import { startResize, endResize } from '../lib/resizeStore.svelte';
 
 describe('SplitHandle', () => {
   afterEach(() => {
@@ -74,13 +69,12 @@ describe('SplitHandle', () => {
     addSpy.mockRestore();
   });
 
-  // ── 4. Mousemove during drag dispatches resize with delta (horizontal) ──
+  // ── 4. Mousemove during drag calls onresize with delta (horizontal) ──
 
-  it('dispatches resize event with correct horizontal delta on mousemove', async () => {
+  it('calls onresize with correct horizontal delta on mousemove', async () => {
     const resizeHandler = vi.fn();
     const { container } = render(SplitHandle, {
-      props: { direction: 'horizontal', index: 2 },
-      events: { resize: resizeHandler },
+      props: { direction: 'horizontal', index: 2, onresize: resizeHandler },
     });
 
     const handle = container.querySelector('.split-handle')!;
@@ -92,33 +86,24 @@ describe('SplitHandle', () => {
     await fireEvent.mouseMove(window, { clientX: 120, clientY: 50 });
 
     expect(resizeHandler).toHaveBeenCalledTimes(1);
-    expect(resizeHandler).toHaveBeenCalledWith(
-      expect.objectContaining({
-        detail: { index: 2, delta: 20 },
-      })
-    );
+    expect(resizeHandler).toHaveBeenCalledWith({ index: 2, delta: 20 });
 
     // Move again to clientX=115 (delta = -5 from previous position 120)
     await fireEvent.mouseMove(window, { clientX: 115, clientY: 50 });
 
     expect(resizeHandler).toHaveBeenCalledTimes(2);
-    expect(resizeHandler).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        detail: { index: 2, delta: -5 },
-      })
-    );
+    expect(resizeHandler).toHaveBeenLastCalledWith({ index: 2, delta: -5 });
 
     // Clean up
     await fireEvent.mouseUp(window);
   });
 
-  // ── 5. Mousemove during drag dispatches resize with delta (vertical) ────
+  // ── 5. Mousemove during drag calls onresize with delta (vertical) ────
 
-  it('dispatches resize event with correct vertical delta on mousemove', async () => {
+  it('calls onresize with correct vertical delta on mousemove', async () => {
     const resizeHandler = vi.fn();
     const { container } = render(SplitHandle, {
-      props: { direction: 'vertical', index: 1 },
-      events: { resize: resizeHandler },
+      props: { direction: 'vertical', index: 1, onresize: resizeHandler },
     });
 
     const handle = container.querySelector('.split-handle')!;
@@ -130,25 +115,20 @@ describe('SplitHandle', () => {
     await fireEvent.mouseMove(window, { clientX: 50, clientY: 230 });
 
     expect(resizeHandler).toHaveBeenCalledTimes(1);
-    expect(resizeHandler).toHaveBeenCalledWith(
-      expect.objectContaining({
-        detail: { index: 1, delta: 30 },
-      })
-    );
+    expect(resizeHandler).toHaveBeenCalledWith({ index: 1, delta: 30 });
 
     // Clean up
     await fireEvent.mouseUp(window);
   });
 
-  // ── 6. Mouseup calls endResize(), dispatches resizeEnd, removes listeners
+  // ── 6. Mouseup calls endResize(), calls onresizeend, removes listeners
 
-  it('mouseup calls endResize, dispatches resizeEnd, and removes window listeners', async () => {
+  it('mouseup calls endResize, calls onresizeend, and removes window listeners', async () => {
     const removeSpy = vi.spyOn(window, 'removeEventListener');
 
     const resizeEndHandler = vi.fn();
     const { container } = render(SplitHandle, {
-      props: { direction: 'horizontal', index: 0 },
-      events: { resizeEnd: resizeEndHandler },
+      props: { direction: 'horizontal', index: 0, onresizeend: resizeEndHandler },
     });
 
     const handle = container.querySelector('.split-handle')!;
