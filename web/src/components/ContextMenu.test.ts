@@ -50,10 +50,10 @@ const { TerminalMock, FitAddonMock } = vi.hoisted(() => {
   return { TerminalMock, FitAddonMock };
 });
 
-vi.mock('xterm', () => ({ Terminal: TerminalMock }));
-vi.mock('xterm-addon-fit', () => ({ FitAddon: FitAddonMock }));
+vi.mock('@xterm/xterm', () => ({ Terminal: TerminalMock }));
+vi.mock('@xterm/addon-fit', () => ({ FitAddon: FitAddonMock }));
 vi.mock('@xterm/addon-webgl', () => ({ WebglAddon: vi.fn() }));
-vi.mock('xterm-addon-unicode11', () => ({ Unicode11Addon: vi.fn() }));
+vi.mock('@xterm/addon-unicode11', () => ({ Unicode11Addon: vi.fn() }));
 
 global.ResizeObserver = class {
   observe = vi.fn();

@@ -1,4 +1,4 @@
-import 'xterm/css/xterm.css'
+import '@xterm/xterm/css/xterm.css'
 import { mount } from 'svelte'
 import App from './App.svelte'
 

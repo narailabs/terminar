@@ -1,4 +1,4 @@
-import type { Terminal } from 'xterm';
+import type { Terminal } from '@xterm/xterm';
 
 /**
  * TerminalResizeDebouncer - Intelligent terminal resize handling
