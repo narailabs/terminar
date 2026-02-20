@@ -1,47 +1,48 @@
 <script lang="ts">
   import { startResize, endResize } from '../lib/resizeStore.svelte';
 
-  let { direction, index, onresize, onresizeend }: {
+  let { direction, index, ondrag, oncommit }: {
     direction: 'horizontal' | 'vertical';
     index: number;
-    onresize?: (detail: { index: number; delta: number }) => void;
-    onresizeend?: () => void;
+    ondrag?: (detail: { index: number; delta: number }) => void;
+    oncommit?: () => void;
   } = $props();
 
   let isDragging = $state(false);
   let startPos = 0;
 
-  function handleMouseDown(event: MouseEvent) {
+  function handlePointerDown(event: PointerEvent) {
     event.preventDefault();
     isDragging = true;
     startPos = direction === 'horizontal' ? event.clientX : event.clientY;
 
+    // Capture all pointer events on this element (no window listeners needed)
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+
     // Signal that resize is starting (terminals will suspend fitting)
     startResize();
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
   }
 
-  function handleMouseMove(event: MouseEvent) {
+  function handlePointerMove(event: PointerEvent) {
     if (!isDragging) return;
 
     const currentPos = direction === 'horizontal' ? event.clientX : event.clientY;
     const delta = currentPos - startPos;
     startPos = currentPos;
 
-    onresize?.({ index, delta });
+    ondrag?.({ index, delta });
   }
 
-  function handleMouseUp() {
+  function handlePointerUp(event: PointerEvent) {
+    if (!isDragging) return;
     isDragging = false;
-    window.removeEventListener('mousemove', handleMouseMove);
-    window.removeEventListener('mouseup', handleMouseUp);
+
+    (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
 
     // Signal that resize has ended (terminals will now fit)
     endResize();
 
-    onresizeend?.();
+    oncommit?.();
   }
 </script>
 
@@ -50,7 +51,9 @@
   class:horizontal={direction === 'horizontal'}
   class:vertical={direction === 'vertical'}
   class:dragging={isDragging}
-  onmousedown={handleMouseDown}
+  onpointerdown={handlePointerDown}
+  onpointermove={handlePointerMove}
+  onpointerup={handlePointerUp}
   role="separator"
   aria-orientation={direction}
   tabindex="0"
@@ -62,6 +65,7 @@
     background: var(--ui-border, #3c3c3c);
     transition: background 0.15s;
     z-index: 10;
+    touch-action: none;
   }
 
   .split-handle:hover,

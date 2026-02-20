@@ -7,6 +7,7 @@
 import { getContext, setContext, hasContext } from 'svelte';
 import type { SessionManager } from './SessionManager';
 import type { SessionInfo } from './shared-protocol';
+import type { DropZone } from './workspaceTypes';
 
 export type { SessionInfo } from './shared-protocol';
 
@@ -15,6 +16,7 @@ export type { SessionInfo } from './shared-protocol';
 const MANAGER_KEY = Symbol('terminar-manager');
 const SESSIONS_KEY = Symbol('terminar-sessions');
 const ACTIONS_KEY = Symbol('terminar-actions');
+const PANE_ACTIONS_KEY = Symbol('terminar-pane-actions');
 
 // --- Reactive box type ---
 
@@ -90,4 +92,45 @@ export function getActionsContext(): AppActions {
     return getContext<AppActions>(ACTIONS_KEY);
   }
   return NOOP_ACTIONS;
+}
+
+// --- Pane actions interface ---
+
+export interface PaneActions {
+  drop(paneId: string, sessionId: string, dropZone: DropZone): void;
+  paneDrop(sourcePaneId: string, targetPaneId: string, dropZone: DropZone): void;
+  contextMenu(paneId: string, x: number, y: number): void;
+  focus(paneId: string): void;
+  detach(paneId: string): void;
+  kill(paneId: string, sessionId: string): void;
+  closePaneAction(paneId: string): void;
+  splitHorizontal(paneId: string): void;
+  splitVertical(paneId: string): void;
+  commitResize(splitId: string, ratios: number[]): void;
+}
+
+const NOOP_PANE_ACTIONS: PaneActions = {
+  drop() {},
+  paneDrop() {},
+  contextMenu() {},
+  focus() {},
+  detach() {},
+  kill() {},
+  closePaneAction() {},
+  splitHorizontal() {},
+  splitVertical() {},
+  commitResize() {},
+};
+
+// --- Pane actions context ---
+
+export function setPaneActionsContext(actions: PaneActions): void {
+  setContext(PANE_ACTIONS_KEY, actions);
+}
+
+export function getPaneActionsContext(): PaneActions {
+  if (hasContext(PANE_ACTIONS_KEY)) {
+    return getContext<PaneActions>(PANE_ACTIONS_KEY);
+  }
+  return NOOP_PANE_ACTIONS;
 }

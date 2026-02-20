@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, fireEvent, cleanup } from '@testing-library/svelte';
 import SplitHandle from './SplitHandle.svelte';
 
@@ -17,6 +17,12 @@ describe('SplitHandle', () => {
     cleanup();
     vi.clearAllMocks();
   });
+
+  /** Attach mock pointer-capture methods to an element (jsdom doesn't provide them). */
+  function mockPointerCapture(el: Element) {
+    (el as any).setPointerCapture = vi.fn();
+    (el as any).releasePointerCapture = vi.fn();
+  }
 
   // ── 1. Renders separator with correct horizontal class ──────────────────
 
@@ -45,108 +51,98 @@ describe('SplitHandle', () => {
     expect(handle?.classList.contains('horizontal')).toBe(false);
   });
 
-  // ── 3. Mousedown calls startResize() and sets up window listeners ───────
+  // ── 3. Pointerdown calls startResize() and sets pointer capture ─────────
 
-  it('mousedown calls startResize and registers window listeners', async () => {
-    const addSpy = vi.spyOn(window, 'addEventListener');
-
+  it('pointerdown calls startResize and sets pointer capture', async () => {
     const { container } = render(SplitHandle, {
       props: { direction: 'horizontal', index: 0 },
     });
 
     const handle = container.querySelector('.split-handle')!;
-    await fireEvent.mouseDown(handle, { clientX: 100, clientY: 100 });
+    mockPointerCapture(handle);
+
+    await fireEvent.pointerDown(handle, { clientX: 100, clientY: 100, pointerId: 1 });
 
     expect(startResize).toHaveBeenCalledTimes(1);
+    expect((handle as any).setPointerCapture).toHaveBeenCalledWith(1);
 
-    // Should have added mousemove and mouseup listeners on window
-    const addedEvents = addSpy.mock.calls.map((call) => call[0]);
-    expect(addedEvents).toContain('mousemove');
-    expect(addedEvents).toContain('mouseup');
-
-    // Clean up: trigger mouseup to remove listeners
-    await fireEvent.mouseUp(window);
-    addSpy.mockRestore();
+    // Clean up: trigger pointerup
+    await fireEvent.pointerUp(handle, { pointerId: 1 });
   });
 
-  // ── 4. Mousemove during drag calls onresize with delta (horizontal) ──
+  // ── 4. Pointermove during drag calls ondrag with delta (horizontal) ──
 
-  it('calls onresize with correct horizontal delta on mousemove', async () => {
-    const resizeHandler = vi.fn();
+  it('calls ondrag with correct horizontal delta on pointermove', async () => {
+    const dragHandler = vi.fn();
     const { container } = render(SplitHandle, {
-      props: { direction: 'horizontal', index: 2, onresize: resizeHandler },
+      props: { direction: 'horizontal', index: 2, ondrag: dragHandler },
     });
 
     const handle = container.querySelector('.split-handle')!;
+    mockPointerCapture(handle);
 
     // Start drag at clientX=100
-    await fireEvent.mouseDown(handle, { clientX: 100, clientY: 50 });
+    await fireEvent.pointerDown(handle, { clientX: 100, clientY: 50, pointerId: 1 });
 
-    // Move to clientX=120 (delta = 20)
-    await fireEvent.mouseMove(window, { clientX: 120, clientY: 50 });
+    // Move to clientX=120 (delta = 20) — pointer capture routes to element
+    await fireEvent.pointerMove(handle, { clientX: 120, clientY: 50, pointerId: 1 });
 
-    expect(resizeHandler).toHaveBeenCalledTimes(1);
-    expect(resizeHandler).toHaveBeenCalledWith({ index: 2, delta: 20 });
+    expect(dragHandler).toHaveBeenCalledTimes(1);
+    expect(dragHandler).toHaveBeenCalledWith({ index: 2, delta: 20 });
 
     // Move again to clientX=115 (delta = -5 from previous position 120)
-    await fireEvent.mouseMove(window, { clientX: 115, clientY: 50 });
+    await fireEvent.pointerMove(handle, { clientX: 115, clientY: 50, pointerId: 1 });
 
-    expect(resizeHandler).toHaveBeenCalledTimes(2);
-    expect(resizeHandler).toHaveBeenLastCalledWith({ index: 2, delta: -5 });
+    expect(dragHandler).toHaveBeenCalledTimes(2);
+    expect(dragHandler).toHaveBeenLastCalledWith({ index: 2, delta: -5 });
 
     // Clean up
-    await fireEvent.mouseUp(window);
+    await fireEvent.pointerUp(handle, { pointerId: 1 });
   });
 
-  // ── 5. Mousemove during drag calls onresize with delta (vertical) ────
+  // ── 5. Pointermove during drag calls ondrag with delta (vertical) ────
 
-  it('calls onresize with correct vertical delta on mousemove', async () => {
-    const resizeHandler = vi.fn();
+  it('calls ondrag with correct vertical delta on pointermove', async () => {
+    const dragHandler = vi.fn();
     const { container } = render(SplitHandle, {
-      props: { direction: 'vertical', index: 1, onresize: resizeHandler },
+      props: { direction: 'vertical', index: 1, ondrag: dragHandler },
     });
 
     const handle = container.querySelector('.split-handle')!;
+    mockPointerCapture(handle);
 
     // Start drag at clientY=200
-    await fireEvent.mouseDown(handle, { clientX: 50, clientY: 200 });
+    await fireEvent.pointerDown(handle, { clientX: 50, clientY: 200, pointerId: 1 });
 
     // Move to clientY=230 (delta = 30)
-    await fireEvent.mouseMove(window, { clientX: 50, clientY: 230 });
+    await fireEvent.pointerMove(handle, { clientX: 50, clientY: 230, pointerId: 1 });
 
-    expect(resizeHandler).toHaveBeenCalledTimes(1);
-    expect(resizeHandler).toHaveBeenCalledWith({ index: 1, delta: 30 });
+    expect(dragHandler).toHaveBeenCalledTimes(1);
+    expect(dragHandler).toHaveBeenCalledWith({ index: 1, delta: 30 });
 
     // Clean up
-    await fireEvent.mouseUp(window);
+    await fireEvent.pointerUp(handle, { pointerId: 1 });
   });
 
-  // ── 6. Mouseup calls endResize(), calls onresizeend, removes listeners
+  // ── 6. Pointerup calls endResize(), calls oncommit, releases capture ──
 
-  it('mouseup calls endResize, calls onresizeend, and removes window listeners', async () => {
-    const removeSpy = vi.spyOn(window, 'removeEventListener');
-
-    const resizeEndHandler = vi.fn();
+  it('pointerup calls endResize, calls oncommit, and releases pointer capture', async () => {
+    const commitHandler = vi.fn();
     const { container } = render(SplitHandle, {
-      props: { direction: 'horizontal', index: 0, onresizeend: resizeEndHandler },
+      props: { direction: 'horizontal', index: 0, oncommit: commitHandler },
     });
 
     const handle = container.querySelector('.split-handle')!;
+    mockPointerCapture(handle);
 
     // Start drag
-    await fireEvent.mouseDown(handle, { clientX: 100, clientY: 100 });
+    await fireEvent.pointerDown(handle, { clientX: 100, clientY: 100, pointerId: 1 });
 
     // End drag
-    await fireEvent.mouseUp(window);
+    await fireEvent.pointerUp(handle, { pointerId: 1 });
 
     expect(endResize).toHaveBeenCalledTimes(1);
-    expect(resizeEndHandler).toHaveBeenCalledTimes(1);
-
-    // Should have removed mousemove and mouseup listeners from window
-    const removedEvents = removeSpy.mock.calls.map((call) => call[0]);
-    expect(removedEvents).toContain('mousemove');
-    expect(removedEvents).toContain('mouseup');
-
-    removeSpy.mockRestore();
+    expect(commitHandler).toHaveBeenCalledTimes(1);
+    expect((handle as any).releasePointerCapture).toHaveBeenCalledWith(1);
   });
 });

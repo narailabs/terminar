@@ -1,43 +1,34 @@
 <script lang="ts">
   import Pane from './Pane.svelte';
   import SplitHandle from './SplitHandle.svelte';
-  import type { SplitNode, SplitContainer as SplitContainerType, DropZone, SessionId, PaneId } from '../lib/workspaceTypes';
+  import type { SplitNode, SplitContainer as SplitContainerType, PaneId } from '../lib/workspaceTypes';
+  import { getPaneActionsContext } from '../lib/sessionContext.svelte';
 
   let {
     node,
     activePaneId = null,
-    ondrop,
-    onpaneDrop,
-    oncontextmenu,
-    onfocus,
-    onresize,
-    ondetach,
-    onkill,
-    onActionPaneClose,
-    onActionSplitHorizontal,
-    onActionSplitVertical,
   }: {
     node: SplitNode;
     activePaneId?: PaneId | null;
-    ondrop?: (detail: { paneId: string; sessionId: SessionId; dropZone: DropZone }) => void;
-    onpaneDrop?: (detail: { sourcePaneId: string; targetPaneId: string; dropZone: DropZone }) => void;
-    oncontextmenu?: (detail: { paneId: string; x: number; y: number }) => void;
-    onfocus?: (detail: { paneId: string }) => void;
-    onresize?: (detail: { splitId: string; ratios: number[] }) => void;
-    ondetach?: (detail: { paneId: string }) => void;
-    onkill?: (detail: { paneId: string; sessionId: SessionId }) => void;
-    onActionPaneClose?: (detail: { paneId: string }) => void;
-    onActionSplitHorizontal?: (detail: { paneId: string }) => void;
-    onActionSplitVertical?: (detail: { paneId: string }) => void;
   } = $props();
+
+  const paneActions = getPaneActionsContext();
 
   let containerRef: HTMLDivElement;
 
-  function handleSplitResize(detail: { index: number; delta: number }) {
+  // Local drag state — non-null only while actively dragging
+  let dragRatios: number[] | null = $state(null);
+
+  function handleDrag(detail: { index: number; delta: number }) {
     if (node.type !== 'split' || !containerRef) return;
 
     const split = node as SplitContainerType;
     const { index, delta } = detail;
+
+    // Lazily initialize from the store's ratios on first drag event
+    if (!dragRatios) {
+      dragRatios = [...split.ratios];
+    }
 
     // Get container dimensions
     const rect = containerRef.getBoundingClientRect();
@@ -51,24 +42,31 @@
     // Convert delta to ratio change
     const deltaRatio = delta / availableSize;
 
-    // Update ratios
-    const newRatios = [...split.ratios];
-
     // Ensure we don't go below minimum (10% of available space per pane)
     const minRatio = 0.1;
 
-    const newRatio1 = newRatios[index] + deltaRatio;
-    const newRatio2 = newRatios[index + 1] - deltaRatio;
+    const newRatio1 = dragRatios[index] + deltaRatio;
+    const newRatio2 = dragRatios[index + 1] - deltaRatio;
 
     if (newRatio1 >= minRatio && newRatio2 >= minRatio) {
-      newRatios[index] = newRatio1;
-      newRatios[index + 1] = newRatio2;
-      onresize?.({ splitId: split.id, ratios: newRatios });
+      dragRatios[index] = newRatio1;
+      dragRatios[index + 1] = newRatio2;
+
+      // Apply directly to DOM for smooth drag (bypass store)
+      const children = containerRef.querySelectorAll<HTMLElement>(':scope > .split-child');
+      const handleCount = split.children.length - 1;
+      children.forEach((child, i) => {
+        if (i < dragRatios!.length) {
+          child.style.flex = `0 0 ${getFlexBasis(dragRatios![i], handleCount)}`;
+        }
+      });
     }
   }
 
-  function handleResizeEnd() {
-    // Could trigger a save here if needed
+  function handleCommit() {
+    if (node.type !== 'split' || !dragRatios) return;
+    paneActions.commitResize(node.id, dragRatios);
+    dragRatios = null;
   }
 
   // Calculate flex basis for each child
@@ -85,15 +83,6 @@
     paneId={node.id}
     sessionId={node.sessionId}
     isActive={activePaneId === node.id}
-    ondrop={(detail) => ondrop?.(detail)}
-    onpaneDrop={(detail) => onpaneDrop?.(detail)}
-    oncontextmenu={(detail) => oncontextmenu?.(detail)}
-    onfocus={(detail) => onfocus?.(detail)}
-    ondetach={(detail) => ondetach?.(detail)}
-    onkill={(detail) => onkill?.(detail)}
-    onActionPaneClose={(detail) => onActionPaneClose?.(detail)}
-    onActionSplitHorizontal={(detail) => onActionSplitHorizontal?.(detail)}
-    onActionSplitVertical={(detail) => onActionSplitVertical?.(detail)}
   />
 {:else}
   <div
@@ -110,24 +99,14 @@
         <svelte:self
           node={child}
           {activePaneId}
-          ondrop={(detail) => ondrop?.(detail)}
-          onpaneDrop={(detail) => onpaneDrop?.(detail)}
-          oncontextmenu={(detail) => oncontextmenu?.(detail)}
-          onfocus={(detail) => onfocus?.(detail)}
-          onresize={(detail) => onresize?.(detail)}
-          ondetach={(detail) => ondetach?.(detail)}
-          onkill={(detail) => onkill?.(detail)}
-          onActionPaneClose={(detail) => onActionPaneClose?.(detail)}
-          onActionSplitHorizontal={(detail) => onActionSplitHorizontal?.(detail)}
-          onActionSplitVertical={(detail) => onActionSplitVertical?.(detail)}
         />
       </div>
       {#if i < node.children.length - 1}
         <SplitHandle
           direction={node.direction}
           index={i}
-          onresize={(detail) => handleSplitResize(detail)}
-          onresizeend={() => handleResizeEnd()}
+          ondrag={(detail) => handleDrag(detail)}
+          oncommit={() => handleCommit()}
         />
       {/if}
     {/each}

@@ -6,12 +6,12 @@
   import { getPane } from '../lib/paneRegistry';
   import { setTerminalOverride } from '../lib/themeStore.svelte';
   import { BUILT_IN_TERMINAL_THEMES } from '../lib/themeTypes';
-  import type { TabId, PaneId, SessionId, DropZone, SplitDirection, SplitNode } from '../lib/workspaceTypes';
+  import type { TabId, PaneId, SessionId, SplitNode } from '../lib/workspaceTypes';
   import { findPane } from '../lib/workspaceTypes';
   import { activityStore } from '../lib/activityStore.svelte';
   import { exitedSessions } from '../lib/exitedSessionsStore.svelte';
 
-  import { getManagerContext, getSessionsContext, getActionsContext } from '../lib/sessionContext.svelte';
+  import { getManagerContext, getSessionsContext, getActionsContext, setPaneActionsContext } from '../lib/sessionContext.svelte';
   import type { SessionManager } from '../lib/SessionManager';
 
   // Optional prop overrides (for tests that render without context)
@@ -102,58 +102,34 @@
     workspaceStore.reorderTabs(detail.fromIndex, detail.toIndex);
   }
 
-  // Handle split container events (now callback props, not CustomEvent)
-  function handleDrop(detail: { paneId: string; sessionId: SessionId; dropZone: DropZone }) {
-    workspaceStore.handleDrop(detail.paneId, detail.sessionId, detail.dropZone);
-  }
-
-  function handlePaneDrop(detail: { sourcePaneId: string; targetPaneId: string; dropZone: DropZone }) {
-    workspaceStore.movePane(detail.sourcePaneId, detail.targetPaneId, detail.dropZone);
-  }
-
-  function handlePaneContextMenu(detail: { paneId: string; x: number; y: number }) {
-    contextMenu = detail;
-    // Read clipboard eagerly while we still have user activation from the right-click.
-    // navigator.clipboard.readText() requires transient activation which expires
-    // by the time a menu item click handler fires.
-    navigator.clipboard.readText().then((text) => {
-      clipboardText = text;
-    }).catch(() => {
-      clipboardText = '';
-    });
-  }
-
-  function handlePaneFocus(detail: { paneId: string }) {
-    activePaneId = detail.paneId;
-  }
-
-  function handleResize(detail: { splitId: string; ratios: number[] }) {
-    workspaceStore.updateRatios(detail.splitId, detail.ratios);
-  }
-
-  function handleDetach(detail: { paneId: string }) {
-    workspaceStore.closePane(detail.paneId);
-  }
-
-  function handleKill(detail: { paneId: string; sessionId: string }) {
-    const { paneId, sessionId } = detail;
-    if (effectiveManager) {
-      effectiveManager.killSession(sessionId);
-    }
-    workspaceStore.closePane(paneId);
-  }
-
-  function handleActionPaneClose(detail: { paneId: string }) {
-    workspaceStore.closePane(detail.paneId);
-  }
-
-  function handleActionSplitHorizontal(detail: { paneId: string }) {
-    workspaceStore.splitPane(detail.paneId, 'horizontal');
-  }
-
-  function handleActionSplitVertical(detail: { paneId: string }) {
-    workspaceStore.splitPane(detail.paneId, 'vertical');
-  }
+  // Set up PaneActions context — dispatches from Pane/SplitContainer without prop threading
+  setPaneActionsContext({
+    drop(paneId, sessionId, dropZone) { workspaceStore.handleDrop(paneId, sessionId, dropZone); },
+    paneDrop(src, tgt, zone) { workspaceStore.movePane(src, tgt, zone); },
+    contextMenu(paneId, x, y) {
+      contextMenu = { paneId, x, y };
+      // Read clipboard eagerly while we still have user activation from the right-click.
+      // navigator.clipboard.readText() requires transient activation which expires
+      // by the time a menu item click handler fires.
+      navigator.clipboard.readText().then((text) => {
+        clipboardText = text;
+      }).catch(() => {
+        clipboardText = '';
+      });
+    },
+    focus(paneId) { activePaneId = paneId; },
+    detach(paneId) { workspaceStore.closePane(paneId); },
+    kill(paneId, sessionId) {
+      if (effectiveManager) {
+        effectiveManager.killSession(sessionId);
+      }
+      workspaceStore.closePane(paneId);
+    },
+    closePaneAction(paneId) { workspaceStore.closePane(paneId); },
+    splitHorizontal(paneId) { workspaceStore.splitPane(paneId, 'horizontal'); },
+    splitVertical(paneId) { workspaceStore.splitPane(paneId, 'vertical'); },
+    commitResize(splitId, ratios) { workspaceStore.updateRatios(splitId, ratios); },
+  });
 
   // Context menu actions
   function handleContextMenuClose() {
@@ -372,16 +348,6 @@
       <SplitContainer
         node={$activeTab.root}
         {activePaneId}
-        ondrop={handleDrop}
-        onpaneDrop={handlePaneDrop}
-        oncontextmenu={handlePaneContextMenu}
-        onfocus={handlePaneFocus}
-        onresize={handleResize}
-        ondetach={handleDetach}
-        onkill={handleKill}
-        onActionPaneClose={handleActionPaneClose}
-        onActionSplitHorizontal={handleActionSplitHorizontal}
-        onActionSplitVertical={handleActionSplitVertical}
       />
     {:else}
       <div class="no-tab">
