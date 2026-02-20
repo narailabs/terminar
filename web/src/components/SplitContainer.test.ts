@@ -18,6 +18,7 @@ vi.mock('@xterm/xterm', () => ({
       getSelection: vi.fn().mockReturnValue(''),
       selectAll: vi.fn(),
       attachCustomKeyEventHandler: vi.fn(),
+      onScroll: vi.fn(),
       cols: 80,
       rows: 24,
       options: {
