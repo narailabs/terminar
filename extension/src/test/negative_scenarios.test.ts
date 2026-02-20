@@ -109,8 +109,8 @@ suite('SessionManager Negative Scenarios', () => {
 
             mockServer = net.createServer((socket) => {
                 activeSocket = socket;
-                let buffer = Buffer.alloc(0);
-                socket.on('data', (data) => {
+                let buffer: Buffer = Buffer.alloc(0);
+                socket.on('data', (data: Buffer) => {
                     buffer = Buffer.concat([buffer, data]);
                     const { messages, remaining } = parseFrames(buffer);
                     buffer = remaining;
@@ -300,8 +300,8 @@ suite('SessionManager Negative Scenarios', () => {
             let serverSocket: net.Socket | null = null;
             const mockServer = net.createServer((socket) => {
                 serverSocket = socket;
-                let buffer = Buffer.alloc(0);
-                socket.on('data', (data) => {
+                let buffer: Buffer = Buffer.alloc(0);
+                socket.on('data', (data: Buffer) => {
                     buffer = Buffer.concat([buffer, data]);
                     const { messages, remaining } = parseFrames(buffer);
                     buffer = remaining;
