@@ -6,7 +6,6 @@ import {
   Menu,
   nativeImage,
   app,
-  shell,
 } from 'electron';
 import path from 'path';
 import { spawn } from 'child_process';
