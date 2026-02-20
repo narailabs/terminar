@@ -1,11 +1,13 @@
 <script lang="ts">
-  import { broadcastTargets, broadcastInput } from '../lib/broadcastStore';
+  import { broadcastTargets, broadcastInput } from '../lib/broadcastStore.svelte';
 
-  export let onClose: (() => void) | undefined = undefined;
+  let { onClose = undefined }: {
+    onClose?: (() => void) | undefined;
+  } = $props();
 
-  let inputValue = '';
+  let inputValue = $state('');
 
-  $: targetCount = $broadcastTargets.size;
+  let targetCount = $derived(broadcastTargets.value.size);
 
   function handleSend() {
     if (!inputValue.trim()) return;
@@ -38,11 +40,11 @@
       class="broadcast-input"
       placeholder="Broadcast input to all targets..."
       bind:value={inputValue}
-      on:keydown={handleKeyDown}
+      onkeydown={handleKeyDown}
     />
     <button
       class="send-btn"
-      on:click={handleSend}
+      onclick={handleSend}
       aria-label="Send"
     >Send</button>
   </div>

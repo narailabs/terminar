@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent, screen, cleanup } from '@testing-library/svelte';
-import { get } from 'svelte/store';
+
 import SettingsPanel from './SettingsPanel.svelte';
 
 // Mock localStorage
@@ -23,9 +23,9 @@ import {
   setUIMode,
   addCustomUITheme,
   addCustomTerminalTheme,
-} from '../lib/themeStore';
+} from '../lib/themeStore.svelte';
 import { BUILT_IN_TERMINAL_THEMES } from '../lib/themeTypes';
-import { settingsStore } from '../lib/settingsStore';
+import { settingsStore } from '../lib/settingsStore.svelte';
 
 describe('SettingsPanel - Theme Selectors', () => {
   beforeEach(() => {
@@ -72,7 +72,7 @@ describe('SettingsPanel - Theme Selectors', () => {
     const select = document.querySelector('#uiMode') as HTMLSelectElement;
     await fireEvent.change(select, { target: { value: 'light' } });
 
-    expect(get(themeState).uiMode).toBe('light');
+    expect(themeState.value.uiMode).toBe('light');
   });
 
   it('should update themeStore when terminal theme is changed', async () => {
@@ -81,7 +81,7 @@ describe('SettingsPanel - Theme Selectors', () => {
     const select = document.querySelector('#terminalTheme') as HTMLSelectElement;
     await fireEvent.change(select, { target: { value: 'dark-green' } });
 
-    expect(get(themeState).activeTerminalThemeId).toBe('dark-green');
+    expect(themeState.value.activeTerminalThemeId).toBe('dark-green');
   });
 
   it('should reflect current mode in the dropdown', () => {
@@ -176,8 +176,7 @@ describe('SettingsPanel - Settings Controls', () => {
   it('Escape key dispatches close event', async () => {
     const closeFn = vi.fn();
     render(SettingsPanel, {
-      props: { isOpen: true },
-      events: { close: closeFn },
+      props: { isOpen: true, onclose: closeFn },
     });
     await fireEvent.keyDown(document, { key: 'Escape' });
     expect(closeFn).toHaveBeenCalled();
@@ -186,8 +185,7 @@ describe('SettingsPanel - Settings Controls', () => {
   it('backdrop click closes panel', async () => {
     const closeFn = vi.fn();
     render(SettingsPanel, {
-      props: { isOpen: true },
-      events: { close: closeFn },
+      props: { isOpen: true, onclose: closeFn },
     });
     const backdrop = document.querySelector('.modal-backdrop');
     // Click the backdrop itself (not a child element)
@@ -198,8 +196,7 @@ describe('SettingsPanel - Settings Controls', () => {
   it('clicking inside settings panel does not close via backdrop', async () => {
     const closeFn = vi.fn();
     render(SettingsPanel, {
-      props: { isOpen: true },
-      events: { close: closeFn },
+      props: { isOpen: true, onclose: closeFn },
     });
     const panel = document.querySelector('.settings-panel');
     await fireEvent.click(panel!);
@@ -338,8 +335,7 @@ describe('SettingsPanel - Settings Controls', () => {
   it('close button in header dispatches close event', async () => {
     const closeFn = vi.fn();
     render(SettingsPanel, {
-      props: { isOpen: true },
-      events: { close: closeFn },
+      props: { isOpen: true, onclose: closeFn },
     });
     const closeBtn = document.querySelector('.close-btn') as HTMLButtonElement;
     expect(closeBtn).toBeTruthy();

@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { writable } from 'svelte/store';
   import { Terminal } from '@xterm/xterm';
   import { FitAddon } from '@xterm/addon-fit';
   import { WebglAddon } from '@xterm/addon-webgl';
@@ -8,25 +7,29 @@
   import { SearchAddon } from '@xterm/addon-search';
   import '@xterm/xterm/css/xterm.css';
   import type { SessionManager } from '../lib/SessionManager';
-  import { xtermOptions, settingsStore } from '../lib/settingsStore';
-  import { themeState, getTerminalTheme } from '../lib/themeStore';
-  import { isResizing } from '../lib/resizeStore';
+  import { xtermOptions, settingsStore } from '../lib/settingsStore.svelte';
+  import { themeState, getTerminalTheme } from '../lib/themeStore.svelte';
+  import { resizeState } from '../lib/resizeStore.svelte';
   import { TerminalResizeDebouncer } from '../lib/TerminalResizeDebouncer';
-  import { getManagerContext } from '../lib/sessionContext';
+  import { getManagerContext } from '../lib/sessionContext.svelte';
 
   // Optional prop override (for tests that render without context).
   // Named _managerProp to avoid shadowing the `manager` local used throughout.
-  export let _managerProp: SessionManager | null | undefined = undefined;
-
-  const managerStore = getManagerContext();
-  let manager: SessionManager | null;
-  $: manager = _managerProp !== undefined ? _managerProp : $managerStore;
-
-  export let activeSessionId: string | null = null;
-  export let isActive: boolean = false; // Only send input when active pane - default to false for safety
-  export let paneId: string = '';
-  export let onSearchResults: ((resultIndex: number, resultCount: number) => void) | null = null;
-  export let onTitleChange: ((title: string) => void) | null = null;
+  let {
+    _managerProp = undefined,
+    activeSessionId = null,
+    isActive = false,
+    paneId = '',
+    onSearchResults = null,
+    onTitleChange = null,
+  }: {
+    _managerProp?: SessionManager | null;
+    activeSessionId?: string | null;
+    isActive?: boolean;
+    paneId?: string;
+    onSearchResults?: ((resultIndex: number, resultCount: number) => void) | null;
+    onTitleChange?: ((title: string) => void) | null;
+  } = $props();
 
   // Debug: unique ID for this terminal instance to track duplicates
   const terminalInstanceId = Math.random().toString(36).slice(2, 8);
@@ -34,15 +37,18 @@
   // Debug: disable WebGL for testing (can be set via URL param ?nowebgl=1)
   const disableWebGL = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('nowebgl');
 
+  const managerBox = getManagerContext();
+  let manager = $derived(_managerProp !== undefined ? _managerProp : managerBox.value);
+
   let terminalContainer: HTMLDivElement;
-  let term: Terminal;
+  let term = $state<Terminal>();
   let fitAddon: FitAddon;
   let webglAddon: WebglAddon | null = null;
   let searchAddon: SearchAddon | null = null;
   let resizeObserver: ResizeObserver;
   let resizeDebouncer: TerminalResizeDebouncer | null = null;
   let previousSessionId: string | null = null;
-  export let lastCols: number = 0;
+  let lastCols: number = 0;
 
   export function getSelection(): string {
     return term?.getSelection() ?? '';
@@ -66,7 +72,7 @@
       term.clear();
       term.reset();
       manager.attach(activeSessionId);
-      // Scroll to bottom after history replay — wrap in scrolledByUs to
+      // Scroll to bottom after history replay -- wrap in scrolledByUs to
       // prevent expensive isAtBottom() reflows in the scroll listener
       for (const delay of [200, 500, 1000]) {
         setTimeout(() => {
@@ -123,13 +129,13 @@
       term.attachCustomKeyEventHandler(handler);
     }
   }
-  export let lastRows: number = 0;
+  let lastRows: number = 0;
   let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
   let pendingFit: boolean = false;
   let lastOutputTime: number = 0;
   let isOutputActive: boolean = false;
   let outputActivityTimeout: ReturnType<typeof setTimeout> | null = null;
-  let initialSizingComplete: boolean = false;
+  let initialSizingComplete = $state(false);
 
   // Store bound handler reference to ensure proper cleanup
   // This fixes the listener accumulation bug where off() couldn't find the old listener
@@ -153,24 +159,22 @@
   // Flag set synchronously around programmatic scrollToBottom() calls so the
   // scroll event listener can skip the deferred isAtBottom() check. Setting
   // scrollTop fires the scroll event synchronously, so this flag is only true
-  // for exactly that event — user scrolls (wheel, drag) are unaffected.
+  // for exactly that event -- user scrolls (wheel, drag) are unaffected.
   let scrolledByUs = false;
   let lastScrollToBottomTime = 0;
 
   // Auto-scroll tracking: we always scroll to bottom on new output UNLESS the user
   // has explicitly scrolled up (e.g., to read earlier output). This avoids a race
   // condition where checking viewportY vs baseY per-write is unreliable during
-  // xterm's async parsing — baseY can update mid-parse while viewportY is stale,
+  // xterm's async parsing -- baseY can update mid-parse while viewportY is stale,
   // causing false "not at bottom" reads that skip scrolling.
   //
-  // IMPORTANT: This MUST be a writable() store, NOT a plain `let` variable.
-  // Svelte's reactivity system only tracks assignments at the top level of
-  // <script> blocks. State modified inside vanilla JS callbacks (addEventListener,
-  // requestAnimationFrame, Promise.then, etc.) will NOT trigger Svelte re-renders
-  // if stored in a plain `let`. Using a writable store ensures the "Scroll to
-  // bottom" badge visibility (`{#if !$autoScroll}`) updates correctly when
-  // autoScroll changes inside wheel/scroll/keydown event listeners.
-  const autoScroll = writable(true);
+  // In Svelte 5, $state is a true reactive signal that works correctly even when
+  // modified inside vanilla JS callbacks (addEventListener, requestAnimationFrame,
+  // Promise.then, etc.), unlike plain `let` in Svelte 4. This ensures the
+  // "Scroll to bottom" badge visibility (`{#if !autoScroll}`) updates correctly
+  // when autoScroll changes inside wheel/scroll/keydown event listeners.
+  let autoScroll = $state(true);
 
   // xterm v6 uses VS Code's SmoothScrollableElement instead of native scroll
   // on .xterm-viewport. DOM scrollTop/scrollHeight are no longer reliable.
@@ -190,16 +194,16 @@
       if (e.deltaY < 0) {
         // Immediately disable auto-scroll so the next flushWriteBuffer() won't
         // call scrollToBottom() before the browser applies this wheel scroll.
-        autoScroll.set(false);
+        autoScroll = false;
         // After xterm processes the scroll, check if viewport is still at
         // the bottom (e.g. tiny accidental trackpad gesture). If so, re-enable.
         requestAnimationFrame(() => {
-          if (isAtBottom()) autoScroll.set(true);
+          if (isAtBottom()) autoScroll = true;
         });
-      } else if (e.deltaY > 0 && !$autoScroll) {
-        // User scrolling down → check if reached bottom AFTER xterm applies scroll
+      } else if (e.deltaY > 0 && !autoScroll) {
+        // User scrolling down -> check if reached bottom AFTER xterm applies scroll
         requestAnimationFrame(() => {
-          if (isAtBottom()) autoScroll.set(true);
+          if (isAtBottom()) autoScroll = true;
         });
       }
     }) as EventListener, { passive: true });
@@ -210,11 +214,11 @@
     terminalContainer.addEventListener('keydown', (e: KeyboardEvent) => {
       if (!e.shiftKey) return;
       if (e.key === 'PageUp') {
-        autoScroll.set(false);
+        autoScroll = false;
       } else if (e.key === 'PageDown') {
         // After xterm processes the scroll, check if viewport reached bottom
         requestAnimationFrame(() => {
-          if (isAtBottom()) autoScroll.set(true);
+          if (isAtBottom()) autoScroll = true;
         });
       }
     }, true);
@@ -236,10 +240,10 @@
       // the flag is only true for exactly those scroll events.
       if (scrolledByUs) return;
       const atBottom = isAtBottom();
-      if (atBottom && !$autoScroll) {
-        autoScroll.set(true);
-      } else if (!atBottom && $autoScroll) {
-        autoScroll.set(false);
+      if (atBottom && !autoScroll) {
+        autoScroll = true;
+      } else if (!atBottom && autoScroll) {
+        autoScroll = false;
       }
     });
   }
@@ -282,7 +286,7 @@
     if (writePendingTimer !== null) clearTimeout(writePendingTimer);
     writePendingTimer = setTimeout(() => {
       if (writePending) {
-        console.warn('[Terminal] write callback did not fire within timeout — recovering pipeline');
+        console.warn('[Terminal] write callback did not fire within timeout -- recovering pipeline');
         writePending = false;
         writePendingTimer = null;
         scheduleFlush();
@@ -296,10 +300,10 @@
         writePendingTimer = null;
       }
 
-      if ($autoScroll && $settingsStore.autoScroll && term) {
+      if (autoScroll && settingsStore.value.autoScroll && term) {
         const now = Date.now();
         if (!writeBuffer) {
-          // Last chunk in buffer — always scroll so final position is correct
+          // Last chunk in buffer -- always scroll so final position is correct
           scrolledByUs = true;
           term.scrollToBottom();
           scrolledByUs = false;
@@ -308,18 +312,18 @@
           // This ensures xterm's DOM rows are up-to-date even if the internal
           // render loop missed a frame during heavy output. Without this,
           // the terminal can appear frozen (stale rows) while all metrics
-          // show healthy — the data is in the buffer but not painted.
+          // show healthy -- the data is in the buffer but not painted.
           requestAnimationFrame(() => {
             if (term) term.refresh(0, term.rows - 1);
           });
         } else if (now - lastScrollToBottomTime >= SCROLL_THROTTLE_MS) {
-          // Intermediate chunk but throttle interval elapsed — scroll for visual feedback
+          // Intermediate chunk but throttle interval elapsed -- scroll for visual feedback
           scrolledByUs = true;
           term.scrollToBottom();
           scrolledByUs = false;
           lastScrollToBottomTime = now;
         }
-        // Otherwise skip — next chunk or trailing call will handle it
+        // Otherwise skip -- next chunk or trailing call will handle it
       }
 
       // If there's more data, flush immediately to batch writes in the same
@@ -358,24 +362,26 @@
   // Focus xterm when this pane becomes active so keyboard input works immediately.
   // Track previous value to only focus on transition to active (not on every reactive tick).
   let wasActive = false;
-  $: {
+  $effect(() => {
     if (isActive && term && !wasActive && !isNonTerminalFocused()) {
       term.focus();
     }
     wasActive = isActive;
-  }
+  });
 
   // Subscribe to resize state - when resize ends and we have a pending fit, do it
-  $: if (!$isResizing && pendingFit && term && fitAddon && resizeDebouncer) {
-    pendingFit = false;
-    // Wait for layout to settle after resize ends, then fit
-    // Using double rAF ensures browser has completed layout calculations
-    requestAnimationFrame(() => {
+  $effect(() => {
+    if (!resizeState.isResizing && pendingFit && term && fitAddon && resizeDebouncer) {
+      pendingFit = false;
+      // Wait for layout to settle after resize ends, then fit
+      // Using double rAF ensures browser has completed layout calculations
       requestAnimationFrame(() => {
-        triggerResize();
+        requestAnimationFrame(() => {
+          triggerResize();
+        });
       });
-    });
-  }
+    }
+  });
 
   // Mark output as active. Uses a single self-rescheduling timer instead of
   // clearing/recreating on every chunk, reducing timer churn from hundreds/sec
@@ -400,7 +406,7 @@
           }
           outputActivityTimeout = null;
         } else {
-          // Still active — check again later
+          // Still active -- check again later
           outputActivityTimeout = setTimeout(checkQuiet, OUTPUT_QUIET_PERIOD);
         }
       }, OUTPUT_QUIET_PERIOD);
@@ -445,7 +451,7 @@
   // Previously we trimmed the row (term.resize to rows-1) but this created
   // inconsistent bottom gaps across panes. Instead, we let the partial row
   // render and clip it via CSS (overflow: hidden on .xterm), which is visually
-  // seamless — the partial row is simply not visible.
+  // seamless -- the partial row is simply not visible.
 
   // Guard to prevent fitAddon.fit() from re-triggering ResizeObserver loop
   let isApplyingResize = false;
@@ -485,7 +491,7 @@
     // Keep isApplyingResize=true until after scroll to prevent ResizeObserver
     // re-entry from fitAddon.fit() DOM changes resetting scroll position.
     setTimeout(() => {
-      if ($autoScroll && $settingsStore.autoScroll && term) {
+      if (autoScroll && settingsStore.value.autoScroll && term) {
         scrolledByUs = true;
         term.scrollToBottom();
         scrolledByUs = false;
@@ -495,15 +501,15 @@
   }
 
   // Resolve per-pane terminal theme (falls back to global if no override)
-  $: paneTheme = (() => {
-    // Subscribe to themeState so this re-evaluates when overrides change
-    void $themeState;
+  let paneTheme = $derived((() => {
+    // Access themeState.value so this re-evaluates when overrides change
+    void themeState.value;
     return getTerminalTheme(paneId);
-  })();
+  })());
 
   // Merge layout settings from xtermOptions with per-pane theme
-  $: resolvedOptions = $xtermOptions && paneTheme ? {
-    ...$xtermOptions,
+  let resolvedOptions = $derived(xtermOptions.value && paneTheme ? {
+    ...xtermOptions.value,
     theme: {
       foreground: paneTheme.foreground,
       background: paneTheme.background,
@@ -514,19 +520,21 @@
       selectionInactiveBackground: paneTheme.selectionInactiveBackground,
       ...paneTheme.ansi,
     },
-  } : $xtermOptions;
+  } : xtermOptions.value);
 
   // Subscribe to settings changes and apply to terminal
   // Only apply if terminal is fully initialized and settings actually changed
-  $: if (term && term.options && resolvedOptions) {
+  $effect(() => {
+    if (term && term.options && resolvedOptions) {
       const settingsKey = JSON.stringify(resolvedOptions);
       if (settingsKey !== lastAppliedSettings) {
           lastAppliedSettings = settingsKey;
           applySettings(resolvedOptions);
       }
-  }
+    }
+  });
 
-  function applySettings(options: typeof $xtermOptions) {
+  function applySettings(options: typeof xtermOptions.value) {
       // Guard against uninitialized terminal
       if (!term || !term.options) return;
 
@@ -590,7 +598,8 @@
 
   // Reactivity for manager events and session changes
   // Wait for initial sizing to complete before attaching to sessions
-  $: if (manager && activeSessionId && term && initialSizingComplete) {
+  $effect(() => {
+    if (manager && activeSessionId && term && initialSizingComplete) {
       // Only re-setup if session actually changed
       if (currentAttachedSessionId !== activeSessionId) {
           console.log(`[Terminal:${terminalInstanceId}] Session changed from ${currentAttachedSessionId?.slice(0, 8)} to ${activeSessionId.slice(0, 8)}`);
@@ -610,7 +619,7 @@
                   manager.resize(activeSessionId, lastCols, lastRows);
               }
 
-              // Wait for resize to propagate through WebSocket → server → PTY → SIGWINCH
+              // Wait for resize to propagate through WebSocket -> server -> PTY -> SIGWINCH
               // before attaching (which replays history). 150ms accounts for network + processing.
               setTimeout(() => {
                   if (manager && activeSessionId) {
@@ -632,12 +641,13 @@
               }, 150);
           }
       }
-  }
+    }
+  });
 
   onMount(() => {
     console.log(`[Terminal:${terminalInstanceId}] onMount called for session ${activeSessionId?.slice(0, 8)}`);
     // Get initial settings from store
-    const initialOptions = $xtermOptions;
+    const initialOptions = xtermOptions.value;
 
     term = new Terminal({
       cursorBlink: initialOptions.cursorBlink,
@@ -695,7 +705,7 @@
     // Setup auto-scroll tracking (needs viewport DOM element from term.open)
     initAutoScroll();
 
-    // Handle alternate buffer → normal buffer switches (TUI app exit).
+    // Handle alternate buffer -> normal buffer switches (TUI app exit).
     // When a full-screen TUI (vim, Claude Code /config, etc.) exits, xterm.js
     // switches from alternate buffer back to normal buffer and restores the
     // viewport to its pre-TUI scroll position. This fires a scroll event that
@@ -705,7 +715,7 @@
     if (term.buffer.onBufferChange) {
       term.buffer.onBufferChange(() => {
         if (term.buffer.active.type === 'normal') {
-          autoScroll.set(true);
+          autoScroll = true;
           // Defer scrollToBottom to next frame to ensure xterm has finished
           // all viewport updates from the buffer switch
           requestAnimationFrame(() => {
@@ -765,9 +775,9 @@
       requestAnimationFrame(() => {
         try {
           fitAddon.fit();
-    
+
         } catch {
-          // Still no dimensions — will be corrected by ResizeObserver
+          // Still no dimensions -- will be corrected by ResizeObserver
         }
         lastCols = term.cols;
         lastRows = term.rows;
@@ -776,7 +786,7 @@
       });
     }
 
-    // Shift+Enter → CSI u encoding (\x1b[13;2u) per the fixterms/CSI u protocol.
+    // Shift+Enter -> CSI u encoding (\x1b[13;2u) per the fixterms/CSI u protocol.
     // This is the same behavior as iTerm2, Kitty, WezTerm, and Ghostty.
     // Apps like Claude Code recognize this as "insert newline" vs Enter (submit).
     // Regular shells ignore unknown CSI sequences harmlessly.
@@ -790,7 +800,7 @@
           manager.sendInput(activeSessionId, '\x1b[13;2u');
         }
       }
-    }, true); // capture phase — fires before xterm's own handler
+    }, true); // capture phase -- fires before xterm's own handler
 
     term.onData((data) => {
         // Only send input if this terminal is in the active pane
@@ -809,7 +819,7 @@
     // Handle container resize
     function handleResize() {
       // If actively resizing (drag), defer until resize ends
-      if ($isResizing) {
+      if (resizeState.isResizing) {
         pendingFit = true;
         return;
       }
@@ -831,7 +841,7 @@
     resizeObserver.observe(terminalContainer);
 
     // Re-focus terminal after scrolling so keyboard input continues working.
-    // xterm v6 uses SmoothScrollableElement — listen on the container.
+    // xterm v6 uses SmoothScrollableElement -- listen on the container.
     scrollEndHandler = () => {
       if (isActive && term && !isNonTerminalFocused()) {
         term.focus();
@@ -900,11 +910,11 @@
 </script>
 
 <div class="terminal-wrapper">
-  <div class="terminal-container" bind:this={terminalContainer} on:mousedown={() => { if (term) term.focus(); }}></div>
+  <div class="terminal-container" bind:this={terminalContainer} onmousedown={() => { if (term) term.focus(); }}></div>
   <button
     class="scroll-to-bottom-badge"
-    class:visible={!$autoScroll}
-    on:click={() => { autoScroll.set(true); if (term) { scrolledByUs = true; term.scrollToBottom(); scrolledByUs = false; } }}
+    class:visible={!autoScroll}
+    onclick={() => { autoScroll = true; if (term) { scrolledByUs = true; term.scrollToBottom(); scrolledByUs = false; } }}
   >
     Scroll to bottom
   </button>
@@ -955,7 +965,7 @@
 
   /* Ensure xterm takes full space and clips partial rows at the bottom.
      fitAddon.fit() may allocate a partial extra row when the container height
-     doesn't divide evenly by cell height — overflow:hidden clips it seamlessly. */
+     doesn't divide evenly by cell height -- overflow:hidden clips it seamlessly. */
   .terminal-container :global(.xterm) {
     width: 100%;
     height: 100%;

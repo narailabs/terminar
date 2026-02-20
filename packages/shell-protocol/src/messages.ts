@@ -7,7 +7,7 @@ export const SessionInfoSchema = z.object({
   cwd: z.string(),
   started_at: z.string(),
   // New optional fields for enhanced session tracking
-  state: z.string().optional(),                    // "running", "exited", "closed", "error"
+  state: z.enum(['running', 'exited', 'closed', 'error']).optional(),
   foreground_process: z.string().optional(),       // e.g., "claude", "vim", "zsh"
   last_activity_at: z.string().optional(),         // ISO timestamp
   exit_code: z.number().optional(),                // set when state="exited"
@@ -15,7 +15,10 @@ export const SessionInfoSchema = z.object({
 
 export type SessionInfo = z.infer<typeof SessionInfoSchema>;
 
-export const ClientMessageSchema = z.discriminatedUnion('type', [
+// Base schema for messages that include a session_id
+const WithSessionId = z.object({ session_id: z.string() });
+
+export const ClientMessageSchema = z.union([
   z.object({ type: z.literal('auth'), token: z.string(), protocol_version: z.string().optional() }),
   z.object({ type: z.literal('list_sessions') }),
   z.object({
@@ -26,36 +29,35 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
     cols: z.number(),
     rows: z.number(),
   }),
-  z.object({ type: z.literal('attach'), session_id: z.string(), mode: z.string() }),
-  z.object({ type: z.literal('input'), session_id: z.string(), data: z.string() }),
-  z.object({ type: z.literal('resize'), session_id: z.string(), cols: z.number(), rows: z.number() }),
-  z.object({ type: z.literal('rename_session'), session_id: z.string(), new_name: z.string() }),
-  z.object({ type: z.literal('kill_session'), session_id: z.string() }),
+  WithSessionId.extend({ type: z.literal('attach'), mode: z.enum(['mirror', 'exclusive']) }),
+  WithSessionId.extend({ type: z.literal('input'), data: z.string() }),
+  WithSessionId.extend({ type: z.literal('resize'), cols: z.number(), rows: z.number() }),
+  WithSessionId.extend({ type: z.literal('rename_session'), new_name: z.string() }),
+  WithSessionId.extend({ type: z.literal('kill_session') }),
   z.object({ type: z.literal('auth_password'), username: z.string(), password: z.string() }),
   z.object({ type: z.literal('auth_pubkey_init'), username: z.string(), pubkey: z.string() }),
   z.object({ type: z.literal('auth_pubkey_verify'), signature: z.string(), algorithm: z.string() }),
   z.object({ type: z.literal('auth_token'), token: z.string() }),
   z.object({ type: z.literal('refresh_token'), refresh_token: z.string() }),
-  // New workspace management messages
   z.object({ type: z.literal('save_workspace'), workspace: z.record(z.string(), z.unknown()) }),
   z.object({ type: z.literal('load_workspace') }),
 ]);
 
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
 
-export const ServerMessageSchema = z.discriminatedUnion('type', [
+export const ServerMessageSchema = z.union([
   z.object({ type: z.literal('AuthOk'), token: z.string(), expires: z.string(), protocol_version: z.string().optional(), refresh_token: z.string().optional() }),
   z.object({ type: z.literal('AuthChallenge'), nonce: z.string() }),
   z.object({ type: z.literal('SessionList'), sessions: z.array(SessionInfoSchema) }),
-  z.object({ type: z.literal('Output'), session_id: z.string(), data: z.string() }),
-  z.object({ type: z.literal('SessionClosed'), session_id: z.string() }),
+  WithSessionId.extend({ type: z.literal('Output'), data: z.string() }),
+  WithSessionId.extend({ type: z.literal('SessionClosed') }),
   z.object({ type: z.literal('Error'), message: z.string(), error_code: z.string().optional() }),
   z.object({ type: z.literal('PairResponse'), code: z.string(), expiry_secs: z.number() }),
   z.object({ type: z.literal('Shutdown'), reason: z.string() }),
-  // New session tracking messages
-  z.object({ type: z.literal('ForegroundChanged'), session_id: z.string(), process_name: z.string().nullable() }),
-  z.object({ type: z.literal('SessionActivity'), session_id: z.string(), activity_type: z.enum(['activity', 'bell', 'silence']) }),
-  z.object({ type: z.literal('SessionExited'), session_id: z.string(), exit_code: z.number().nullable() }),
+  WithSessionId.extend({ type: z.literal('ForegroundChanged'), process_name: z.string().nullable() }),
+  WithSessionId.extend({ type: z.literal('SessionActivity'), activity_type: z.enum(['activity', 'bell', 'silence']) }),
+  WithSessionId.extend({ type: z.literal('SessionExited'), exit_code: z.number().nullable() }),
+  WithSessionId.extend({ type: z.literal('CwdChanged'), cwd: z.string() }),
   z.object({ type: z.literal('WorkspaceData'), workspace: z.record(z.string(), z.unknown()).nullable() }),
 ]);
 

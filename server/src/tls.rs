@@ -419,9 +419,9 @@ mod tests {
         let result = generate_self_signed_cert(&tls_dir);
         assert!(result.is_ok(), "generate_self_signed_cert failed: {:?}", result.err());
 
-        let gen = result.unwrap();
-        assert!(Path::new(&gen.cert_path).exists(), "cert file not created");
-        assert!(Path::new(&gen.key_path).exists(), "key file not created");
+        let r#gen = result.unwrap();
+        assert!(Path::new(&r#gen.cert_path).exists(), "cert file not created");
+        assert!(Path::new(&r#gen.key_path).exists(), "key file not created");
     }
 
     #[test]
@@ -439,12 +439,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let tls_dir = dir.path().join("tls");
 
-        let gen = generate_self_signed_cert(&tls_dir).unwrap();
+        let r#gen = generate_self_signed_cert(&tls_dir).unwrap();
 
         // The generated files should be loadable by rustls
         let config = TlsConfig {
-            cert_path: gen.cert_path,
-            key_path: gen.key_path,
+            cert_path: r#gen.cert_path,
+            key_path: r#gen.key_path,
             port: 8444,
         };
         let result = load_rustls_config(&config);
@@ -456,10 +456,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let tls_dir = dir.path().join("tls");
 
-        let gen = generate_self_signed_cert(&tls_dir).unwrap();
+        let r#gen = generate_self_signed_cert(&tls_dir).unwrap();
         // Fingerprint should be a hex-encoded SHA-256 hash (64 hex chars with colons)
-        assert!(!gen.fingerprint.is_empty(), "fingerprint should not be empty");
-        assert!(gen.fingerprint.contains(':'), "fingerprint should be colon-separated hex");
+        assert!(!r#gen.fingerprint.is_empty(), "fingerprint should not be empty");
+        assert!(r#gen.fingerprint.contains(':'), "fingerprint should be colon-separated hex");
     }
 
     #[test]
@@ -485,9 +485,9 @@ mod tests {
         // No cert exists yet; ensure_tls_cert should generate one
         let result = ensure_tls_cert(&tls_dir);
         assert!(result.is_ok());
-        let gen = result.unwrap();
-        assert!(Path::new(&gen.cert_path).exists());
-        assert!(Path::new(&gen.key_path).exists());
+        let r#gen = result.unwrap();
+        assert!(Path::new(&r#gen.cert_path).exists());
+        assert!(Path::new(&r#gen.key_path).exists());
     }
 
     #[test]
@@ -495,21 +495,21 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let tls_dir = dir.path().join("tls");
 
-        let gen = generate_self_signed_cert(&tls_dir).unwrap();
+        let r#gen = generate_self_signed_cert(&tls_dir).unwrap();
 
         // Independently compute fingerprint from the cert file
-        let cert_pem = std::fs::read(&gen.cert_path).unwrap();
+        let cert_pem = std::fs::read(&r#gen.cert_path).unwrap();
         let computed = compute_cert_fingerprint(&cert_pem);
         assert!(computed.is_ok());
-        assert_eq!(gen.fingerprint, computed.unwrap());
+        assert_eq!(r#gen.fingerprint, computed.unwrap());
     }
 
     #[test]
     fn test_cert_fingerprint_format() {
         let dir = tempfile::tempdir().unwrap();
         let tls_dir = dir.path().join("tls");
-        let gen = generate_self_signed_cert(&tls_dir).unwrap();
-        let cert_bytes = std::fs::read(&gen.cert_path).unwrap();
+        let r#gen = generate_self_signed_cert(&tls_dir).unwrap();
+        let cert_bytes = std::fs::read(&r#gen.cert_path).unwrap();
         let fingerprint = compute_cert_fingerprint(&cert_bytes).unwrap();
         // SHA-256 fingerprint = 32 bytes = 64 hex chars + 31 colons = 95 chars
         assert_eq!(fingerprint.len(), 95);

@@ -1,21 +1,36 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
   import TerminalListItem from './TerminalListItem.svelte';
   import ContextMenu from './ContextMenu.svelte';
   import type { SessionInfo } from '../lib/workspaceTypes';
-  import { broadcastTargets, toggleTarget, isTarget } from '../lib/broadcastStore';
-  import { foregroundStore } from '../lib/foregroundStore';
-  import { titleStore } from '../lib/titleStore';
+  import { broadcastTargets, toggleTarget, isTarget } from '../lib/broadcastStore.svelte';
+  import { foregroundStore } from '../lib/foregroundStore.svelte';
+  import { titleStore } from '../lib/titleStore.svelte';
   import { sessionPaneCounts } from '../lib/workspaceStore';
 
-  export let sessions: SessionInfo[] = [];
-  export let activeSessionId: string | null = null;
-  export let broadcastMode: boolean = false;
+  let {
+    sessions = [],
+    activeSessionId = null,
+    broadcastMode = false,
+    onselect,
+    onclose,
+    onrename,
+    oncreate,
+    onsettings,
+    onpanedrop,
+  }: {
+    sessions?: SessionInfo[];
+    activeSessionId?: string | null;
+    broadcastMode?: boolean;
+    onselect?: (sessionId: string) => void;
+    onclose?: (sessionId: string) => void;
+    onrename?: (detail: { id: string; newName: string }) => void;
+    oncreate?: () => void;
+    onsettings?: () => void;
+    onpanedrop?: (detail: { sourcePaneId: string }) => void;
+  } = $props();
 
-  const dispatch = createEventDispatcher();
-
-  let contextMenu: { x: number; y: number; sessionId: string } | null = null;
-  let editingSessionId: string | null = null;
+  let contextMenu: { x: number; y: number; sessionId: string } | null = $state(null);
+  let editingSessionId: string | null = $state(null);
 
   const contextMenuItems = [
     { label: 'Rename', action: 'rename' },
@@ -25,39 +40,38 @@
     { label: 'Close', action: 'close' },
   ];
 
-  function handleSelect(event: CustomEvent<string>) {
-    dispatch('select', event.detail);
+  function handleSelect(sessionId: string) {
+    onselect?.(sessionId);
   }
 
-  function handleClose(event: CustomEvent<string>) {
-    dispatch('close', event.detail);
+  function handleClose(sessionId: string) {
+    onclose?.(sessionId);
   }
 
-  function handleRename(event: CustomEvent<{ id: string; newName: string }>) {
-    dispatch('rename', event.detail);
+  function handleRename(detail: { id: string; newName: string }) {
+    onrename?.(detail);
   }
 
-  function handleContextMenu(event: CustomEvent<{ id: string; x: number; y: number }>) {
+  function handleContextMenu(detail: { id: string; x: number; y: number }) {
     contextMenu = {
-      x: event.detail.x,
-      y: event.detail.y,
-      sessionId: event.detail.id,
+      x: detail.x,
+      y: detail.y,
+      sessionId: detail.id,
     };
   }
 
-  function handleMenuSelect(event: CustomEvent<string>) {
+  function handleMenuSelect(action: string) {
     if (!contextMenu) return;
 
-    const action = event.detail;
     const sessionId = contextMenu.sessionId;
 
     if (action === 'rename') {
       // Trigger rename mode on the session item
       editingSessionId = sessionId;
     } else if (action === 'settings') {
-      dispatch('settings');
+      onsettings?.();
     } else if (action === 'close') {
-      dispatch('close', sessionId);
+      onclose?.(sessionId);
     }
 
     contextMenu = null;
@@ -72,7 +86,7 @@
   }
 
   // Pane drag-to-sidebar drop target
-  let isPaneDragOver = false;
+  let isPaneDragOver = $state(false);
 
   function handleListDragOver(event: DragEvent) {
     if (!event.dataTransfer?.types.includes('application/x-terminar-pane')) return;
@@ -89,11 +103,11 @@
     const sourcePaneId = event.dataTransfer?.getData('application/x-terminar-pane');
     if (!sourcePaneId) return;
     event.preventDefault();
-    dispatch('paneDrop', { sourcePaneId });
+    onpanedrop?.({ sourcePaneId });
   }
 
   function handleNewTerminal() {
-    dispatch('create');
+    oncreate?.();
   }
 
   function handleListContextMenu(event: MouseEvent) {
@@ -110,13 +124,13 @@
   }
 </script>
 
-<div class="terminal-list" on:contextmenu={handleListContextMenu} role="list">
+<div class="terminal-list" oncontextmenu={handleListContextMenu} role="list">
   <div
     class="list-container"
     class:pane-drag-over={isPaneDragOver}
-    on:dragover={handleListDragOver}
-    on:dragleave={handleListDragLeave}
-    on:drop={handleListDrop}
+    ondragover={handleListDragOver}
+    ondragleave={handleListDragLeave}
+    ondrop={handleListDrop}
   >
     {#each sessions as session (session.id)}
       <div class="session-row" class:broadcast-mode={broadcastMode}>
@@ -124,8 +138,8 @@
           <label class="broadcast-checkbox" aria-label="Toggle broadcast target for {session.name}">
             <input
               type="checkbox"
-              checked={$broadcastTargets.has(session.id)}
-              on:change={() => toggleTarget(session.id)}
+              checked={broadcastTargets.value.has(session.id)}
+              onchange={() => toggleTarget(session.id)}
             />
           </label>
         {/if}
@@ -135,23 +149,23 @@
             name={session.name}
             shell={session.shell}
             cwd={session.cwd}
-            foregroundProcess={$foregroundStore.processes.get(session.id) ?? null}
-            terminalTitle={$titleStore.titles.get(session.id) ?? ''}
+            foregroundProcess={foregroundStore.processes.get(session.id) ?? null}
+            terminalTitle={titleStore.titles.get(session.id) ?? ''}
             paneCount={$sessionPaneCounts.get(session.id) ?? 0}
             isActive={session.id === activeSessionId}
             startEditing={editingSessionId === session.id}
-            on:select={handleSelect}
-            on:close={handleClose}
-            on:rename={handleRename}
-            on:editend={handleEditEnd}
-            on:contextmenu={handleContextMenu}
+            onselect={handleSelect}
+            onclose={handleClose}
+            onrename={handleRename}
+            oneditend={() => handleEditEnd()}
+            oncontextmenu={handleContextMenu}
           />
         </div>
       </div>
     {/each}
   </div>
 
-  <button class="new-terminal-btn" on:click={handleNewTerminal}>
+  <button class="new-terminal-btn" onclick={handleNewTerminal}>
     <span class="plus-icon">+</span>
     <span class="btn-text">New Terminal</span>
   </button>
@@ -162,15 +176,15 @@
     x={contextMenu.x}
     y={contextMenu.y}
     items={contextMenu.sessionId ? contextMenuItems : [{ label: 'New Terminal', action: 'new' }]}
-    on:select={(e) => {
-      if (e.detail === 'new') {
+    onselect={(action) => {
+      if (action === 'new') {
         handleNewTerminal();
         contextMenu = null;
       } else {
-        handleMenuSelect(e);
+        handleMenuSelect(action);
       }
     }}
-    on:close={handleMenuClose}
+    onclose={handleMenuClose}
   />
 {/if}
 

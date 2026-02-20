@@ -1,68 +1,43 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
   import Pane from './Pane.svelte';
   import SplitHandle from './SplitHandle.svelte';
   import type { SplitNode, SplitContainer as SplitContainerType, DropZone, SessionId, PaneId } from '../lib/workspaceTypes';
 
-  export let node: SplitNode;
-  export let activePaneId: PaneId | null = null;
-
-  const dispatch = createEventDispatcher<{
-    drop: { paneId: string; sessionId: SessionId; dropZone: DropZone };
-    paneDrop: { sourcePaneId: string; targetPaneId: string; dropZone: DropZone };
-    contextmenu: { paneId: string; x: number; y: number };
-    focus: { paneId: string };
-    resize: { splitId: string; ratios: number[] };
-    detach: { paneId: string };
-    kill: { paneId: string; sessionId: SessionId };
-    'action:pane.close': { paneId: string };
-    'action:split.horizontal': { paneId: string };
-    'action:split.vertical': { paneId: string };
-  }>();
+  let {
+    node,
+    activePaneId = null,
+    ondrop,
+    onpaneDrop,
+    oncontextmenu,
+    onfocus,
+    onresize,
+    ondetach,
+    onkill,
+    onActionPaneClose,
+    onActionSplitHorizontal,
+    onActionSplitVertical,
+  }: {
+    node: SplitNode;
+    activePaneId?: PaneId | null;
+    ondrop?: (detail: { paneId: string; sessionId: SessionId; dropZone: DropZone }) => void;
+    onpaneDrop?: (detail: { sourcePaneId: string; targetPaneId: string; dropZone: DropZone }) => void;
+    oncontextmenu?: (detail: { paneId: string; x: number; y: number }) => void;
+    onfocus?: (detail: { paneId: string }) => void;
+    onresize?: (detail: { splitId: string; ratios: number[] }) => void;
+    ondetach?: (detail: { paneId: string }) => void;
+    onkill?: (detail: { paneId: string; sessionId: SessionId }) => void;
+    onActionPaneClose?: (detail: { paneId: string }) => void;
+    onActionSplitHorizontal?: (detail: { paneId: string }) => void;
+    onActionSplitVertical?: (detail: { paneId: string }) => void;
+  } = $props();
 
   let containerRef: HTMLDivElement;
 
-  function handlePaneDrop(event: CustomEvent<{ paneId: string; sessionId: SessionId; dropZone: DropZone }>) {
-    dispatch('drop', event.detail);
-  }
-
-  function handlePanePaneDrop(event: CustomEvent<{ sourcePaneId: string; targetPaneId: string; dropZone: DropZone }>) {
-    dispatch('paneDrop', event.detail);
-  }
-
-  function handlePaneContextMenu(event: CustomEvent<{ paneId: string; x: number; y: number }>) {
-    dispatch('contextmenu', event.detail);
-  }
-
-  function handlePaneFocus(event: CustomEvent<{ paneId: string }>) {
-    dispatch('focus', event.detail);
-  }
-
-  function handlePaneDetach(event: CustomEvent<{ paneId: string }>) {
-    dispatch('detach', event.detail);
-  }
-
-  function handlePaneKill(event: CustomEvent<{ paneId: string; sessionId: SessionId }>) {
-    dispatch('kill', event.detail);
-  }
-
-  function handleActionPaneClose(event: CustomEvent<{ paneId: string }>) {
-    dispatch('action:pane.close', event.detail);
-  }
-
-  function handleActionSplitHorizontal(event: CustomEvent<{ paneId: string }>) {
-    dispatch('action:split.horizontal', event.detail);
-  }
-
-  function handleActionSplitVertical(event: CustomEvent<{ paneId: string }>) {
-    dispatch('action:split.vertical', event.detail);
-  }
-
-  function handleSplitResize(event: CustomEvent<{ index: number; delta: number }>) {
+  function handleSplitResize(detail: { index: number; delta: number }) {
     if (node.type !== 'split' || !containerRef) return;
 
     const split = node as SplitContainerType;
-    const { index, delta } = event.detail;
+    const { index, delta } = detail;
 
     // Get container dimensions
     const rect = containerRef.getBoundingClientRect();
@@ -88,17 +63,12 @@
     if (newRatio1 >= minRatio && newRatio2 >= minRatio) {
       newRatios[index] = newRatio1;
       newRatios[index + 1] = newRatio2;
-      dispatch('resize', { splitId: split.id, ratios: newRatios });
+      onresize?.({ splitId: split.id, ratios: newRatios });
     }
   }
 
   function handleResizeEnd() {
     // Could trigger a save here if needed
-  }
-
-  // Recursive handler for nested splits
-  function handleNestedResize(event: CustomEvent<{ splitId: string; ratios: number[] }>) {
-    dispatch('resize', event.detail);
   }
 
   // Calculate flex basis for each child
@@ -115,15 +85,15 @@
     paneId={node.id}
     sessionId={node.sessionId}
     isActive={activePaneId === node.id}
-    on:drop={handlePaneDrop}
-    on:paneDrop={handlePanePaneDrop}
-    on:contextmenu={handlePaneContextMenu}
-    on:focus={handlePaneFocus}
-    on:detach={handlePaneDetach}
-    on:kill={handlePaneKill}
-    on:action:pane.close={handleActionPaneClose}
-    on:action:split.horizontal={handleActionSplitHorizontal}
-    on:action:split.vertical={handleActionSplitVertical}
+    ondrop={(detail) => ondrop?.(detail)}
+    onpaneDrop={(detail) => onpaneDrop?.(detail)}
+    oncontextmenu={(detail) => oncontextmenu?.(detail)}
+    onfocus={(detail) => onfocus?.(detail)}
+    ondetach={(detail) => ondetach?.(detail)}
+    onkill={(detail) => onkill?.(detail)}
+    onActionPaneClose={(detail) => onActionPaneClose?.(detail)}
+    onActionSplitHorizontal={(detail) => onActionSplitHorizontal?.(detail)}
+    onActionSplitVertical={(detail) => onActionSplitVertical?.(detail)}
   />
 {:else}
   <div
@@ -140,24 +110,24 @@
         <svelte:self
           node={child}
           {activePaneId}
-          on:drop={handlePaneDrop}
-          on:paneDrop={handlePanePaneDrop}
-          on:contextmenu={handlePaneContextMenu}
-          on:focus={handlePaneFocus}
-          on:resize={handleNestedResize}
-          on:detach={handlePaneDetach}
-          on:kill={handlePaneKill}
-          on:action:pane.close={handleActionPaneClose}
-          on:action:split.horizontal={handleActionSplitHorizontal}
-          on:action:split.vertical={handleActionSplitVertical}
+          ondrop={(detail) => ondrop?.(detail)}
+          onpaneDrop={(detail) => onpaneDrop?.(detail)}
+          oncontextmenu={(detail) => oncontextmenu?.(detail)}
+          onfocus={(detail) => onfocus?.(detail)}
+          onresize={(detail) => onresize?.(detail)}
+          ondetach={(detail) => ondetach?.(detail)}
+          onkill={(detail) => onkill?.(detail)}
+          onActionPaneClose={(detail) => onActionPaneClose?.(detail)}
+          onActionSplitHorizontal={(detail) => onActionSplitHorizontal?.(detail)}
+          onActionSplitVertical={(detail) => onActionSplitVertical?.(detail)}
         />
       </div>
       {#if i < node.children.length - 1}
         <SplitHandle
           direction={node.direction}
           index={i}
-          on:resize={handleSplitResize}
-          on:resizeEnd={handleResizeEnd}
+          onresize={(detail) => handleSplitResize(detail)}
+          onresizeend={() => handleResizeEnd()}
         />
       {/if}
     {/each}

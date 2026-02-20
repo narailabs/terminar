@@ -13,6 +13,7 @@ export {
 
 // Export client
 export { ShellClient, IShellSocket } from './client.js';
+export type { ShellClientEvents } from './client.js';
 
 // Export error types
 export {
@@ -43,3 +44,7 @@ export type { ParsedServerMessage, ActivityType } from './parse.js';
 
 // Export WebSocket base manager
 export { BaseWebSocketManager, type IWebSocket, WS_OPEN, WS_CONNECTING } from './websocket-manager.js';
+export type { WebSocketManagerEvents } from './websocket-manager.js';
+
+// Export typed emitter utility
+export type { TypedEventEmitter, EventMap } from './typed-emitter.js';

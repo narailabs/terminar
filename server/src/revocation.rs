@@ -59,11 +59,10 @@ impl RevocationStore {
                 }
                 if let Ok(entry) = serde_json::from_str::<RevocationEntry>(line) {
                     // Prune expired entries
-                    if let Some(exp) = entry.exp {
-                        if exp < now_secs {
+                    if let Some(exp) = entry.exp
+                        && exp < now_secs {
                             continue; // Skip expired
                         }
-                    }
                     revoked.insert(entry.token_id);
                 }
             }

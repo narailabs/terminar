@@ -6,14 +6,14 @@
     addCustomTerminalTheme,
     updateCustomUITheme,
     updateCustomTerminalTheme,
-  } from '../lib/themeStore';
+  } from '../lib/themeStore.svelte';
   import {
     settingsStore,
     FONT_FAMILIES,
     CURSOR_STYLES,
     DEFAULT_SETTINGS,
     type TerminalSettings,
-  } from '../lib/settingsStore';
+  } from '../lib/settingsStore.svelte';
   import {
     BUILT_IN_UI_THEMES,
     BUILT_IN_TERMINAL_THEMES,

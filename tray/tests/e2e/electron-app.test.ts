@@ -270,7 +270,7 @@ test.describe.serial('Electron Tray App', () => {
     // We can't actually test the osascript auth dialog, but we can verify
     // the IPC handler exists and doesn't throw before reaching elevation
     const hasHandler = await window.evaluate(() => {
-      const api = (window as unknown as { trayAPI: { stopService: Function } }).trayAPI;
+      const api = (window as unknown as { trayAPI: { stopService: () => Promise<void> } }).trayAPI;
       return typeof api.stopService === 'function';
     });
     expect(hasHandler).toBe(true);
@@ -283,7 +283,7 @@ test.describe.serial('Electron Tray App', () => {
     }
 
     const hasHandler = await window.evaluate(() => {
-      const api = (window as unknown as { trayAPI: { startService: Function } }).trayAPI;
+      const api = (window as unknown as { trayAPI: { startService: () => Promise<void> } }).trayAPI;
       return typeof api.startService === 'function';
     });
     expect(hasHandler).toBe(true);
@@ -296,7 +296,7 @@ test.describe.serial('Electron Tray App', () => {
     }
 
     const hasHandler = await window.evaluate(() => {
-      const api = (window as unknown as { trayAPI: { restartService: Function } }).trayAPI;
+      const api = (window as unknown as { trayAPI: { restartService: () => Promise<void> } }).trayAPI;
       return typeof api.restartService === 'function';
     });
     expect(hasHandler).toBe(true);
@@ -309,7 +309,7 @@ test.describe.serial('Electron Tray App', () => {
     }
 
     const hasHandler = await window.evaluate(() => {
-      const api = (window as unknown as { trayAPI: { uninstallService: Function } }).trayAPI;
+      const api = (window as unknown as { trayAPI: { uninstallService: () => Promise<void> } }).trayAPI;
       return typeof api.uninstallService === 'function';
     });
     expect(hasHandler).toBe(true);

@@ -4,8 +4,10 @@ import { SessionManager, SessionInfo } from './SessionManager';
 /**
  * Extended session info that may include status field
  */
+type SessionStatus = 'running' | 'idle' | 'error';
+
 interface ExtendedSessionInfo extends SessionInfo {
-    status?: 'running' | 'idle' | 'error';
+    status?: SessionStatus;
 }
 
 /**
@@ -100,8 +102,9 @@ class SessionItem extends vscode.TreeItem {
             id: sessionId,
             name: label,
             shell,
+            cwd: '',
             started_at: startedAt || '',
-            status: status as any
+            status: status as SessionStatus | undefined,
         });
         this.description = this.shell;
         this.contextValue = 'session';

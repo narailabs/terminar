@@ -3,13 +3,15 @@ import { render, fireEvent, cleanup } from '@testing-library/svelte';
 import AppToolbar from './AppToolbar.svelte';
 
 // Mock broadcastStore
-vi.mock('../lib/broadcastStore', () => {
+const { mockBroadcastEnabled } = vi.hoisted(() => {
   const { writable } = require('svelte/store');
-  return {
-    broadcastEnabled: writable(false),
-    clearTargets: vi.fn(),
-  };
+  return { mockBroadcastEnabled: writable(false) };
 });
+
+vi.mock('../lib/broadcastStore', () => ({
+  broadcastEnabled: mockBroadcastEnabled,
+  clearTargets: vi.fn(),
+}));
 
 function defaultProps() {
   return {

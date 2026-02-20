@@ -1,20 +1,32 @@
 <script lang="ts">
   import ConnectionStatus from './ConnectionStatus.svelte';
   import type { ConnectionState } from '../lib/SessionManager';
-  import { broadcastEnabled, clearTargets } from '../lib/broadcastStore';
+  import { broadcastEnabled, clearTargets } from '../lib/broadcastStore.svelte';
 
-  export let connectionState: ConnectionState;
-  export let reconnectAttempt: number;
-  export let reconnectDelay: number;
-  export let isLocalEchoMode: boolean;
-  export let isLocal: boolean;
-  export let onReconnect: () => void;
-  export let onLogout: () => void;
-  export let onSettings: () => void;
-  export let onToggleBroadcast: () => void;
+  let {
+    connectionState,
+    reconnectAttempt,
+    reconnectDelay,
+    isLocalEchoMode,
+    isLocal,
+    onReconnect,
+    onLogout,
+    onSettings,
+    onToggleBroadcast,
+  }: {
+    connectionState: ConnectionState;
+    reconnectAttempt: number;
+    reconnectDelay: number;
+    isLocalEchoMode: boolean;
+    isLocal: boolean;
+    onReconnect: () => void;
+    onLogout: () => void;
+    onSettings: () => void;
+    onToggleBroadcast: () => void;
+  } = $props();
 
   // Shortcuts popup state
-  let showShortcutsPopup = false;
+  let showShortcutsPopup = $state(false);
   let shortcutsTimeout: ReturnType<typeof setTimeout> | null = null;
 
   function toggleShortcuts() {
@@ -71,7 +83,7 @@
     <div class="shortcuts-wrapper">
       <button
         class="shortcuts-btn"
-        on:click={toggleShortcuts}
+        onclick={toggleShortcuts}
         title="Keyboard Shortcuts"
         aria-label="Show keyboard shortcuts"
       >
@@ -96,8 +108,8 @@
     </div>
     <button
       class="broadcast-btn"
-      class:active={$broadcastEnabled}
-      on:click={onToggleBroadcast}
+      class:active={broadcastEnabled.value}
+      onclick={onToggleBroadcast}
       title="Broadcast Mode"
       aria-label="Toggle broadcast mode"
     >
@@ -108,14 +120,14 @@
     {#if !isLocal}
       <button
         class="logout-btn"
-        on:click={onLogout}
+        onclick={onLogout}
         title="Logout"
         aria-label="Logout and disconnect"
       >Logout</button>
     {/if}
     <button
       class="settings-btn"
-      on:click={onSettings}
+      onclick={onSettings}
       title="Terminal Settings"
       aria-label="Open terminal settings"
     >

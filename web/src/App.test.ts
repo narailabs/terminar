@@ -12,46 +12,43 @@ vi.mock('./lib/settingsApi', () => ({
 }));
 
 // Mock broadcastStore (must include all exports used by child components like Pane.svelte)
-vi.mock('./lib/broadcastStore', () => {
-  const { writable } = require('svelte/store');
-  return {
-    broadcastEnabled: writable(false),
-    broadcastTargets: writable(new Set()),
-    clearTargets: vi.fn(),
-    setSessionManager: vi.fn(),
-    addTarget: vi.fn(),
-    removeTarget: vi.fn(),
-    toggleTarget: vi.fn(),
-    isTarget: vi.fn().mockReturnValue(false),
-    broadcastInput: vi.fn(),
-  };
-});
+vi.mock('./lib/broadcastStore.svelte', () => ({
+  broadcastEnabled: { value: false },
+  broadcastTargets: { value: new Set() },
+  clearTargets: vi.fn(),
+  setSessionManager: vi.fn(),
+  addTarget: vi.fn(),
+  removeTarget: vi.fn(),
+  toggleTarget: vi.fn(),
+  isTarget: vi.fn().mockReturnValue(false),
+  broadcastInput: vi.fn(),
+}));
 
 // Mock envStore
-vi.mock('./lib/envStore', () => ({
+vi.mock('./lib/envStore.svelte', () => ({
   getEffectiveEnv: vi.fn().mockReturnValue({}),
-  globalEnvVars: { subscribe: vi.fn((fn: any) => { fn({}); return () => {}; }) },
+  globalEnvVars: { value: {} },
 }));
 
 // Mock exitedSessionsStore
-vi.mock('./lib/exitedSessionsStore', () => ({
+vi.mock('./lib/exitedSessionsStore.svelte', () => ({
   markExited: vi.fn(),
-  exitedSessions: { subscribe: vi.fn((fn: any) => { fn(new Map()); return () => {}; }) },
+  exitedSessions: { map: new Map(), has: vi.fn().mockReturnValue(false), get: vi.fn() },
 }));
 
 // Mock foregroundStore
-vi.mock('./lib/foregroundStore', () => ({
+vi.mock('./lib/foregroundStore.svelte', () => ({
   foregroundStore: {
     setForeground: vi.fn(),
-    subscribe: vi.fn((fn: any) => { fn(new Map()); return () => {}; }),
+    processes: new Map(),
   },
 }));
 
 // Mock activityStore
-vi.mock('./lib/activityStore', () => ({
+vi.mock('./lib/activityStore.svelte', () => ({
   activityStore: {
     setActivity: vi.fn(),
-    subscribe: vi.fn((fn: any) => { fn(new Map()); return () => {}; }),
+    activities: new Map(),
   },
 }));
 
@@ -664,7 +661,7 @@ describe('App - Manager Events', () => {
   }
 
   it('sessionExited callback calls markExited', async () => {
-    const { markExited } = await import('./lib/exitedSessionsStore');
+    const { markExited } = await import('./lib/exitedSessionsStore.svelte');
 
     render(App, { props: { serverWsUrl: 'ws://localhost:6749/ws', serverHttpUrl: 'http://localhost:6749' } });
 
@@ -682,7 +679,7 @@ describe('App - Manager Events', () => {
   });
 
   it('foregroundChanged callback calls foregroundStore.setForeground', async () => {
-    const { foregroundStore } = await import('./lib/foregroundStore');
+    const { foregroundStore } = await import('./lib/foregroundStore.svelte');
 
     render(App, { props: { serverWsUrl: 'ws://localhost:6749/ws', serverHttpUrl: 'http://localhost:6749' } });
 
@@ -718,7 +715,7 @@ describe('App - Manager Events', () => {
   });
 
   it('sessionActivity callback calls activityStore.setActivity', async () => {
-    const { activityStore } = await import('./lib/activityStore');
+    const { activityStore } = await import('./lib/activityStore.svelte');
 
     render(App, { props: { serverWsUrl: 'ws://localhost:6749/ws', serverHttpUrl: 'http://localhost:6749' } });
 

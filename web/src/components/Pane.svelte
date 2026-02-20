@@ -1,52 +1,76 @@
 <script lang="ts">
-  import { createEventDispatcher, onDestroy } from 'svelte';
+  import { onDestroy } from 'svelte';
   import Terminal from './Terminal.svelte';
   import SearchBar from './SearchBar.svelte';
 
   import type { SessionId, DropZone } from '../lib/workspaceTypes';
   import { workspaceStore } from '../lib/workspaceStore';
-  import { settingsStore } from '../lib/settingsStore';
+  import { settingsStore } from '../lib/settingsStore.svelte';
   import { registerPane, unregisterPane } from '../lib/paneRegistry';
-  import { searchStore } from '../lib/searchStore';
-  import { broadcastTargets, broadcastEnabled } from '../lib/broadcastStore';
-  import { exitedSessions } from '../lib/exitedSessionsStore';
-  import { foregroundStore } from '../lib/foregroundStore';
-  import { titleStore } from '../lib/titleStore';
+  import { searchStore } from '../lib/searchStore.svelte';
+  import { broadcastTargets, broadcastEnabled } from '../lib/broadcastStore.svelte';
+  import { exitedSessions } from '../lib/exitedSessionsStore.svelte';
+  import { foregroundStore } from '../lib/foregroundStore.svelte';
+  import { titleStore } from '../lib/titleStore.svelte';
   import { getKeyBindingRegistry } from '../lib/keybindings';
   import { createActionDispatcher } from '../lib/actionDispatcher';
   import { createKeyEventHandler } from '../lib/keyEventHandler';
-  import { getManagerContext, getSessionsContext, getActionsContext } from '../lib/sessionContext';
+  import { getManagerContext, getSessionsContext, getActionsContext } from '../lib/sessionContext.svelte';
 
-  export let paneId: string;
-  export let sessionId: SessionId | null;
-  export let isActive: boolean = false;
+  let {
+    paneId,
+    sessionId,
+    isActive = false,
+    ondrop,
+    onpaneDrop,
+    oncontextmenu,
+    onfocus,
+    ondetach,
+    onkill,
+    onActionPaneClose,
+    onActionSplitHorizontal,
+    onActionSplitVertical,
+  }: {
+    paneId: string;
+    sessionId: SessionId | null;
+    isActive?: boolean;
+    ondrop?: (detail: { paneId: string; sessionId: SessionId; dropZone: DropZone }) => void;
+    onpaneDrop?: (detail: { sourcePaneId: string; targetPaneId: string; dropZone: DropZone }) => void;
+    oncontextmenu?: (detail: { paneId: string; x: number; y: number }) => void;
+    onfocus?: (detail: { paneId: string }) => void;
+    ondetach?: (detail: { paneId: string }) => void;
+    onkill?: (detail: { paneId: string; sessionId: SessionId }) => void;
+    onActionPaneClose?: (detail: { paneId: string }) => void;
+    onActionSplitHorizontal?: (detail: { paneId: string }) => void;
+    onActionSplitVertical?: (detail: { paneId: string }) => void;
+  } = $props();
 
-  const managerStore = getManagerContext();
-  const sessionsStore = getSessionsContext();
+  const managerBox = getManagerContext();
+  const sessionsBox = getSessionsContext();
   const actions = getActionsContext();
-  $: manager = $managerStore;
+  let manager = $derived(managerBox.value);
 
-  let showTitleBar = true;
+  let showTitleBar = $state(true);
 
   // Live session info from sessions store (updated by CwdChanged events)
-  $: currentSession = sessionId ? $sessionsStore.find(s => s.id === sessionId) : null;
-  $: sessionName = currentSession?.name ?? '';
-  $: sessionCwd = currentSession?.cwd ?? '';
-  $: sessionShell = (() => {
+  let currentSession = $derived(sessionId ? sessionsBox.value.find(s => s.id === sessionId) : null);
+  let sessionName = $derived(currentSession?.name ?? '');
+  let sessionCwd = $derived(currentSession?.cwd ?? '');
+  let sessionShell = $derived((() => {
     const sh = currentSession?.shell ?? '';
     return sh.split('/').pop() || sh;
-  })();
+  })());
 
   // Broadcast target indicator
-  $: isBroadcastTarget = $broadcastEnabled && sessionId !== null && $broadcastTargets.has(sessionId);
+  let isBroadcastTarget = $derived(broadcastEnabled.value && sessionId !== null && broadcastTargets.value.has(sessionId));
 
-  // Exited session state (subscribe to $exitedSessions for reactivity)
-  $: sessionExited = sessionId ? $exitedSessions.has(sessionId) : false;
-  $: exitInfo = sessionId && $exitedSessions.has(sessionId) ? $exitedSessions.get(sessionId) : undefined;
-  $: exitBadgeText = exitInfo ? (exitInfo.exitCode !== null ? `[exited: ${exitInfo.exitCode}]` : '[exited]') : '';
+  // Exited session state
+  let sessionExited = $derived(sessionId ? exitedSessions.has(sessionId) : false);
+  let exitInfo = $derived(sessionId && exitedSessions.has(sessionId) ? exitedSessions.get(sessionId) : undefined);
+  let exitBadgeText = $derived(exitInfo ? (exitInfo.exitCode !== null ? `[exited: ${exitInfo.exitCode}]` : '[exited]') : '');
 
   // Terminal title set by apps via OSC 2 escape sequences (e.g. Claude, Gemini)
-  let terminalTitle = '';
+  let terminalTitle = $state('');
 
   function handleTitleChange(title: string) {
     terminalTitle = title;
@@ -56,40 +80,33 @@
   }
 
   // Reset terminal title when session changes
-  $: if (sessionId) {
-    terminalTitle = '';
-  }
+  $effect(() => {
+    if (sessionId) {
+      terminalTitle = '';
+    }
+  });
 
-  // Foreground process tracking (subscribe to $foregroundStore for reactivity)
-  $: foregroundProcess = sessionId ? $foregroundStore.processes.get(sessionId) ?? null : null;
+  // Foreground process tracking
+  let foregroundProcess = $derived(sessionId ? foregroundStore.processes.get(sessionId) ?? null : null);
   const SHELL_NAMES = new Set(['sh', 'bash', 'zsh', 'fish', 'dash', 'ksh', 'csh', 'tcsh', 'ash', 'nu', 'pwsh', 'login']);
-  $: processBadge = foregroundProcess && !SHELL_NAMES.has(foregroundProcess) ? foregroundProcess : null;
+  let processBadge = $derived(foregroundProcess && !SHELL_NAMES.has(foregroundProcess) ? foregroundProcess : null);
   // Compact cwd: show last directory component, or ~ for home
-  $: displayCwd = (() => {
+  let displayCwd = $derived((() => {
     if (!sessionCwd) return '';
     const home = '/Users/' + (sessionCwd.split('/')[2] || '');
     if (sessionCwd === home) return '~';
     if (sessionCwd.startsWith(home + '/')) return '~/' + sessionCwd.slice(home.length + 1);
     return sessionCwd;
-  })();
+  })());
 
-  // Search state (subscribed from store)
-  let searchIsOpen = false;
-  let searchCurrentMatch = 0;
-  let searchTotalMatches = 0;
-  let searchCaseSensitive = false;
-  let searchUseRegex = false;
-  let searchQuery = '';
-
-  const unsubSearch = searchStore.subscribe((s) => {
-    const isTarget = s.paneId === paneId;
-    searchIsOpen = s.isOpen && isTarget;
-    searchCurrentMatch = isTarget ? s.currentMatch : 0;
-    searchTotalMatches = isTarget ? s.totalMatches : 0;
-    searchCaseSensitive = s.caseSensitive;
-    searchUseRegex = s.useRegex;
-    searchQuery = isTarget ? s.query : '';
-  });
+  // Search state (derived from store)
+  let isSearchTarget = $derived(searchStore.state.paneId === paneId);
+  let searchIsOpen = $derived(searchStore.state.isOpen && isSearchTarget);
+  let searchCurrentMatch = $derived(isSearchTarget ? searchStore.state.currentMatch : 0);
+  let searchTotalMatches = $derived(isSearchTarget ? searchStore.state.totalMatches : 0);
+  let searchCaseSensitive = $derived(searchStore.state.caseSensitive);
+  let searchUseRegex = $derived(searchStore.state.useRegex);
+  let searchQuery = $derived(isSearchTarget ? searchStore.state.query : '');
 
   const unsubSettings = settingsStore.subscribe((s) => {
     showTitleBar = s.showPaneTitleBars;
@@ -97,21 +114,8 @@
 
   onDestroy(() => {
     unsubSettings();
-    unsubSearch();
     unregisterPane(paneId);
   });
-
-  const dispatch = createEventDispatcher<{
-    drop: { paneId: string; sessionId: SessionId; dropZone: DropZone };
-    paneDrop: { sourcePaneId: string; targetPaneId: string; dropZone: DropZone };
-    contextmenu: { paneId: string; x: number; y: number };
-    focus: { paneId: string };
-    detach: { paneId: string };
-    kill: { paneId: string; sessionId: SessionId };
-    'action:pane.close': { paneId: string };
-    'action:split.horizontal': { paneId: string };
-    'action:split.vertical': { paneId: string };
-  }>();
 
   // Callback from Terminal's SearchAddon onDidChangeResults
   function handleSearchResults(resultIndex: number, resultCount: number) {
@@ -119,8 +123,8 @@
   }
 
   // Search event handlers
-  function handleSearch(event: CustomEvent<{ query: string; caseSensitive: boolean; useRegex: boolean }>) {
-    const { query, caseSensitive, useRegex } = event.detail;
+  function handleSearch(detail: { query: string; caseSensitive: boolean; useRegex: boolean }) {
+    const { query, caseSensitive, useRegex } = detail;
     searchStore.setQuery(query);
     if (query) {
       terminalRef?.searchFindNext(query, { caseSensitive, regex: useRegex });
@@ -173,9 +177,9 @@
     },
     onSessionNew: () => actions.createNewTerminal(),
     onSidebarToggle: () => actions.toggleSidebar(),
-    onPaneClose: () => dispatch('action:pane.close', { paneId }),
-    onSplitHorizontal: () => dispatch('action:split.horizontal', { paneId }),
-    onSplitVertical: () => dispatch('action:split.vertical', { paneId }),
+    onPaneClose: () => onActionPaneClose?.({ paneId }),
+    onSplitHorizontal: () => onActionSplitHorizontal?.({ paneId }),
+    onSplitVertical: () => onActionSplitVertical?.({ paneId }),
   });
 
   // Create key event handler using the keybinding registry
@@ -185,15 +189,17 @@
   // Register custom key event handler reactively when Terminal renders.
   // Terminal may mount after Pane's onMount (when currentSession arrives
   // asynchronously from the server), so we can't use onMount here.
-  $: if (terminalRef) {
-    terminalRef.registerCustomKeyEventHandler((event: KeyboardEvent) => {
-      return handleKeyEvent(event);
-    });
-  }
+  $effect(() => {
+    if (terminalRef) {
+      terminalRef.registerCustomKeyEventHandler((event: KeyboardEvent) => {
+        return handleKeyEvent(event);
+      });
+    }
+  });
 
-  let showClosePopup = false;
-  let closeButtonRef: HTMLButtonElement;
-  let popupRef: HTMLDivElement;
+  let showClosePopup = $state(false);
+  let closeButtonRef = $state<HTMLButtonElement>();
+  let popupRef = $state<HTMLDivElement>();
 
   function toggleClosePopup(event: MouseEvent) {
     event.stopPropagation();
@@ -202,13 +208,13 @@
 
   function handleDetach() {
     showClosePopup = false;
-    dispatch('detach', { paneId });
+    ondetach?.({ paneId });
   }
 
   function handleKill() {
     if (sessionId) {
       showClosePopup = false;
-      dispatch('kill', { paneId, sessionId });
+      onkill?.({ paneId, sessionId });
     }
   }
 
@@ -235,7 +241,7 @@
     }
   }
 
-  let terminalRef: Terminal;
+  let terminalRef = $state<Terminal>();
 
   function getSelection(): string {
     return terminalRef?.getSelection() ?? '';
@@ -254,13 +260,13 @@
   }
 
   // Register this pane so WorkspaceView can access its methods by paneId
-  $: {
+  $effect(() => {
     registerPane(paneId, { getSelection, pasteText, selectAll, refreshTerminal });
-  }
+  });
 
-  let dropZone: DropZone | null = null;
-  let isDragOver = false;
-  let isPaneDragging = false;
+  let dropZone = $state<DropZone | null>(null);
+  let isDragOver = $state(false);
+  let isPaneDragging = $state(false);
 
   // Pane title bar drag handlers
   function handleTitleDragStart(event: DragEvent) {
@@ -323,7 +329,7 @@
     // Check for pane drag first
     const sourcePaneId = event.dataTransfer?.getData('application/x-terminar-pane');
     if (sourcePaneId) {
-      dispatch('paneDrop', { sourcePaneId, targetPaneId: paneId, dropZone });
+      onpaneDrop?.({ sourcePaneId, targetPaneId: paneId, dropZone });
       dropZone = null;
       return;
     }
@@ -331,22 +337,22 @@
     // Existing session drag behavior
     const dragSessionId = event.dataTransfer?.getData('text/plain');
     if (dragSessionId) {
-      dispatch('drop', { paneId, sessionId: dragSessionId, dropZone });
+      ondrop?.({ paneId, sessionId: dragSessionId, dropZone });
     }
     dropZone = null;
   }
 
   function handleContextMenu(event: MouseEvent) {
     event.preventDefault();
-    dispatch('contextmenu', { paneId, x: event.clientX, y: event.clientY });
+    oncontextmenu?.({ paneId, x: event.clientX, y: event.clientY });
   }
 
   function handleClick() {
-    dispatch('focus', { paneId });
+    onfocus?.({ paneId });
   }
 </script>
 
-<svelte:window on:click={handleWindowClick} on:keydown={handlePopupKeydown} />
+<svelte:window onclick={handleWindowClick} onkeydown={handlePopupKeydown} />
 
 <div
   class="pane"
@@ -359,11 +365,11 @@
   class:drop-top={dropZone === 'top'}
   class:drop-bottom={dropZone === 'bottom'}
   class:drop-center={dropZone === 'center'}
-  on:dragover={handleDragOver}
-  on:dragleave={handleDragLeave}
-  on:drop={handleDrop}
-  on:contextmenu={handleContextMenu}
-  on:mousedown={handleClick}
+  ondragover={handleDragOver}
+  ondragleave={handleDragLeave}
+  ondrop={handleDrop}
+  oncontextmenu={handleContextMenu}
+  onmousedown={handleClick}
   role="region"
   tabindex="-1"
 >
@@ -371,15 +377,15 @@
     <div
       class="pane-title-bar"
       draggable="true"
-      on:dragstart={handleTitleDragStart}
-      on:dragend={handleTitleDragEnd}
+      ondragstart={handleTitleDragStart}
+      ondragend={handleTitleDragEnd}
     >
       <span class="pane-title-text">{sessionName}{#if terminalTitle} · <span class="terminal-title">{terminalTitle}</span>{/if}{#if sessionShell} · {sessionShell}{/if}{#if displayCwd} · {displayCwd}{/if}{#if processBadge} · <span class="process-badge">{processBadge}</span>{/if}</span>
       {#if sessionExited}<span class="exited-badge">{exitBadgeText}</span>{/if}
       <span class="title-bar-spacer"></span>
       <button
         class="title-bar-icon-btn"
-        on:click={() => searchStore.open(paneId)}
+        onclick={() => searchStore.open(paneId)}
         title="Search (Ctrl+F)"
         aria-label="Search terminal"
       >
@@ -391,17 +397,17 @@
       <button
         class="close-btn"
         bind:this={closeButtonRef}
-        on:click={toggleClosePopup}
+        onclick={toggleClosePopup}
         title="Close"
         aria-label="Close pane options"
       >×</button>
       {#if showClosePopup}
-        <div class="close-popup" bind:this={popupRef} on:keydown={handlePopupKeydown}>
-          <button class="popup-item" on:click={handleDetach}>
+        <div class="close-popup" bind:this={popupRef} onkeydown={handlePopupKeydown}>
+          <button class="popup-item" onclick={handleDetach}>
             <span class="popup-label">Detach</span>
             <span class="popup-desc">Remove from pane</span>
           </button>
-          <button class="popup-item destructive" on:click={handleKill}>
+          <button class="popup-item destructive" onclick={handleKill}>
             <span class="popup-label">Terminate</span>
             <span class="popup-desc">End session</span>
           </button>
@@ -411,28 +417,28 @@
   {/if}
 
   <div class="pane-content">
-    {#if sessionId && manager && currentSession}
+    {#if sessionId && managerBox.value && currentSession}
       <SearchBar
         isOpen={searchIsOpen}
         currentMatch={searchCurrentMatch}
         totalMatches={searchTotalMatches}
         caseSensitive={searchCaseSensitive}
         useRegex={searchUseRegex}
-        on:search={handleSearch}
-        on:next={handleSearchNext}
-        on:previous={handleSearchPrevious}
-        on:close={handleSearchClose}
-        on:toggleCaseSensitive={handleToggleCaseSensitive}
-        on:toggleRegex={handleToggleRegex}
+        onsearch={(detail) => handleSearch(detail)}
+        onnext={() => handleSearchNext()}
+        onprevious={() => handleSearchPrevious()}
+        onclose={() => handleSearchClose()}
+        ontogglecasesensitive={() => handleToggleCaseSensitive()}
+        ontoggleregex={() => handleToggleRegex()}
       />
       <Terminal bind:this={terminalRef} activeSessionId={sessionId} {isActive} {paneId} onSearchResults={handleSearchResults} onTitleChange={handleTitleChange} />
     {:else}
       <div class="empty-pane">
-        <button class="empty-pane-btn" on:click={() => actions.createNewTerminal()}>New Terminal</button>
-        {#if $sessionsStore.length > 0}
+        <button class="empty-pane-btn" onclick={() => actions.createNewTerminal()}>New Terminal</button>
+        {#if sessionsBox.value.length > 0}
           <select
             class="empty-pane-select"
-            on:change={(e) => {
+            onchange={(e) => {
               const val = e.currentTarget.value;
               if (val) {
                 workspaceStore.assignSession(paneId, val);
@@ -441,7 +447,7 @@
             }}
           >
             <option value="">Attach existing session...</option>
-            {#each $sessionsStore as session}
+            {#each sessionsBox.value as session}
               <option value={session.id}>{session.name || session.id.slice(0, 8)}</option>
             {/each}
           </select>

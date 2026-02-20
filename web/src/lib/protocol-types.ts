@@ -8,17 +8,6 @@
 export { parseServerMessage } from './shared-protocol';
 export type { ParsedServerMessage as ServerMessage, ActivityType } from './shared-protocol';
 
-// --- Session Info ---
-
-export interface ProtocolSessionInfo {
-    id: string;
-    name: string;
-    shell: string;
-    cwd: string;
-    started_at: string;
-    foreground_process?: string | null;
-}
-
 // --- Client Messages (sent to server) ---
 
 export type ClientMessage =

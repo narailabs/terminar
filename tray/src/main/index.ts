@@ -20,7 +20,7 @@ if (!gotLock) {
 // ------------------------------------------------------------------
 // App ready — main setup
 // ------------------------------------------------------------------
-app.on('ready', () => {
+void app.whenReady().then(() => {
   // Hide from Dock on macOS — this is a tray-only app
   if (process.platform === 'darwin') {
     app.dock?.hide();
@@ -50,7 +50,7 @@ app.on('ready', () => {
   );
 
   // Wire health updates to menu rebuild
-  healthPoller.on('health-update', () => {
+  healthPoller.setCallback(() => {
     trayManager.updateMenu();
   });
 

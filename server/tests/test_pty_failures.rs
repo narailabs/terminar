@@ -12,7 +12,6 @@ use tokio::net::TcpListener;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use futures::{SinkExt, StreamExt};
 use std::time::Duration;
-use url::Url;
 use std::collections::HashMap;
 
 async fn spawn_pty_test_server(name: &str) -> (String, tokio::task::JoinHandle<()>) {
@@ -90,7 +89,7 @@ async fn create_session_and_get_id(
 async fn test_invalid_shell_path_returns_error() {
     let (ws_url, _server) = spawn_pty_test_server("bad-shell").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -142,7 +141,7 @@ async fn test_invalid_shell_path_returns_error() {
 async fn test_shell_path_traversal_rejected() {
     let (ws_url, _server) = spawn_pty_test_server("shell-traversal").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -178,7 +177,7 @@ async fn test_shell_path_traversal_rejected() {
 async fn test_relative_shell_path_rejected() {
     let (ws_url, _server) = spawn_pty_test_server("relative-shell").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -214,7 +213,7 @@ async fn test_relative_shell_path_rejected() {
 async fn test_invalid_cwd_returns_error() {
     let (ws_url, _server) = spawn_pty_test_server("bad-cwd").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -251,7 +250,7 @@ async fn test_invalid_cwd_returns_error() {
 async fn test_session_state_transitions_on_kill() {
     let (ws_url, _server) = spawn_pty_test_server("state-kill").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -300,7 +299,7 @@ async fn test_session_state_transitions_on_kill() {
 async fn test_input_to_killed_session_errors() {
     let (ws_url, _server) = spawn_pty_test_server("input-killed").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
@@ -366,7 +365,7 @@ async fn test_input_to_killed_session_errors() {
 async fn test_dangerous_env_vars_filtered() {
     let (ws_url, _server) = spawn_pty_test_server("env-filter").await;
 
-    let (mut socket, _) = connect_async(Url::parse(&ws_url).unwrap())
+    let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 

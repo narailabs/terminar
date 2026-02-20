@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { existsSync, readFileSync, unlinkSync } from 'fs';
+import { existsSync, readFileSync, readdirSync, unlinkSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -22,7 +22,7 @@ describe('elevation', () => {
     // Clean up any temp files that might have been created
     const tmpDir = tmpdir();
     try {
-      const files = require('fs').readdirSync(tmpDir);
+      const files = readdirSync(tmpDir);
       for (const f of files) {
         if (f.startsWith('terminar-service-')) {
           try { unlinkSync(join(tmpDir, f)); } catch { /* ignore */ }
@@ -85,7 +85,7 @@ describe('elevation', () => {
         runElevated('echo test');
 
         // Simulate success callback
-        const callback = mockedExecFile.mock.calls[0][2] as Function;
+        const callback = mockedExecFile.mock.calls[0][2] as (error: Error | null, stdout: string, stderr: string) => void;
         // Extract the temp file path from the osascript arg
         const osaArg = (mockedExecFile.mock.calls[0][1] as string[])[1];
         const pathMatch = osaArg.match(/bash '([^']+)'/);
@@ -105,7 +105,7 @@ describe('elevation', () => {
       it('cleans up temp file on error', () => {
         runElevated('echo test');
 
-        const callback = mockedExecFile.mock.calls[0][2] as Function;
+        const callback = mockedExecFile.mock.calls[0][2] as (error: Error | null, stdout: string, stderr: string) => void;
         const osaArg = (mockedExecFile.mock.calls[0][1] as string[])[1];
         const pathMatch = osaArg.match(/bash '([^']+)'/);
         const tmpPath = pathMatch![1];
@@ -131,7 +131,7 @@ describe('elevation', () => {
         expect(contents).toBe(script);
 
         // Cleanup
-        const callback = mockedExecFile.mock.calls[0][2] as Function;
+        const callback = mockedExecFile.mock.calls[0][2] as (error: Error | null, stdout: string, stderr: string) => void;
         callback(null, '', '');
       });
     });

@@ -22,11 +22,11 @@ describe('HealthPoller', () => {
     expect(health.status).toBe('stopped');
   });
 
-  it('emits health-update event on every poll', async () => {
+  it('invokes callback on every poll', async () => {
     poller = new HealthPoller();
 
     const events: unknown[] = [];
-    poller.on('health-update', (h) => events.push(h));
+    poller.setCallback((h) => events.push(h));
 
     await poller.pollOnce(59999);
     expect(events.length).toBe(1);
@@ -50,7 +50,7 @@ describe('HealthPoller', () => {
   it('start() polls immediately then every interval', async () => {
     poller = new HealthPoller();
     const events: unknown[] = [];
-    poller.on('health-update', (h) => events.push(h));
+    poller.setCallback((h) => events.push(h));
 
     poller.start(59999);
     // Wait a bit for the immediate poll
@@ -142,7 +142,7 @@ describe('HealthPoller', () => {
     }
   });
 
-  it('emits multiple events from start() polling', async () => {
+  it('invokes callback multiple times from start() polling', async () => {
     // Use a server that always responds
     const { createServer } = await import('http');
     const server = createServer((_req, res) => {
@@ -158,7 +158,7 @@ describe('HealthPoller', () => {
     try {
       poller = new HealthPoller();
       const events: unknown[] = [];
-      poller.on('health-update', (h) => events.push(h));
+      poller.setCallback((h) => events.push(h));
 
       poller.start(port);
       await new Promise((r) => setTimeout(r, 300));

@@ -4,42 +4,26 @@ import * as path from 'path';
 import * as os from 'os';
 import { EventEmitter } from 'events';
 import { ShellClient } from '@narai/terminar-protocol/dist/client';
+import type { ConnectionState, ReconnectConfig } from '@narai/terminar-protocol/dist/reconnect';
+import { DEFAULT_RECONNECT_CONFIG } from '@narai/terminar-protocol/dist/reconnect';
+import type { SessionInfo } from '@narai/terminar-protocol/dist/messages';
+import type { TypedEventEmitter } from '@narai/terminar-protocol/dist/typed-emitter';
 import { NetSocketAdapter } from './NetSocketAdapter';
 
-/**
- * Connection states for the session manager
- */
-export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
+// Re-export types for downstream consumers
+export type { ConnectionState, ReconnectConfig, SessionInfo };
 
-/**
- * Reconnection configuration
- */
-export interface ReconnectConfig {
-    /** Base delay in ms (default: 1000) */
-    baseDelay: number;
-    /** Maximum delay in ms (default: 30000) */
-    maxDelay: number;
-    /** Maximum retry attempts (default: 10, 0 = infinite) */
-    maxRetries: number;
-    /** Maximum jitter in ms to add randomness (default: 500) */
-    jitter: number;
-}
-
-const DEFAULT_RECONNECT_CONFIG: ReconnectConfig = {
-    baseDelay: 1000,
-    maxDelay: 30000,
-    maxRetries: 10,
-    jitter: 500,
-};
-
-/**
- * Session information
- */
-export interface SessionInfo {
-    id: string;
-    name: string;
-    shell: string;
-    started_at: string;
+/** Event map for the extension's SessionManager */
+export interface SessionManagerEvents {
+    stateChange: [state: ConnectionState];
+    reconnecting: [attempt: number, delay: number];
+    reconnected: [];
+    sessionList: [sessions: SessionInfo[]];
+    output: [sessionId: string, data: string];
+    sessionClosed: [sessionId: string];
+    shutdown: [reason: string];
+    error: [err: Error];
+    close: [];
 }
 
 /**
@@ -76,7 +60,9 @@ export function readTokenFile(): string | null {
  * - 'error': (error: Error) - Error occurred
  * - 'close': () - Connection closed
  */
-export class SessionManager extends EventEmitter {
+const TypedEmitter = EventEmitter as new () => TypedEventEmitter<SessionManagerEvents>;
+
+export class SessionManager extends TypedEmitter {
     private client?: ShellClient;
     private socket?: net.Socket;
     private state: ConnectionState = 'disconnected';
@@ -135,27 +121,27 @@ export class SessionManager extends EventEmitter {
     private setupClient() {
         this.client = new ShellClient(this.effectiveToken);
 
-        this.client.on('SessionList', (msg: { sessions: SessionInfo[] }) => {
+        this.client.on('SessionList', (msg) => {
             this.lastSessionList = msg.sessions;
             this.emit('sessionList', msg.sessions);
         });
 
-        this.client.on('Output', (msg: { session_id: string; data: string }) => {
+        this.client.on('Output', (msg) => {
             this.emit('output', msg.session_id, msg.data);
         });
 
-        this.client.on('SessionClosed', (msg: { session_id: string }) => {
+        this.client.on('SessionClosed', (msg) => {
             this.emit('sessionClosed', msg.session_id);
         });
 
-        this.client.on('Shutdown', (msg: { reason: string }) => {
+        this.client.on('Shutdown', (msg) => {
             console.log('[SessionManager] Server shutting down:', msg.reason);
             this.emit('shutdown', msg.reason);
             // Wait a bit longer before reconnecting after server shutdown
             this.reconnectAttempt = Math.max(this.reconnectAttempt, 2);
         });
 
-        this.client.on('error', (err: Error) => {
+        this.client.on('error', (err) => {
             this.emit('error', err);
         });
 

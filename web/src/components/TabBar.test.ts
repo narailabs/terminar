@@ -151,8 +151,7 @@ describe('TabBar - Interactions', () => {
   it('new tab button dispatches create event', async () => {
     const handler = vi.fn();
     const { container } = render(TabBar, {
-      props: { tabs: makeTabs(), activeTabId: 'tab-1' },
-      events: { create: handler },
+      props: { tabs: makeTabs(), activeTabId: 'tab-1', oncreate: handler },
     });
     const newTabBtn = container.querySelector('.new-tab-button')!;
     expect(newTabBtn).toBeTruthy();
@@ -163,13 +162,12 @@ describe('TabBar - Interactions', () => {
   it('clicking a tab dispatches select with tabId', async () => {
     const handler = vi.fn();
     const { container } = render(TabBar, {
-      props: { tabs: makeTabs(), activeTabId: 'tab-1' },
-      events: { select: handler },
+      props: { tabs: makeTabs(), activeTabId: 'tab-1', onselect: handler },
     });
     const tabs = container.querySelectorAll('.tab');
     await fireEvent.click(tabs[1]);
     expect(handler).toHaveBeenCalled();
-    expect(handler.mock.calls[0][0].detail).toEqual({ tabId: 'tab-2' });
+    expect(handler.mock.calls[0][0]).toEqual({ tabId: 'tab-2' });
   });
 
   it('active tab has .active class', () => {
@@ -184,14 +182,13 @@ describe('TabBar - Interactions', () => {
   it('close button dispatches close with tabId', async () => {
     const handler = vi.fn();
     const { container } = render(TabBar, {
-      props: { tabs: makeTabs(), activeTabId: 'tab-1' },
-      events: { close: handler },
+      props: { tabs: makeTabs(), activeTabId: 'tab-1', onclose: handler },
     });
     const closeButtons = container.querySelectorAll('.tab-close');
     expect(closeButtons.length).toBe(2);
     await fireEvent.click(closeButtons[1]);
     expect(handler).toHaveBeenCalled();
-    expect(handler.mock.calls[0][0].detail).toEqual({ tabId: 'tab-2' });
+    expect(handler.mock.calls[0][0]).toEqual({ tabId: 'tab-2' });
   });
 
   it('double-click on tab enters rename mode and shows input', async () => {
@@ -208,8 +205,7 @@ describe('TabBar - Interactions', () => {
   it('submitting rename with Enter dispatches rename event', async () => {
     const handler = vi.fn();
     const { container } = render(TabBar, {
-      props: { tabs: makeTabs(), activeTabId: 'tab-1' },
-      events: { rename: handler },
+      props: { tabs: makeTabs(), activeTabId: 'tab-1', onrename: handler },
     });
     // Double-click to enter rename mode
     const tabs = container.querySelectorAll('.tab');
@@ -220,14 +216,13 @@ describe('TabBar - Interactions', () => {
     await fireEvent.input(renameInput, { target: { value: 'My Shell' } });
     await fireEvent.keyDown(renameInput, { key: 'Enter' });
     expect(handler).toHaveBeenCalled();
-    expect(handler.mock.calls[0][0].detail).toEqual({ tabId: 'tab-1', name: 'My Shell' });
+    expect(handler.mock.calls[0][0]).toEqual({ tabId: 'tab-1', name: 'My Shell' });
   });
 
   it('pressing Escape during rename cancels and reverts to original name', async () => {
     const handler = vi.fn();
     const { container } = render(TabBar, {
-      props: { tabs: makeTabs(), activeTabId: 'tab-1' },
-      events: { rename: handler },
+      props: { tabs: makeTabs(), activeTabId: 'tab-1', onrename: handler },
     });
     // Double-click to enter rename mode
     const tabs = container.querySelectorAll('.tab');
@@ -248,8 +243,7 @@ describe('TabBar - Interactions', () => {
   it('drag and drop dispatches reorder event', async () => {
     const handler = vi.fn();
     const { container } = render(TabBar, {
-      props: { tabs: makeTabs(), activeTabId: 'tab-1' },
-      events: { reorder: handler },
+      props: { tabs: makeTabs(), activeTabId: 'tab-1', onreorder: handler },
     });
     const tabs = container.querySelectorAll('.tab');
 
@@ -264,6 +258,6 @@ describe('TabBar - Interactions', () => {
     await fireEvent.drop(tabs[1], { dataTransfer });
 
     expect(handler).toHaveBeenCalled();
-    expect(handler.mock.calls[0][0].detail).toEqual({ fromIndex: 0, toIndex: 1 });
+    expect(handler.mock.calls[0][0]).toEqual({ fromIndex: 0, toIndex: 1 });
   });
 });

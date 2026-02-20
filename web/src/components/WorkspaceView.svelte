@@ -4,27 +4,32 @@
   import ContextMenu from './ContextMenu.svelte';
   import { workspaceStore, activeTab } from '../lib/workspaceStore';
   import { getPane } from '../lib/paneRegistry';
-  import { setTerminalOverride } from '../lib/themeStore';
+  import { setTerminalOverride } from '../lib/themeStore.svelte';
   import { BUILT_IN_TERMINAL_THEMES } from '../lib/themeTypes';
   import type { TabId, PaneId, SessionId, DropZone, SplitDirection, SplitNode } from '../lib/workspaceTypes';
   import { findPane } from '../lib/workspaceTypes';
-  import { activityStore } from '../lib/activityStore';
-  import { exitedSessions } from '../lib/exitedSessionsStore';
+  import { activityStore } from '../lib/activityStore.svelte';
+  import { exitedSessions } from '../lib/exitedSessionsStore.svelte';
 
-  import { getManagerContext, getSessionsContext, getActionsContext } from '../lib/sessionContext';
+  import { getManagerContext, getSessionsContext, getActionsContext } from '../lib/sessionContext.svelte';
   import type { SessionManager } from '../lib/SessionManager';
 
   // Optional prop overrides (for tests that render without context)
-  export let manager: SessionManager | null | undefined = undefined;
-  export let availableSessions: { id: string; name?: string }[] | undefined = undefined;
+  let {
+    manager = undefined,
+    availableSessions = undefined,
+  }: {
+    manager?: SessionManager | null;
+    availableSessions?: { id: string; name?: string }[];
+  } = $props();
 
-  const managerStore = getManagerContext();
-  const sessionsStore = getSessionsContext();
+  const managerBox = getManagerContext();
+  const sessionsBox = getSessionsContext();
   const actions = getActionsContext();
 
   // Use prop override if provided, otherwise read from context
-  $: effectiveManager = manager !== undefined ? manager : $managerStore;
-  $: effectiveAvailableSessions = availableSessions !== undefined ? availableSessions : $sessionsStore.map(s => ({ id: s.id, name: s.name }));
+  let effectiveManager = $derived(manager !== undefined ? manager : managerBox.value);
+  let effectiveAvailableSessions = $derived(availableSessions !== undefined ? availableSessions : sessionsBox.value.map(s => ({ id: s.id, name: s.name })));
 
   // Helper: collect all sessionIds from a split tree
   function collectSessionIds(node: SplitNode): string[] {
@@ -36,9 +41,9 @@
   }
 
   // Compute tab indicator maps from stores (reactive)
-  $: tabActivities = (() => {
+  let tabActivities = $derived((() => {
     const map = new Map<string, string>();
-    const activities = $activityStore.activities;
+    const activities = activityStore.activities;
     for (const tab of $workspaceStore.tabs) {
       if (tab.id === $workspaceStore.activeTabId) continue; // skip active tab
       const sessionIds = collectSessionIds(tab.root);
@@ -51,11 +56,11 @@
       }
     }
     return map;
-  })();
+  })());
 
-  $: tabExitStates = (() => {
+  let tabExitStates = $derived((() => {
     const map = new Map<string, { exited: boolean; exitCode: number | null }>();
-    const exited = $exitedSessions;
+    const exited = exitedSessions.map;
     for (const tab of $workspaceStore.tabs) {
       const sessionIds = collectSessionIds(tab.root);
       for (const sid of sessionIds) {
@@ -67,49 +72,47 @@
       }
     }
     return map;
-  })();
+  })());
 
-  // tabAgents no longer displayed in tabs — pass empty map for prop compat
-  $: tabAgents = new Map<string, { icon: string; color: string; displayName: string }>();
+  // tabAgents no longer displayed in tabs -- pass empty map for prop compat
+  let tabAgents = $derived(new Map<string, { icon: string; color: string; displayName: string }>());
 
-  let activePaneId: PaneId | null = null;
-  let contextMenu: { x: number; y: number; paneId: string } | null = null;
-  let clipboardText: string = '';
+  let activePaneId = $state<PaneId | null>(null);
+  let contextMenu = $state<{ x: number; y: number; paneId: string } | null>(null);
+  let clipboardText = $state('');
 
   // Handle tab events
-  function handleTabSelect(event: CustomEvent<{ tabId: TabId }>) {
-    workspaceStore.setActiveTab(event.detail.tabId);
+  function handleTabSelect(detail: { tabId: TabId }) {
+    workspaceStore.setActiveTab(detail.tabId);
   }
 
-  function handleTabClose(event: CustomEvent<{ tabId: TabId }>) {
-    workspaceStore.closeTab(event.detail.tabId);
+  function handleTabClose(detail: { tabId: TabId }) {
+    workspaceStore.closeTab(detail.tabId);
   }
 
   function handleTabCreate() {
     workspaceStore.createTab();
   }
 
-  function handleTabRename(event: CustomEvent<{ tabId: TabId; name: string }>) {
-    workspaceStore.renameTab(event.detail.tabId, event.detail.name);
+  function handleTabRename(detail: { tabId: TabId; name: string }) {
+    workspaceStore.renameTab(detail.tabId, detail.name);
   }
 
-  function handleTabReorder(event: CustomEvent<{ fromIndex: number; toIndex: number }>) {
-    workspaceStore.reorderTabs(event.detail.fromIndex, event.detail.toIndex);
+  function handleTabReorder(detail: { fromIndex: number; toIndex: number }) {
+    workspaceStore.reorderTabs(detail.fromIndex, detail.toIndex);
   }
 
-  // Handle split container events
-  function handleDrop(event: CustomEvent<{ paneId: string; sessionId: SessionId; dropZone: DropZone }>) {
-    const { paneId, sessionId, dropZone } = event.detail;
-    workspaceStore.handleDrop(paneId, sessionId, dropZone);
+  // Handle split container events (now callback props, not CustomEvent)
+  function handleDrop(detail: { paneId: string; sessionId: SessionId; dropZone: DropZone }) {
+    workspaceStore.handleDrop(detail.paneId, detail.sessionId, detail.dropZone);
   }
 
-  function handlePaneDrop(event: CustomEvent<{ sourcePaneId: string; targetPaneId: string; dropZone: DropZone }>) {
-    const { sourcePaneId, targetPaneId, dropZone } = event.detail;
-    workspaceStore.movePane(sourcePaneId, targetPaneId, dropZone);
+  function handlePaneDrop(detail: { sourcePaneId: string; targetPaneId: string; dropZone: DropZone }) {
+    workspaceStore.movePane(detail.sourcePaneId, detail.targetPaneId, detail.dropZone);
   }
 
-  function handlePaneContextMenu(event: CustomEvent<{ paneId: string; x: number; y: number }>) {
-    contextMenu = event.detail;
+  function handlePaneContextMenu(detail: { paneId: string; x: number; y: number }) {
+    contextMenu = detail;
     // Read clipboard eagerly while we still have user activation from the right-click.
     // navigator.clipboard.readText() requires transient activation which expires
     // by the time a menu item click handler fires.
@@ -120,36 +123,36 @@
     });
   }
 
-  function handlePaneFocus(event: CustomEvent<{ paneId: string }>) {
-    activePaneId = event.detail.paneId;
+  function handlePaneFocus(detail: { paneId: string }) {
+    activePaneId = detail.paneId;
   }
 
-  function handleResize(event: CustomEvent<{ splitId: string; ratios: number[] }>) {
-    workspaceStore.updateRatios(event.detail.splitId, event.detail.ratios);
+  function handleResize(detail: { splitId: string; ratios: number[] }) {
+    workspaceStore.updateRatios(detail.splitId, detail.ratios);
   }
 
-  function handleDetach(event: CustomEvent<{ paneId: string }>) {
-    workspaceStore.closePane(event.detail.paneId);
+  function handleDetach(detail: { paneId: string }) {
+    workspaceStore.closePane(detail.paneId);
   }
 
-  function handleKill(event: CustomEvent<{ paneId: string; sessionId: string }>) {
-    const { paneId, sessionId } = event.detail;
+  function handleKill(detail: { paneId: string; sessionId: string }) {
+    const { paneId, sessionId } = detail;
     if (effectiveManager) {
       effectiveManager.killSession(sessionId);
     }
     workspaceStore.closePane(paneId);
   }
 
-  function handleActionPaneClose(event: CustomEvent<{ paneId: string }>) {
-    workspaceStore.closePane(event.detail.paneId);
+  function handleActionPaneClose(detail: { paneId: string }) {
+    workspaceStore.closePane(detail.paneId);
   }
 
-  function handleActionSplitHorizontal(event: CustomEvent<{ paneId: string }>) {
-    workspaceStore.splitPane(event.detail.paneId, 'horizontal');
+  function handleActionSplitHorizontal(detail: { paneId: string }) {
+    workspaceStore.splitPane(detail.paneId, 'horizontal');
   }
 
-  function handleActionSplitVertical(event: CustomEvent<{ paneId: string }>) {
-    workspaceStore.splitPane(event.detail.paneId, 'vertical');
+  function handleActionSplitVertical(detail: { paneId: string }) {
+    workspaceStore.splitPane(detail.paneId, 'vertical');
   }
 
   // Context menu actions
@@ -316,7 +319,7 @@
   }
 
   // Build context menu items
-  $: contextMenuItems = contextMenu ? [
+  let contextMenuItems = $derived(contextMenu ? [
     { label: 'Copy', action: handleCopy, shortcut: 'Cmd+C' },
     { label: 'Paste', action: handlePaste, shortcut: 'Cmd+V' },
     { label: 'Select All', action: handleSelectAll, shortcut: 'Cmd+A' },
@@ -345,10 +348,10 @@
     { type: 'separator' as const },
     { label: 'Clear Pane', action: handleClearPane },
     { label: 'Close Pane', action: handleClosePane, shortcut: 'Cmd+W' },
-  ] : [];
+  ] : []);
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
+<svelte:window onkeydown={handleKeydown} />
 
 <div class="workspace-view">
   <TabBar
@@ -357,11 +360,11 @@
     {tabActivities}
     {tabExitStates}
     {tabAgents}
-    on:select={handleTabSelect}
-    on:close={handleTabClose}
-    on:create={handleTabCreate}
-    on:rename={handleTabRename}
-    on:reorder={handleTabReorder}
+    onselect={(detail) => handleTabSelect(detail)}
+    onclose={(detail) => handleTabClose(detail)}
+    oncreate={() => handleTabCreate()}
+    onrename={(detail) => handleTabRename(detail)}
+    onreorder={(detail) => handleTabReorder(detail)}
   />
 
   <div class="workspace-content">
@@ -369,21 +372,21 @@
       <SplitContainer
         node={$activeTab.root}
         {activePaneId}
-        on:drop={handleDrop}
-        on:paneDrop={handlePaneDrop}
-        on:contextmenu={handlePaneContextMenu}
-        on:focus={handlePaneFocus}
-        on:resize={handleResize}
-        on:detach={handleDetach}
-        on:kill={handleKill}
-        on:action:pane.close={handleActionPaneClose}
-        on:action:split.horizontal={handleActionSplitHorizontal}
-        on:action:split.vertical={handleActionSplitVertical}
+        ondrop={handleDrop}
+        onpaneDrop={handlePaneDrop}
+        oncontextmenu={handlePaneContextMenu}
+        onfocus={handlePaneFocus}
+        onresize={handleResize}
+        ondetach={handleDetach}
+        onkill={handleKill}
+        onActionPaneClose={handleActionPaneClose}
+        onActionSplitHorizontal={handleActionSplitHorizontal}
+        onActionSplitVertical={handleActionSplitVertical}
       />
     {:else}
       <div class="no-tab">
         <p>No tab selected</p>
-        <button on:click={handleTabCreate}>Create Tab</button>
+        <button onclick={handleTabCreate}>Create Tab</button>
       </div>
     {/if}
   </div>
@@ -393,7 +396,7 @@
       x={contextMenu.x}
       y={contextMenu.y}
       items={contextMenuItems}
-      on:close={handleContextMenuClose}
+      onclose={() => handleContextMenuClose()}
     />
   {/if}
 </div>

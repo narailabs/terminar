@@ -1,46 +1,40 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
   import TerminalList from './TerminalList.svelte';
   import type { SessionInfo } from '../lib/workspaceTypes';
 
-  export let sessions: SessionInfo[] = [];
-  export let activeSessionId: string | null = null;
-  export let isOpen: boolean = true;
-  export let broadcastMode: boolean = false;
-
-  const dispatch = createEventDispatcher();
+  let {
+    sessions = [],
+    activeSessionId = null,
+    isOpen = true,
+    broadcastMode = false,
+    ontoggle,
+    onselect,
+    onclose,
+    onrename,
+    oncreate,
+    onsettings,
+    onpanedrop,
+  }: {
+    sessions?: SessionInfo[];
+    activeSessionId?: string | null;
+    isOpen?: boolean;
+    broadcastMode?: boolean;
+    ontoggle?: () => void;
+    onselect?: (sessionId: string) => void;
+    onclose?: (sessionId: string) => void;
+    onrename?: (detail: { id: string; newName: string }) => void;
+    oncreate?: () => void;
+    onsettings?: () => void;
+    onpanedrop?: (detail: { sourcePaneId: string }) => void;
+  } = $props();
 
   function toggle() {
-    dispatch('toggle');
-  }
-
-  function handleSelect(event: CustomEvent<string>) {
-    dispatch('select', event.detail);
-  }
-
-  function handleClose(event: CustomEvent<string>) {
-    dispatch('close', event.detail);
-  }
-
-  function handleRename(event: CustomEvent<{ id: string; newName: string }>) {
-    dispatch('rename', event.detail);
-  }
-
-  function handleCreate() {
-    dispatch('create');
-  }
-
-  function handleSettings() {
-    dispatch('settings');
-  }
-
-  function handlePaneDrop(event: CustomEvent<{ sourcePaneId: string }>) {
-    dispatch('paneDrop', event.detail);
+    ontoggle?.();
   }
 </script>
 
 <div class="sidebar" class:open={isOpen}>
-  <button class="toggle-btn" on:click={toggle} title={isOpen ? 'Hide sidebar' : 'Show sidebar'}>
+  <button class="toggle-btn" onclick={toggle} title={isOpen ? 'Hide sidebar' : 'Show sidebar'}>
     <span class="chevron">{isOpen ? '›' : '‹'}</span>
   </button>
 
@@ -54,12 +48,12 @@
         {sessions}
         {activeSessionId}
         {broadcastMode}
-        on:select={handleSelect}
-        on:close={handleClose}
-        on:rename={handleRename}
-        on:create={handleCreate}
-        on:settings={handleSettings}
-        on:paneDrop={handlePaneDrop}
+        onselect={onselect}
+        onclose={onclose}
+        onrename={onrename}
+        oncreate={oncreate}
+        onsettings={onsettings}
+        onpanedrop={onpanedrop}
       />
     </div>
   {/if}

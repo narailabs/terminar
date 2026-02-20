@@ -1,6 +1,9 @@
 import { EventEmitter } from 'events';
-import { ClientMessage, ServerMessageSchema } from './messages.js';
+import { z } from 'zod';
+import type { ClientMessage, ServerMessage } from './messages.js';
+import { ServerMessageSchema } from './messages.js';
 import { ParseError, ValidationError } from './errors.js';
+import type { TypedEventEmitter } from './typed-emitter.js';
 
 const PROTOCOL_VERSION = '0.2.0';
 
@@ -13,7 +16,34 @@ export interface IShellSocket {
   on(event: 'error', listener: (err: any) => void): this;
 }
 
-export class ShellClient extends EventEmitter {
+/** Extract a specific variant from the ServerMessage union by its type literal */
+type MessageByType<T extends ServerMessage['type']> = Extract<ServerMessage, { type: T }>;
+
+/** Event map for ShellClient */
+export interface ShellClientEvents {
+  authenticated: [];
+  message: [msg: ServerMessage];
+  error: [err: Error];
+  close: [];
+  // Server message types emitted as individual events
+  AuthOk: [msg: MessageByType<'AuthOk'>];
+  AuthChallenge: [msg: MessageByType<'AuthChallenge'>];
+  SessionList: [msg: MessageByType<'SessionList'>];
+  Output: [msg: MessageByType<'Output'>];
+  SessionClosed: [msg: MessageByType<'SessionClosed'>];
+  Error: [msg: MessageByType<'Error'>];
+  PairResponse: [msg: MessageByType<'PairResponse'>];
+  Shutdown: [msg: MessageByType<'Shutdown'>];
+  ForegroundChanged: [msg: MessageByType<'ForegroundChanged'>];
+  SessionActivity: [msg: MessageByType<'SessionActivity'>];
+  SessionExited: [msg: MessageByType<'SessionExited'>];
+  CwdChanged: [msg: MessageByType<'CwdChanged'>];
+  WorkspaceData: [msg: MessageByType<'WorkspaceData'>];
+}
+
+const TypedEmitter = EventEmitter as new () => TypedEventEmitter<ShellClientEvents>;
+
+export class ShellClient extends TypedEmitter {
   private socket: IShellSocket | null = null;
   private _authenticated: boolean = false;
   private messageQueue: ClientMessage[] = [];
@@ -53,9 +83,10 @@ export class ShellClient extends EventEmitter {
             this.flushQueue();
           }
           this.emit('message', parsed.data);
-          this.emit(parsed.data.type, parsed.data);
+          // Emit the specific message type event — cast needed for the dynamic dispatch
+          (this as any).emit(parsed.data.type, parsed.data);
         } else {
-          this.emit('error', new ValidationError(`Invalid message from server: ${parsed.error.message}`));
+          this.emit('error', new ValidationError(`Invalid message from server: ${z.prettifyError(parsed.error)}`));
         }
       } catch (err) {
         this.emit('error', new ParseError(`Failed to parse message: ${err}`));

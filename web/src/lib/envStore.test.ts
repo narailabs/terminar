@@ -9,7 +9,6 @@ vi.stubGlobal('localStorage', {
   clear: vi.fn(() => { mockStorage = {}; }),
 });
 
-import { get } from 'svelte/store';
 import {
   globalEnvVars,
   getEffectiveEnv,
@@ -19,7 +18,7 @@ import {
   ENV_STORAGE_KEY,
   validateEnvKey,
   resetEnvVars,
-} from './envStore';
+} from './envStore.svelte';
 
 describe('envStore', () => {
   beforeEach(() => {
@@ -30,50 +29,50 @@ describe('envStore', () => {
 
   describe('globalEnvVars store', () => {
     it('should initialize with empty env vars when localStorage is empty', () => {
-      expect(get(globalEnvVars)).toEqual({});
+      expect(globalEnvVars.value).toEqual({});
     });
 
     it('should load env vars from localStorage on initialization', () => {
       mockStorage[ENV_STORAGE_KEY] = JSON.stringify({ FOO: 'bar', BAZ: 'qux' });
       resetEnvVars(); // re-initialize from mock storage
-      expect(get(globalEnvVars)).toEqual({ FOO: 'bar', BAZ: 'qux' });
+      expect(globalEnvVars.value).toEqual({ FOO: 'bar', BAZ: 'qux' });
     });
 
     it('should handle corrupt localStorage gracefully', () => {
       mockStorage[ENV_STORAGE_KEY] = 'not-valid-json{{{';
       resetEnvVars();
-      expect(get(globalEnvVars)).toEqual({});
+      expect(globalEnvVars.value).toEqual({});
     });
   });
 
   describe('CRUD operations', () => {
     it('should add an env var', () => {
       addEnvVar('MY_VAR', 'my_value');
-      expect(get(globalEnvVars)).toEqual({ MY_VAR: 'my_value' });
+      expect(globalEnvVars.value).toEqual({ MY_VAR: 'my_value' });
     });
 
     it('should update an existing env var', () => {
       addEnvVar('MY_VAR', 'old_value');
       updateEnvVar('MY_VAR', 'new_value');
-      expect(get(globalEnvVars)).toEqual({ MY_VAR: 'new_value' });
+      expect(globalEnvVars.value).toEqual({ MY_VAR: 'new_value' });
     });
 
     it('should delete an env var', () => {
       addEnvVar('MY_VAR', 'value');
       addEnvVar('OTHER', 'other');
       deleteEnvVar('MY_VAR');
-      expect(get(globalEnvVars)).toEqual({ OTHER: 'other' });
+      expect(globalEnvVars.value).toEqual({ OTHER: 'other' });
     });
 
     it('should allow empty string values', () => {
       addEnvVar('EMPTY_VAR', '');
-      expect(get(globalEnvVars)).toEqual({ EMPTY_VAR: '' });
+      expect(globalEnvVars.value).toEqual({ EMPTY_VAR: '' });
     });
 
     it('should handle deleting non-existent key gracefully', () => {
       addEnvVar('EXISTS', 'value');
       deleteEnvVar('NOPE');
-      expect(get(globalEnvVars)).toEqual({ EXISTS: 'value' });
+      expect(globalEnvVars.value).toEqual({ EXISTS: 'value' });
     });
   });
 

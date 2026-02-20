@@ -1,19 +1,9 @@
 import { EventEmitter } from 'events';
-import type { ConnectionState } from './shared-protocol';
+import type { ConnectionState, SessionInfo } from './shared-protocol';
 
 // Re-export for backward compatibility
 export type { ConnectionState } from './shared-protocol';
-
-/**
- * Session information
- */
-export interface SessionInfo {
-  id: string;
-  name: string;
-  shell: string;
-  cwd: string;
-  started_at: string;
-}
+export type { SessionInfo } from './shared-protocol';
 
 /**
  * Common interface for session managers

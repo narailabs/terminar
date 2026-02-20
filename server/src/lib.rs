@@ -115,8 +115,8 @@ fn poll_foreground_processes(sessions: &SessionMap) {
 
         // Poll CWD of the foreground process
         let new_cwd = process::get_process_cwd(pty_fd);
-        if let Some(ref cwd) = new_cwd {
-            if *cwd != session.cwd {
+        if let Some(ref cwd) = new_cwd
+            && *cwd != session.cwd {
                 let old = session.cwd.clone();
                 session.cwd = cwd.clone();
                 tracing::debug!(
@@ -127,7 +127,6 @@ fn poll_foreground_processes(sessions: &SessionMap) {
                 );
                 let _ = session.output_tx.send(session::SessionEvent::CwdChanged(cwd.clone()));
             }
-        }
     }
 }
 
@@ -492,13 +491,11 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
                 info!("Restoring {} persisted session(s)...", running_sessions.len());
                 for s in &running_sessions {
                     // Track "Terminal N" counter
-                    if let Some(n) = s.name.strip_prefix("Terminal ") {
-                        if let Ok(num) = n.parse::<u64>() {
-                            if num >= initial_name_counter {
-                                initial_name_counter = num + 1;
-                            }
+                    if let Some(n) = s.name.strip_prefix("Terminal ")
+                        && let Ok(num) = n.parse::<u64>()
+                        && num >= initial_name_counter {
+                            initial_name_counter = num + 1;
                         }
-                    }
 
                     // Load history for this session
                     let history_data = match persistence::load_history_auto(&history_dir_str, &s.id) {
@@ -1008,8 +1005,8 @@ async fn auth_middleware(
     }
 
     // Try cookie-based JWT auth (terminar_access cookie)
-    if let Some(access_token) = cookies::extract_cookie(req.headers(), "terminar_access") {
-        if let Ok(claims) = jwt::validate_access_token(&state.signing_key, &access_token) {
+    if let Some(access_token) = cookies::extract_cookie(req.headers(), "terminar_access")
+        && let Ok(claims) = jwt::validate_access_token(&state.signing_key, &access_token) {
             // Check revocation via persistent store (by jti) or ephemeral set
             let revoked = if let Some(ref store) = state.revocation_store {
                 store.is_revoked(&claims.jti)
@@ -1020,7 +1017,6 @@ async fn auth_middleware(
                 return next.run(req).await;
             }
         }
-    }
 
     (StatusCode::UNAUTHORIZED, "Unauthorized").into_response()
 }
@@ -1043,11 +1039,10 @@ fn extract_client_ip(
 
     if let Some(proxy_ip) = trusted_proxy {
         // Strict mode: only trust XFF if request came from the trusted proxy
-        if peer_ip == Some(proxy_ip) {
-            if let Some(ip) = xff_first_ip() {
+        if peer_ip == Some(proxy_ip)
+            && let Some(ip) = xff_first_ip() {
                 return ip;
             }
-        }
         // Request not from trusted proxy — use peer IP, ignore XFF
         return peer_ip.unwrap_or("unknown").to_string();
     }
@@ -1094,8 +1089,8 @@ async fn exchange_handler(
             }
 
             // Exponential backoff: must wait 2^(N-1) seconds after N attempts
-            if attempt_count > 0 {
-                if let Some(last_attempt) = timestamps.last() {
+            if attempt_count > 0
+                && let Some(last_attempt) = timestamps.last() {
                     let backoff_secs = 1u64 << (attempt_count - 1); // 1, 2, 4, 8, ...
                     let elapsed = now.duration_since(*last_attempt);
                     if elapsed < Duration::from_secs(backoff_secs) {
@@ -1104,7 +1099,6 @@ async fn exchange_handler(
                         return (StatusCode::TOO_MANY_REQUESTS, "Too many attempts. Please wait before trying again.").into_response();
                     }
                 }
-            }
         }
 
         // Record this attempt
@@ -1285,8 +1279,8 @@ async fn logout_handler(
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
     // Extract and revoke the refresh token from the cookie
-    if let Some(refresh_token) = cookies::extract_cookie(&headers, "terminar_refresh") {
-        if !refresh_token.is_empty() {
+    if let Some(refresh_token) = cookies::extract_cookie(&headers, "terminar_refresh")
+        && !refresh_token.is_empty() {
             if let Some(ref store) = state.revocation_store {
                 // Decode the refresh token to extract jti for persistent revocation
                 if let Ok(claims) = jwt::validate_refresh_token(&state.signing_key, &refresh_token) {
@@ -1303,7 +1297,6 @@ async fn logout_handler(
                 state.revoked_tokens.lock().insert(refresh_token);
             }
         }
-    }
 
     let cookie_headers = cookies::clear_auth_cookies();
     let mut response = (StatusCode::OK, Json(serde_json::json!({"status": "logged_out"}))).into_response();
@@ -1654,8 +1647,8 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool, co
                                 match jwt::validate_refresh_token(&state.signing_key, &refresh_token) {
                                     Ok(claims) => {
                                         // Check if token has been revoked
-                                        if let Some(ref store) = state.revocation_store {
-                                            if store.is_revoked(&claims.jti) {
+                                        if let Some(ref store) = state.revocation_store
+                                            && store.is_revoked(&claims.jti) {
                                                 warn!("Attempted reuse of revoked refresh token jti={}", claims.jti);
                                                 let err_msg = ServerMessage::Error {
                                                     message: "Refresh token has been revoked".to_string(),
@@ -1666,7 +1659,6 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool, co
                                                 )).await;
                                                 continue;
                                             }
-                                        }
 
                                         // Revoke old refresh token
                                         if let Some(ref store) = state.revocation_store {
@@ -1889,11 +1881,10 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool, co
                 msg = rx_out.recv() => {
                     match msg {
                         Some(msg) => {
-                            if let Ok(json) = serde_json::to_string(&msg) {
-                                if sender.send(Message::Text(json)).await.is_err() {
+                            if let Ok(json) = serde_json::to_string(&msg)
+                                && sender.send(Message::Text(json)).await.is_err() {
                                     break;
                                 }
-                            }
                         }
                         None => break, // Channel closed
                     }

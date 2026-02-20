@@ -69,14 +69,7 @@ export async function exchangePairingCode(host: string, code: string): Promise<s
 }
 
 // Re-export types for backward compatibility
-export type { ConnectionState, ReconnectConfig } from '@narai/terminar-protocol';
-
-export interface SessionInfo {
-    id: string;
-    name: string;
-    shell: string;
-    started_at: string;
-}
+export type { ConnectionState, ReconnectConfig, SessionInfo } from '@narai/terminar-protocol';
 
 /**
  * WebSocket-based Session Manager for remote connections (VS Code extension).

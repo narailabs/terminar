@@ -164,7 +164,7 @@ mod pam_ffi {
     enum PamHandle {}
 
     #[link(name = "pam")]
-    extern "C" {
+    unsafe extern "C" {
         fn pam_start(
             service_name: *const c_char,
             user: *const c_char,

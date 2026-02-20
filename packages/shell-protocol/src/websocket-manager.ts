@@ -1,11 +1,14 @@
 import { EventEmitter } from 'events';
 import { parseServerMessage } from './parse.js';
+import type { SessionInfo } from './messages.js';
 import {
     type ConnectionState,
     type ReconnectConfig,
     DEFAULT_RECONNECT_CONFIG,
     calculateReconnectDelay,
 } from './reconnect.js';
+import type { TypedEventEmitter } from './typed-emitter.js';
+import type { ActivityType } from './parse.js';
 
 /**
  * Minimal WebSocket interface that works in both Node.js (ws) and browser.
@@ -18,36 +21,45 @@ export interface IWebSocket {
     addEventListener(event: 'message', listener: (event: { data: string | Buffer }) => void): void;
     addEventListener(event: 'close', listener: () => void): void;
     addEventListener(event: 'error', listener: (event: unknown) => void): void;
-    removeEventListener(event: string, listener: (...args: any[]) => void): void;
+    removeEventListener(event: 'open', listener: () => void): void;
+    removeEventListener(event: 'message', listener: (event: { data: string | Buffer }) => void): void;
+    removeEventListener(event: 'close', listener: () => void): void;
+    removeEventListener(event: 'error', listener: (event: unknown) => void): void;
 }
 
 /** WebSocket readyState constants */
 export const WS_OPEN = 1;
 export const WS_CONNECTING = 0;
 
+/** Event map for BaseWebSocketManager */
+export interface WebSocketManagerEvents {
+    stateChange: [state: ConnectionState];
+    reconnecting: [attempt: number, delay: number];
+    reconnected: [];
+    sessionList: [sessions: SessionInfo[]];
+    output: [sessionId: string, data: string];
+    sessionClosed: [sessionId: string];
+    sessionActivity: [sessionId: string, activityType: ActivityType];
+    sessionExited: [sessionId: string, exitCode: number | null];
+    foregroundChanged: [sessionId: string, processName: string | null];
+    cwdChanged: [sessionId: string, cwd: string];
+    workspaceData: [workspace: Record<string, unknown> | null];
+    shutdown: [reason: string];
+    authenticated: [token: string, expires: string];
+    authChallenge: [nonce: string];
+    error: [err: Error];
+    close: [];
+}
+
+const TypedEmitter = EventEmitter as new () => TypedEventEmitter<WebSocketManagerEvents>;
+
 /**
  * Abstract base class for WebSocket session managers.
  * Handles connection lifecycle, reconnection, message dispatch, and session operations.
  *
  * Subclasses must implement `createWebSocket(url)` to provide platform-specific WebSocket.
- *
- * Events:
- * - 'stateChange': (state: ConnectionState)
- * - 'reconnecting': (attempt: number, delay: number)
- * - 'reconnected': ()
- * - 'sessionList': (sessions: any[])
- * - 'output': (sessionId: string, data: string)
- * - 'sessionClosed': (sessionId: string)
- * - 'sessionActivity': (sessionId: string, activityType: string)
- * - 'sessionExited': (sessionId: string, exitCode: number | null)
- * - 'foregroundChanged': (sessionId: string, processName: string | null)
- * - 'cwdChanged': (sessionId: string, cwd: string)
- * - 'shutdown': (reason: string)
- * - 'authenticated': (token: string, expires: string)
- * - 'error': (error: Error)
- * - 'close': ()
  */
-export abstract class BaseWebSocketManager extends EventEmitter {
+export abstract class BaseWebSocketManager extends TypedEmitter {
     protected socket?: IWebSocket;
     protected authenticated = false;
     protected state: ConnectionState = 'disconnected';
@@ -55,7 +67,7 @@ export abstract class BaseWebSocketManager extends EventEmitter {
     protected reconnectAttempt = 0;
     protected reconnectTimer?: ReturnType<typeof setTimeout>;
     protected shouldReconnect = false;
-    protected lastSessionList: any[] = [];
+    protected lastSessionList: SessionInfo[] = [];
 
     constructor(
         protected url: string,
@@ -76,7 +88,7 @@ export abstract class BaseWebSocketManager extends EventEmitter {
         return this.state;
     }
 
-    public getLastSessionList(): any[] {
+    public getLastSessionList(): SessionInfo[] {
         return this.lastSessionList;
     }
 
@@ -148,8 +160,8 @@ export abstract class BaseWebSocketManager extends EventEmitter {
                 this.emit('close');
 
                 this.socket?.removeEventListener('open', onOpen);
-                this.socket?.removeEventListener('error', onError as any);
-                this.socket?.removeEventListener('message', onMessage as any);
+                this.socket?.removeEventListener('error', onError);
+                this.socket?.removeEventListener('message', onMessage);
                 this.socket?.removeEventListener('close', onClose);
 
                 if (this.shouldReconnect) {
@@ -158,8 +170,8 @@ export abstract class BaseWebSocketManager extends EventEmitter {
             };
 
             this.socket.addEventListener('open', onOpen);
-            this.socket.addEventListener('error', onError as any);
-            this.socket.addEventListener('message', onMessage as any);
+            this.socket.addEventListener('error', onError);
+            this.socket.addEventListener('message', onMessage);
             this.socket.addEventListener('close', onClose);
         });
     }

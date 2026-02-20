@@ -48,11 +48,10 @@ fn find_utf8_safe_boundary(data: &[u8]) -> usize {
 /// Gets the default shell from $SHELL environment variable.
 /// Falls back to /bin/sh if $SHELL is not set or not in whitelist.
 fn get_default_shell() -> String {
-    if let Ok(shell) = std::env::var("SHELL") {
-        if SHELL_WHITELIST.contains(&shell.as_str()) {
+    if let Ok(shell) = std::env::var("SHELL")
+        && SHELL_WHITELIST.contains(&shell.as_str()) {
             return shell;
         }
-    }
     "/bin/sh".to_string()
 }
 

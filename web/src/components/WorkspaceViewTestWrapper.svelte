@@ -2,19 +2,24 @@
   /**
    * Test wrapper that sets up Svelte context for WorkspaceView tests.
    */
-  import { writable } from 'svelte/store';
-  import { setManagerContext, setSessionsContext, setActionsContext, type SessionInfo } from '../lib/sessionContext';
+  import { reactiveBox, setManagerContext, setSessionsContext, setActionsContext, type SessionInfo } from '../lib/sessionContext.svelte';
   import type { SessionManager } from '../lib/SessionManager';
   import WorkspaceView from './WorkspaceView.svelte';
 
-  export let manager: SessionManager | null = null;
-  export let availableSessions: { id: string; name?: string }[] = [];
-  export let initialSessions: SessionInfo[] = [];
+  let {
+    manager = null,
+    availableSessions = [],
+    initialSessions = [],
+  }: {
+    manager?: SessionManager | null;
+    availableSessions?: { id: string; name?: string }[];
+    initialSessions?: SessionInfo[];
+  } = $props();
 
-  const managerStore = writable<SessionManager | null>(manager);
-  const sessionsStore = writable<SessionInfo[]>(initialSessions);
-  setManagerContext(managerStore);
-  setSessionsContext(sessionsStore);
+  const managerBox = reactiveBox<SessionManager | null>(manager);
+  const sessionsBox = reactiveBox<SessionInfo[]>(initialSessions);
+  setManagerContext(managerBox);
+  setSessionsContext(sessionsBox);
   setActionsContext({
     createNewTerminal() {},
     closeTerminal() {},
@@ -22,8 +27,12 @@
     toggleSidebar() {},
   });
 
-  $: managerStore.set(manager);
-  $: sessionsStore.set(initialSessions);
+  $effect(() => {
+    managerBox.value = manager;
+  });
+  $effect(() => {
+    sessionsBox.value = initialSessions;
+  });
 </script>
 
 <WorkspaceView {manager} {availableSessions} />

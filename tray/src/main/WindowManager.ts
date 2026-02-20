@@ -1,12 +1,30 @@
 // WindowManager.ts — Port of window creation from tray/src-tauri/src/lib.rs
 // Manages named BrowserWindows for the tray app (install wizard, settings).
 
-import { BrowserWindow, app } from 'electron';
+import { BrowserWindow, app, session } from 'electron';
 import path from 'path';
 import { getAppRoot } from './paths.js';
 
 export class WindowManager {
   private windows: Map<string, BrowserWindow> = new Map();
+
+  constructor() {
+    this.setupContentSecurityPolicy();
+  }
+
+  /** Set Content Security Policy headers for all renderer windows. */
+  private setupContentSecurityPolicy(): void {
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Content-Security-Policy': [
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'",
+          ],
+        },
+      });
+    });
+  }
 
   /** Get an existing window by label, or null if it doesn't exist / is destroyed. */
   getWindow(label: string): BrowserWindow | null {
@@ -36,6 +54,7 @@ export class WindowManager {
         preload: this.preloadPath(),
         contextIsolation: true,
         nodeIntegration: false,
+        sandbox: true,
       },
     });
 
@@ -60,6 +79,7 @@ export class WindowManager {
         preload: this.preloadPath(),
         contextIsolation: true,
         nodeIntegration: false,
+        sandbox: true,
       },
     });
 

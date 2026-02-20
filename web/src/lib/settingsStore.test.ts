@@ -52,10 +52,10 @@ const mockTerminalTheme = {
   },
 };
 
-vi.mock('./themeStore', () => {
+const { mockThemeStateWritable } = vi.hoisted(() => {
   const { writable } = require('svelte/store');
   return {
-    themeState: writable({
+    mockThemeStateWritable: writable({
       uiMode: 'dark',
       activeUIThemeId: 'dark',
       activeTerminalThemeId: 'dark',
@@ -63,9 +63,13 @@ vi.mock('./themeStore', () => {
       customUIThemes: [],
       customTerminalThemes: [],
     }),
-    getActiveTerminalTheme: vi.fn(() => mockTerminalTheme),
   };
 });
+
+vi.mock('./themeStore', () => ({
+  themeState: mockThemeStateWritable,
+  getActiveTerminalTheme: vi.fn(() => mockTerminalTheme),
+}));
 
 // ── Import under test (after mocks are in place) ────────────────────────────
 
@@ -76,8 +80,7 @@ import {
   FONT_FAMILIES,
   CURSOR_STYLES,
   type TerminalSettings,
-} from './settingsStore';
-import { get } from 'svelte/store';
+} from './settingsStore.svelte';
 
 // ── Tests ───────────────────────────────────────────────────────────────────
 
@@ -101,7 +104,7 @@ describe('settingsStore', () => {
   // ── 1. Initial value matches DEFAULT_SETTINGS when no cache ─────────────
 
   it('should have DEFAULT_SETTINGS as initial value when no cache exists', () => {
-    const current = get(settingsStore);
+    const current = settingsStore.value;
     expect(current).toEqual(DEFAULT_SETTINGS);
   });
 
@@ -133,7 +136,7 @@ describe('settingsStore', () => {
     const partial = { fontSize: 20, cursorBlink: false } as TerminalSettings;
     settingsStore.initialize(partial);
 
-    const current = get(settingsStore);
+    const current = settingsStore.value;
     expect(current.fontSize).toBe(20);
     expect(current.cursorBlink).toBe(false);
     // Other fields should remain as defaults
@@ -145,9 +148,9 @@ describe('settingsStore', () => {
   // ── 4. initialize(null) does nothing ────────────────────────────────────
 
   it('initialize(null) should not change the store', () => {
-    const before = get(settingsStore);
+    const before = settingsStore.value;
     settingsStore.initialize(null);
-    const after = get(settingsStore);
+    const after = settingsStore.value;
     expect(after).toEqual(before);
   });
 
@@ -155,7 +158,7 @@ describe('settingsStore', () => {
 
   it('updateSetting() should update a single key', () => {
     settingsStore.updateSetting('fontSize', 22);
-    const current = get(settingsStore);
+    const current = settingsStore.value;
     expect(current.fontSize).toBe(22);
     // Other keys remain unchanged
     expect(current.fontFamily).toBe(DEFAULT_SETTINGS.fontFamily);
@@ -183,7 +186,7 @@ describe('settingsStore', () => {
       cursorBlink: false,
     });
 
-    const current = get(settingsStore);
+    const current = settingsStore.value;
     expect(current.fontSize).toBe(16);
     expect(current.fontFamily).toBe('Fira Code');
     expect(current.cursorBlink).toBe(false);
@@ -197,7 +200,7 @@ describe('settingsStore', () => {
     settingsStore.updateSettings({ fontSize: 24, fontFamily: 'Consolas' });
     settingsStore.reset();
 
-    const current = get(settingsStore);
+    const current = settingsStore.value;
     expect(current).toEqual(DEFAULT_SETTINGS);
   });
 
@@ -276,7 +279,7 @@ describe('settingsStore', () => {
     settingsStore.updateSetting('fontSize', 12);
     const result = settingsStore.get();
     expect(result.fontSize).toBe(12);
-    expect(result).toEqual(get(settingsStore));
+    expect(result).toEqual(settingsStore.value);
   });
 
   // ── 13. xtermOptions derived store maps settings correctly ──────────────
@@ -290,7 +293,7 @@ describe('settingsStore', () => {
       lineHeight: 1.2,
     });
 
-    const opts = get(xtermOptions);
+    const opts = xtermOptions.value;
 
     expect(opts.fontSize).toBe(16);
     expect(opts.fontFamily).toBe('Fira Code, Monaco, "Courier New", monospace');

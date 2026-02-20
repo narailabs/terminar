@@ -75,11 +75,10 @@ impl ConnectionHealth {
     pub fn is_stale(&self, now: Instant) -> bool {
         if let Some(ping_time) = self.last_ping_sent {
             // If we got a pong after the last ping, not stale
-            if let Some(pong_time) = self.last_pong_received {
-                if pong_time >= ping_time {
+            if let Some(pong_time) = self.last_pong_received
+                && pong_time >= ping_time {
                     return false;
                 }
-            }
             // No pong after last ping - check timeout
             now.duration_since(ping_time) >= PONG_TIMEOUT
         } else {

@@ -1,5 +1,3 @@
-import { writable, get } from 'svelte/store';
-
 /**
  * localStorage key for persisting global environment variables
  */
@@ -34,44 +32,44 @@ function saveToStorage(vars: Record<string, string>): void {
   }
 }
 
+let vars = $state<Record<string, string>>(loadFromStorage());
+
 /**
  * Global environment variables store.
  * These are applied to all new sessions and persisted to localStorage.
  */
-export const globalEnvVars = writable<Record<string, string>>(loadFromStorage());
+export const globalEnvVars = {
+  get value() {
+    return vars;
+  },
+};
 
 /**
  * Add a new environment variable to the global store.
  */
 export function addEnvVar(key: string, value: string): void {
-  globalEnvVars.update((vars) => {
-    const updated = { ...vars, [key]: value };
-    saveToStorage(updated);
-    return updated;
-  });
+  const updated = { ...vars, [key]: value };
+  saveToStorage(updated);
+  vars = updated;
 }
 
 /**
  * Update an existing environment variable value.
  */
 export function updateEnvVar(key: string, value: string): void {
-  globalEnvVars.update((vars) => {
-    const updated = { ...vars, [key]: value };
-    saveToStorage(updated);
-    return updated;
-  });
+  const updated = { ...vars, [key]: value };
+  saveToStorage(updated);
+  vars = updated;
 }
 
 /**
  * Delete an environment variable from the global store.
  */
 export function deleteEnvVar(key: string): void {
-  globalEnvVars.update((vars) => {
-    const updated = { ...vars };
-    delete updated[key];
-    saveToStorage(updated);
-    return updated;
-  });
+  const updated = { ...vars };
+  delete updated[key];
+  saveToStorage(updated);
+  vars = updated;
 }
 
 /**
@@ -79,8 +77,7 @@ export function deleteEnvVar(key: string): void {
  * per-session overrides. Session overrides take precedence over global vars.
  */
 export function getEffectiveEnv(sessionOverrides: Record<string, string>): Record<string, string> {
-  const globals = get(globalEnvVars);
-  return { ...globals, ...sessionOverrides };
+  return { ...vars, ...sessionOverrides };
 }
 
 /**
@@ -106,5 +103,5 @@ export function validateEnvKey(key: string): string | null {
  * Useful for testing and re-initialization.
  */
 export function resetEnvVars(): void {
-  globalEnvVars.set(loadFromStorage());
+  vars = loadFromStorage();
 }

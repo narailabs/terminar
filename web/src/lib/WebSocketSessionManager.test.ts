@@ -63,10 +63,10 @@ describe('WebSocketSessionManager', () => {
     
     (manager as any).handleMessage({
       type: 'SessionList',
-      sessions: [{ id: '1', name: 'test' }]
+      sessions: [{ id: '1', name: 'test', shell: 'bash', cwd: '/tmp', started_at: '2025-01-01' }]
     });
 
-    expect(emitSpy).toHaveBeenCalledWith('sessionList', [{ id: '1', name: 'test' }]);
+    expect(emitSpy).toHaveBeenCalledWith('sessionList', [{ id: '1', name: 'test', shell: 'bash', cwd: '/tmp', started_at: '2025-01-01' }]);
   });
 
   it('should emit output on receiving Output message', () => {
@@ -349,7 +349,7 @@ describe('WebSocketSessionManager', () => {
       // Simulate receiving a session list
       (manager as any).handleMessage({
         type: 'SessionList',
-        sessions: [{ id: 'test-1', name: 'test-session' }]
+        sessions: [{ id: 'test-1', name: 'test-session', shell: 'bash', cwd: '/tmp', started_at: '2025-01-01' }]
       });
 
       expect(manager.getLastSessionList()).toHaveLength(1);
@@ -503,11 +503,11 @@ describe('WebSocketSessionManager', () => {
 
       (manager as any).handleMessage({
         type: 'SessionList',
-        sessions: [{ id: '1', name: 'test', shell: 'bash', started_at: '2025-01-01' }]
+        sessions: [{ id: '1', name: 'test', shell: 'bash', cwd: '/tmp', started_at: '2025-01-01' }]
       });
 
       expect(sessionListSpy).toHaveBeenCalledWith([
-        { id: '1', name: 'test', shell: 'bash', started_at: '2025-01-01' }
+        { id: '1', name: 'test', shell: 'bash', cwd: '/tmp', started_at: '2025-01-01' }
       ]);
     });
   });

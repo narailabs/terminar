@@ -6,7 +6,6 @@
  * - Terminal themes are resolved per-pane via getTerminalTheme(paneId)
  */
 
-import { writable, get } from 'svelte/store';
 import {
   BUILT_IN_UI_THEMES,
   BUILT_IN_TERMINAL_THEMES,
@@ -69,26 +68,32 @@ function saveState(state: ThemeState): void {
   }
 }
 
-export const themeState = writable<ThemeState>(loadState());
+let state = $state<ThemeState>(loadState());
 
-// Auto-save on every change
-themeState.subscribe((state) => {
-  saveState(state);
-});
+function updateState(newState: ThemeState): void {
+  state = newState;
+  saveState(newState);
+}
+
+export const themeState = {
+  get value() {
+    return state;
+  },
+};
 
 // ── Theme lookup helpers ─────────────────────────────────────────────────────
 
-function findUITheme(id: string, state: ThemeState): UITheme | undefined {
+function findUITheme(id: string, s: ThemeState): UITheme | undefined {
   return (
     BUILT_IN_UI_THEMES.find((t) => t.id === id) ??
-    state.customUIThemes.find((t) => t.id === id)
+    s.customUIThemes.find((t) => t.id === id)
   );
 }
 
-function findTerminalTheme(id: string, state: ThemeState): TerminalTheme | undefined {
+function findTerminalTheme(id: string, s: ThemeState): TerminalTheme | undefined {
   return (
     BUILT_IN_TERMINAL_THEMES.find((t) => t.id === id) ??
-    state.customTerminalThemes.find((t) => t.id === id)
+    s.customTerminalThemes.find((t) => t.id === id)
   );
 }
 
@@ -96,11 +101,10 @@ function findTerminalTheme(id: string, state: ThemeState): TerminalTheme | undef
 
 export function setUIMode(mode: UIMode): void {
   const resolved = resolveMode(mode);
-  themeState.update((s) => ({ ...s, uiMode: mode, activeUIThemeId: resolved }));
+  updateState({ ...state, uiMode: mode, activeUIThemeId: resolved });
 }
 
 export function getResolvedUIMode(): 'light' | 'dark' {
-  const state = get(themeState);
   return resolveMode(state.uiMode);
 }
 
@@ -127,10 +131,9 @@ export function initAutoMode(): void {
 
   const mql = window.matchMedia('(prefers-color-scheme: dark)');
   const handler = () => {
-    const state = get(themeState);
     if (state.uiMode === 'auto') {
       const resolved = resolveMode('auto');
-      themeState.update((s) => ({ ...s, activeUIThemeId: resolved }));
+      updateState({ ...state, activeUIThemeId: resolved });
     }
   };
   mql.addEventListener('change', handler);
@@ -138,29 +141,26 @@ export function initAutoMode(): void {
 }
 
 export function setActiveUITheme(id: string): void {
-  themeState.update((s) => ({ ...s, activeUIThemeId: id }));
+  updateState({ ...state, activeUIThemeId: id });
 }
 
 export function setActiveTerminalTheme(id: string): void {
-  themeState.update((s) => ({ ...s, activeTerminalThemeId: id }));
+  updateState({ ...state, activeTerminalThemeId: id });
 }
 
 export function setTerminalOverride(paneId: string, themeId: string): void {
-  themeState.update((s) => ({
-    ...s,
-    terminalOverrides: { ...s.terminalOverrides, [paneId]: themeId },
-  }));
-}
-
-export function clearTerminalOverride(paneId: string): void {
-  themeState.update((s) => {
-    const { [paneId]: _, ...rest } = s.terminalOverrides;
-    return { ...s, terminalOverrides: rest };
+  updateState({
+    ...state,
+    terminalOverrides: { ...state.terminalOverrides, [paneId]: themeId },
   });
 }
 
+export function clearTerminalOverride(paneId: string): void {
+  const { [paneId]: _, ...rest } = state.terminalOverrides;
+  updateState({ ...state, terminalOverrides: rest });
+}
+
 export function getTerminalTheme(paneId: string): TerminalTheme {
-  const state = get(themeState);
   const overrideId = state.terminalOverrides[paneId];
   if (overrideId) {
     const override = findTerminalTheme(overrideId, state);
@@ -170,12 +170,10 @@ export function getTerminalTheme(paneId: string): TerminalTheme {
 }
 
 export function getActiveUITheme(): UITheme {
-  const state = get(themeState);
   return findUITheme(state.activeUIThemeId, state) ?? BUILT_IN_UI_THEMES[0];
 }
 
 export function getActiveTerminalTheme(): TerminalTheme {
-  const state = get(themeState);
   return findTerminalTheme(state.activeTerminalThemeId, state) ?? BUILT_IN_TERMINAL_THEMES[0];
 }
 
@@ -200,7 +198,6 @@ const UI_CSS_MAP: Record<string, keyof UITheme> = {
 };
 
 export function applyUIThemeCSS(): void {
-  const state = get(themeState);
   // Resolve mode to pick the right built-in theme
   const resolvedId = state.uiMode === 'auto' ? resolveMode('auto') : state.activeUIThemeId;
   const theme = findUITheme(resolvedId, state) ?? BUILT_IN_UI_THEMES[0];
@@ -213,65 +210,61 @@ export function applyUIThemeCSS(): void {
 // ── Custom theme management ──────────────────────────────────────────────────
 
 export function addCustomUITheme(theme: UITheme): void {
-  themeState.update((s) => ({
-    ...s,
-    customUIThemes: [...s.customUIThemes, theme],
-  }));
+  updateState({
+    ...state,
+    customUIThemes: [...state.customUIThemes, theme],
+  });
 }
 
 export function addCustomTerminalTheme(theme: TerminalTheme): void {
-  themeState.update((s) => ({
-    ...s,
-    customTerminalThemes: [...s.customTerminalThemes, theme],
-  }));
+  updateState({
+    ...state,
+    customTerminalThemes: [...state.customTerminalThemes, theme],
+  });
 }
 
 export function updateCustomUITheme(id: string, theme: UITheme): void {
-  themeState.update((s) => ({
-    ...s,
-    customUIThemes: s.customUIThemes.map((t) => (t.id === id ? theme : t)),
-  }));
+  updateState({
+    ...state,
+    customUIThemes: state.customUIThemes.map((t) => (t.id === id ? theme : t)),
+  });
 }
 
 export function updateCustomTerminalTheme(id: string, theme: TerminalTheme): void {
-  themeState.update((s) => ({
-    ...s,
-    customTerminalThemes: s.customTerminalThemes.map((t) => (t.id === id ? theme : t)),
-  }));
+  updateState({
+    ...state,
+    customTerminalThemes: state.customTerminalThemes.map((t) => (t.id === id ? theme : t)),
+  });
 }
 
 export function deleteCustomUITheme(id: string): void {
-  themeState.update((s) => {
-    const newState = {
-      ...s,
-      customUIThemes: s.customUIThemes.filter((t) => t.id !== id),
-    };
-    // Fall back to dark if the deleted theme was active
-    if (s.activeUIThemeId === id) {
-      newState.activeUIThemeId = 'dark';
-    }
-    return newState;
-  });
+  const newState = {
+    ...state,
+    customUIThemes: state.customUIThemes.filter((t) => t.id !== id),
+  };
+  // Fall back to dark if the deleted theme was active
+  if (state.activeUIThemeId === id) {
+    newState.activeUIThemeId = 'dark';
+  }
+  updateState(newState);
 }
 
 export function deleteCustomTerminalTheme(id: string): void {
-  themeState.update((s) => {
-    // Clear any pane overrides using the deleted theme
-    const newOverrides = { ...s.terminalOverrides };
-    for (const [paneId, themeId] of Object.entries(newOverrides)) {
-      if (themeId === id) {
-        delete newOverrides[paneId];
-      }
+  // Clear any pane overrides using the deleted theme
+  const newOverrides = { ...state.terminalOverrides };
+  for (const [paneId, themeId] of Object.entries(newOverrides)) {
+    if (themeId === id) {
+      delete newOverrides[paneId];
     }
-    const newState = {
-      ...s,
-      customTerminalThemes: s.customTerminalThemes.filter((t) => t.id !== id),
-      terminalOverrides: newOverrides,
-    };
-    // Fall back to dark if the deleted theme was active
-    if (s.activeTerminalThemeId === id) {
-      newState.activeTerminalThemeId = 'dark';
-    }
-    return newState;
-  });
+  }
+  const newState = {
+    ...state,
+    customTerminalThemes: state.customTerminalThemes.filter((t) => t.id !== id),
+    terminalOverrides: newOverrides,
+  };
+  // Fall back to dark if the deleted theme was active
+  if (state.activeTerminalThemeId === id) {
+    newState.activeTerminalThemeId = 'dark';
+  }
+  updateState(newState);
 }

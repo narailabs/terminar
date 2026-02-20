@@ -1,40 +1,61 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  let {
+    id,
+    name,
+    shell,
+    cwd,
+    foregroundProcess = null,
+    terminalTitle = '',
+    paneCount = 0,
+    isActive = false,
+    startEditing = false,
+    onselect,
+    onclose,
+    onrename,
+    oneditend,
+    oncontextmenu: oncontextmenuprop,
+  }: {
+    id: string;
+    name: string;
+    shell: string;
+    cwd: string;
+    foregroundProcess?: string | null;
+    terminalTitle?: string;
+    paneCount?: number;
+    isActive?: boolean;
+    startEditing?: boolean;
+    onselect?: (id: string) => void;
+    onclose?: (id: string) => void;
+    onrename?: (detail: { id: string; newName: string }) => void;
+    oneditend?: (id: string) => void;
+    oncontextmenu?: (detail: { id: string; x: number; y: number }) => void;
+  } = $props();
 
-  export let id: string;
-  export let name: string;
-  export let shell: string;
-  export let cwd: string;
-  export let foregroundProcess: string | null = null;
-  export let terminalTitle: string = '';
-  export let paneCount: number = 0;
-  export let isActive: boolean = false;
-  export let startEditing: boolean = false;
-
-  const dispatch = createEventDispatcher();
-
-  let isEditing = false;
-  let editValue = name;
+  let isEditing = $state(false);
+  let editValue = $state(name);
 
   // React to external edit trigger
-  $: if (startEditing && !isEditing) {
-    isEditing = true;
-    editValue = name;
-    setTimeout(() => inputElement?.focus(), 0);
-  }
+  $effect(() => {
+    if (startEditing && !isEditing) {
+      isEditing = true;
+      editValue = name;
+      setTimeout(() => inputElement?.focus(), 0);
+    }
+  });
+
   let inputElement: HTMLInputElement;
-  let isHovered = false;
-  let isDragging = false;
+  let isHovered = $state(false);
+  let isDragging = $state(false);
 
   // Extract shell name from full path (e.g., /bin/zsh -> zsh)
-  $: shellName = shell ? (shell.split('/').pop() || shell) : '';
+  let shellName = $derived(shell ? (shell.split('/').pop() || shell) : '');
 
   // Truncate cwd to show last parts if too long
-  $: displayCwd = truncatePath(cwd, 25);
+  let displayCwd = $derived(truncatePath(cwd, 25));
 
   // Show process badge only for non-shell processes
   const SHELL_NAMES = new Set(['sh', 'bash', 'zsh', 'fish', 'dash', 'ksh', 'csh', 'tcsh', 'ash', 'nu', 'pwsh', 'login']);
-  $: processBadge = foregroundProcess && !SHELL_NAMES.has(foregroundProcess) ? foregroundProcess : null;
+  let processBadge = $derived(foregroundProcess && !SHELL_NAMES.has(foregroundProcess) ? foregroundProcess : null);
 
   function truncatePath(path: string, maxLength: number): string {
     if (!path) return '';
@@ -53,7 +74,7 @@
 
   function handleClick() {
     if (!isEditing) {
-      dispatch('select', id);
+      onselect?.(id);
     }
   }
 
@@ -66,10 +87,10 @@
 
   function handleRename() {
     if (editValue.trim() && editValue !== name) {
-      dispatch('rename', { id, newName: editValue.trim() });
+      onrename?.({ id, newName: editValue.trim() });
     }
     isEditing = false;
-    dispatch('editend', id);
+    oneditend?.(id);
   }
 
   function handleKeydown(event: KeyboardEvent) {
@@ -78,18 +99,18 @@
     } else if (event.key === 'Escape') {
       isEditing = false;
       editValue = name;
-      dispatch('editend', id);
+      oneditend?.(id);
     }
   }
 
   function handleClose(event: MouseEvent) {
     event.stopPropagation();
-    dispatch('close', id);
+    onclose?.(id);
   }
 
   function handleContextMenu(event: MouseEvent) {
     event.preventDefault();
-    dispatch('contextmenu', { id, x: event.clientX, y: event.clientY });
+    oncontextmenuprop?.({ id, x: event.clientX, y: event.clientY });
   }
 
   // Drag and drop handlers
@@ -121,16 +142,16 @@
   class:hovered={isHovered}
   class:dragging={isDragging}
   draggable="true"
-  on:click={handleClick}
-  on:dblclick={handleDoubleClick}
-  on:contextmenu={handleContextMenu}
-  on:dragstart={handleDragStart}
-  on:dragend={handleDragEnd}
-  on:mouseenter={() => isHovered = true}
-  on:mouseleave={() => isHovered = false}
+  onclick={handleClick}
+  ondblclick={handleDoubleClick}
+  oncontextmenu={handleContextMenu}
+  ondragstart={handleDragStart}
+  ondragend={handleDragEnd}
+  onmouseenter={() => isHovered = true}
+  onmouseleave={() => isHovered = false}
   role="button"
   tabindex="0"
-  on:keydown={(e) => e.key === 'Enter' && handleClick()}
+  onkeydown={(e) => e.key === 'Enter' && handleClick()}
 >
   <div class="item-content">
     <div class="line-1">
@@ -140,8 +161,8 @@
           class="name-input"
           bind:value={editValue}
           bind:this={inputElement}
-          on:blur={handleRename}
-          on:keydown={handleKeydown}
+          onblur={handleRename}
+          onkeydown={handleKeydown}
         />
       {:else}
         <span class="name">{name}</span>
@@ -158,7 +179,7 @@
         </span>
       {/if}
       {#if !isEditing}
-        <button class="close-btn" class:visible={isHovered} on:click={handleClose} title="Close terminal">
+        <button class="close-btn" class:visible={isHovered} onclick={handleClose} title="Close terminal">
           ×
         </button>
       {/if}

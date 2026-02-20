@@ -3,26 +3,29 @@
  * Terminals should suspend fitting during active resize to prevent rendering glitches
  */
 
-import { writable, derived } from 'svelte/store';
-
 // Count of active resize operations (can have multiple if nested splits)
-const activeResizeCount = writable(0);
+let activeResizeCount = $state(0);
 
 /**
- * Whether any split handle is currently being dragged
+ * Reactive resize state.
+ * Access `resizeState.isResizing` in components — it will re-evaluate reactively.
  */
-export const isResizing = derived(activeResizeCount, $count => $count > 0);
+export const resizeState = {
+  get isResizing() {
+    return activeResizeCount > 0;
+  },
+};
 
 /**
  * Call when a resize drag starts
  */
 export function startResize(): void {
-  activeResizeCount.update(n => n + 1);
+  activeResizeCount++;
 }
 
 /**
  * Call when a resize drag ends
  */
 export function endResize(): void {
-  activeResizeCount.update(n => Math.max(0, n - 1));
+  activeResizeCount = Math.max(0, activeResizeCount - 1);
 }

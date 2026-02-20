@@ -1,7 +1,6 @@
 // HealthPoller.ts — Port of tray/src-tauri/src/health.rs
-// Polls the gateway /health endpoint every 5 seconds and emits updates.
+// Polls the gateway /health endpoint every 5 seconds and invokes a callback.
 
-import { EventEmitter } from 'events';
 import { DEFAULT_HEALTH } from './types.js';
 import type { GatewayHealth } from './types.js';
 
@@ -12,18 +11,24 @@ interface HealthEndpointResponse {
   version: string;
 }
 
-export class HealthPoller extends EventEmitter {
+export class HealthPoller {
   private interval: ReturnType<typeof setInterval> | null = null;
   private _latestHealth: GatewayHealth = { ...DEFAULT_HEALTH };
+  private onHealthUpdate: ((health: GatewayHealth) => void) | null = null;
 
   /** The most recent health snapshot. */
   get latestHealth(): GatewayHealth {
     return this._latestHealth;
   }
 
+  /** Set the callback invoked on every health poll. */
+  setCallback(callback: (health: GatewayHealth) => void): void {
+    this.onHealthUpdate = callback;
+  }
+
   /**
    * Start polling the gateway health endpoint every 5 seconds.
-   * Emits 'health-update' with a GatewayHealth payload on every poll.
+   * Invokes the callback with a GatewayHealth payload on every poll.
    */
   start(port: number): void {
     this.stop();
@@ -104,7 +109,7 @@ export class HealthPoller extends EventEmitter {
     }
 
     this._latestHealth = health;
-    this.emit('health-update', health);
+    this.onHealthUpdate?.(health);
     return health;
   }
 }

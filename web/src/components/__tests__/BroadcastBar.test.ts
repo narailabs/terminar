@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, fireEvent, screen } from '@testing-library/svelte';
-import { get } from 'svelte/store';
 import BroadcastBar from '../BroadcastBar.svelte';
 import {
   broadcastTargets,
@@ -9,7 +8,7 @@ import {
   clearTargets,
   setSessionManager,
   broadcastInput,
-} from '../../lib/broadcastStore';
+} from '../../lib/broadcastStore.svelte';
 
 function createMockManager() {
   return {
@@ -20,11 +19,10 @@ function createMockManager() {
 describe('BroadcastBar', () => {
   beforeEach(() => {
     clearTargets();
-    broadcastEnabled.set(true);
+    broadcastEnabled.value = true;
     setSessionManager(null);
   });
 
-  // F10b Test 4: Broadcast input bar has text input field and "Send" button
   it('renders input field and send button', () => {
     render(BroadcastBar);
 
@@ -35,7 +33,6 @@ describe('BroadcastBar', () => {
     expect(sendBtn).toBeTruthy();
   });
 
-  // F10b Test 5: Enter in broadcast input bar sends input + newline to all target sessions
   it('Enter sends input + newline to all targets', async () => {
     const mockManager = createMockManager();
     setSessionManager(mockManager as any);
@@ -85,7 +82,6 @@ describe('BroadcastBar', () => {
     expect(input.value).toBe('');
   });
 
-  // F10b Test 9: Broadcast input bar shows count of targets
   it('shows target count', () => {
     addTarget('session-1');
     addTarget('session-2');
@@ -104,7 +100,6 @@ describe('BroadcastBar', () => {
     expect(text).toBeTruthy();
   });
 
-  // F10b Test 11: Escape closes broadcast bar
   it('calls onClose callback on Escape', async () => {
     const onClose = vi.fn();
     render(BroadcastBar, { props: { onClose } });

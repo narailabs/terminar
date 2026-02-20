@@ -344,12 +344,11 @@ impl AuditLogger {
                     msg = receiver.recv() => {
                         match msg {
                             Some(event) => {
-                                if level.should_log(&event.event.level()) {
-                                    if let Ok(json) = serde_json::to_string(&event) {
+                                if level.should_log(&event.event.level())
+                                    && let Ok(json) = serde_json::to_string(&event) {
                                         let _ = writer.write_all(json.as_bytes()).await;
                                         let _ = writer.write_all(b"\n").await;
                                     }
-                                }
                             }
                             None => break, // Channel closed
                         }
@@ -359,12 +358,11 @@ impl AuditLogger {
                             Some(done) => {
                                 // Drain any pending events before flushing
                                 while let Ok(event) = receiver.try_recv() {
-                                    if level.should_log(&event.event.level()) {
-                                        if let Ok(json) = serde_json::to_string(&event) {
+                                    if level.should_log(&event.event.level())
+                                        && let Ok(json) = serde_json::to_string(&event) {
                                             let _ = writer.write_all(json.as_bytes()).await;
                                             let _ = writer.write_all(b"\n").await;
                                         }
-                                    }
                                 }
                                 let _ = writer.flush().await;
                                 let _ = done.send(());

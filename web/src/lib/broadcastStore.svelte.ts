@@ -1,20 +1,30 @@
-import { writable, get } from 'svelte/store';
 import type { SessionManager } from './SessionManager';
 
-/**
- * Whether broadcast mode is enabled (shows UI controls)
- */
-export const broadcastEnabled = writable<boolean>(false);
-
-/**
- * Set of session IDs that are broadcast targets
- */
-export const broadcastTargets = writable<Set<string>>(new Set());
+let enabled = $state(false);
+let targets = $state<Set<string>>(new Set());
 
 /**
  * Internal reference to the session manager for sending input
  */
 let sessionManager: SessionManager | null = null;
+
+/**
+ * Broadcast state - reactive getters for enabled flag and target set
+ */
+export const broadcastEnabled = {
+  get value() {
+    return enabled;
+  },
+  set value(v: boolean) {
+    enabled = v;
+  },
+};
+
+export const broadcastTargets = {
+  get value() {
+    return targets;
+  },
+};
 
 /**
  * Set the session manager instance used by broadcastInput.
@@ -28,51 +38,45 @@ export function setSessionManager(manager: SessionManager | null): void {
  * Add a session ID to the broadcast targets
  */
 export function addTarget(sessionId: string): void {
-  broadcastTargets.update(targets => {
-    const next = new Set(targets);
-    next.add(sessionId);
-    return next;
-  });
+  const next = new Set(targets);
+  next.add(sessionId);
+  targets = next;
 }
 
 /**
  * Remove a session ID from the broadcast targets
  */
 export function removeTarget(sessionId: string): void {
-  broadcastTargets.update(targets => {
-    const next = new Set(targets);
-    next.delete(sessionId);
-    return next;
-  });
+  const next = new Set(targets);
+  next.delete(sessionId);
+  targets = next;
 }
 
 /**
  * Toggle a session ID in/out of the broadcast targets
  */
 export function toggleTarget(sessionId: string): void {
-  broadcastTargets.update(targets => {
-    const next = new Set(targets);
-    if (next.has(sessionId)) {
-      next.delete(sessionId);
-    } else {
-      next.add(sessionId);
-    }
-    return next;
-  });
+  const next = new Set(targets);
+  if (next.has(sessionId)) {
+    next.delete(sessionId);
+  } else {
+    next.add(sessionId);
+  }
+  targets = next;
 }
 
 /**
  * Clear all broadcast targets
  */
 export function clearTargets(): void {
-  broadcastTargets.set(new Set());
+  targets = new Set();
 }
 
 /**
  * Check if a session ID is currently a broadcast target
  */
 export function isTarget(sessionId: string): boolean {
-  return get(broadcastTargets).has(sessionId);
+  return targets.has(sessionId);
 }
 
 /**
@@ -82,7 +86,6 @@ export function isTarget(sessionId: string): boolean {
 export function broadcastInput(data: string): void {
   if (!sessionManager) return;
 
-  const targets = get(broadcastTargets);
   for (const sessionId of targets) {
     sessionManager.sendInput(sessionId, data);
   }

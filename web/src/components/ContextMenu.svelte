@@ -1,15 +1,17 @@
 <script lang="ts">
-  import { onMount, onDestroy, createEventDispatcher } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
 
   type MenuItem =
     | { type: 'separator' }
     | { label: string; action: string | (() => void); shortcut?: string; separator?: boolean; children?: MenuItem[] };
 
-  export let x: number = 0;
-  export let y: number = 0;
-  export let items: MenuItem[] = [];
-
-  const dispatch = createEventDispatcher();
+  let { x = 0, y = 0, items = [], onselect, onclose }: {
+    x?: number;
+    y?: number;
+    items?: MenuItem[];
+    onselect?: (action: string) => void;
+    onclose?: () => void;
+  } = $props();
 
   let menuElement: HTMLDivElement;
 
@@ -19,9 +21,9 @@
     const menuItem = item as { label: string; action: string | (() => void) };
     if (typeof menuItem.action === 'function') {
       menuItem.action();
-      dispatch('close');
+      onclose?.();
     } else {
-      dispatch('select', menuItem.action);
+      onselect?.(menuItem.action);
     }
   }
 
@@ -29,13 +31,13 @@
     if (menuElement && !menuElement.contains(event.target as Node)) {
       event.stopPropagation();
       event.preventDefault();
-      dispatch('close');
+      onclose?.();
     }
   }
 
   function handleKeydown(event: KeyboardEvent) {
     if (event.key === 'Escape') {
-      dispatch('close');
+      onclose?.();
     }
   }
 
@@ -78,7 +80,7 @@
     return item as { label: string; action: string | (() => void); shortcut?: string; children?: MenuItem[] };
   }
 
-  let openSubmenuLabel: string | null = null;
+  let openSubmenuLabel: string | null = $state(null);
 
   function adjustSubmenu(el: HTMLDivElement) {
     const rect = el.getBoundingClientRect();
@@ -126,8 +128,8 @@
         {#if menuItem.children && menuItem.children.length > 0}
           <div
             class="menu-item-wrapper"
-            on:mouseenter={() => handleSubmenuEnter(menuItem.label)}
-            on:mouseleave={handleSubmenuLeave}
+            onmouseenter={() => handleSubmenuEnter(menuItem.label)}
+            onmouseleave={handleSubmenuLeave}
           >
             <button class="menu-item has-submenu">
               <span class="menu-label">{menuItem.label}</span>
@@ -141,7 +143,7 @@
                   {:else}
                     {@const subItem = asMenuItem(child)}
                     {#if subItem}
-                      <button class="menu-item" on:click={() => handleSubmenuItemClick(child)}>
+                      <button class="menu-item" onclick={() => handleSubmenuItemClick(child)}>
                         <span class="menu-label">{subItem.label}</span>
                         {#if subItem.shortcut}
                           <span class="menu-shortcut">{subItem.shortcut}</span>
@@ -154,7 +156,7 @@
             {/if}
           </div>
         {:else}
-          <button class="menu-item" on:click={() => handleClick(item)}>
+          <button class="menu-item" onclick={() => handleClick(item)}>
             <span class="menu-label">{menuItem.label}</span>
             {#if menuItem.shortcut}
               <span class="menu-shortcut">{menuItem.shortcut}</span>

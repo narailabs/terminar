@@ -1,56 +1,63 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
-
-  const dispatch = createEventDispatcher<{
-    passwordAuth: { username: string; password: string; rememberMe: boolean };
-    sshKeyAuth: { username: string; privateKeyPem: string; rememberMe: boolean };
-    tokenAuth: { token: string };
-    pairingAuth: { code: string };
-    retryLocal: void;
-  }>();
-
-  export let isLocal = false;
-  export let connectionState: string = 'disconnected';
-  export let authError: string = '';
-  export let isAuthenticating = false;
+  let {
+    isLocal = false,
+    connectionState = 'disconnected',
+    authError = '',
+    isAuthenticating = false,
+    onpasswordauth,
+    onsshkeyauth,
+    ontokenauth,
+    onpairingauth,
+    onretrylocal,
+  }: {
+    isLocal?: boolean;
+    connectionState?: string;
+    authError?: string;
+    isAuthenticating?: boolean;
+    onpasswordauth?: (detail: { username: string; password: string; rememberMe: boolean }) => void;
+    onsshkeyauth?: (detail: { username: string; privateKeyPem: string; rememberMe: boolean }) => void;
+    ontokenauth?: (detail: { token: string }) => void;
+    onpairingauth?: (detail: { code: string }) => void;
+    onretrylocal?: () => void;
+  } = $props();
 
   // Tab state
-  let activeTab: 'password' | 'sshkey' | 'token' | 'pairing' = 'password';
+  let activeTab: 'password' | 'sshkey' | 'token' | 'pairing' = $state('password');
 
   // Password form
-  let username = '';
-  let password = '';
-  let rememberMe = true;
+  let username = $state('');
+  let password = $state('');
+  let rememberMe = $state(true);
 
   // SSH Key form
-  let sshUsername = '';
-  let sshKeyPem = '';
-  let sshKeyFileName = '';
+  let sshUsername = $state('');
+  let sshKeyPem = $state('');
+  let sshKeyFileName = $state('');
 
   // Token form
-  let token = '';
+  let token = $state('');
 
   // Pairing form
-  let pairingCode = '';
+  let pairingCode = $state('');
 
   function handlePasswordSubmit() {
     if (!username || !password) return;
-    dispatch('passwordAuth', { username, password, rememberMe });
+    onpasswordauth?.({ username, password, rememberMe });
   }
 
   function handleSshKeySubmit() {
     if (!sshUsername || !sshKeyPem) return;
-    dispatch('sshKeyAuth', { username: sshUsername, privateKeyPem: sshKeyPem, rememberMe });
+    onsshkeyauth?.({ username: sshUsername, privateKeyPem: sshKeyPem, rememberMe });
   }
 
   function handleTokenSubmit() {
     if (!token) return;
-    dispatch('tokenAuth', { token });
+    ontokenauth?.({ token });
   }
 
   function handlePairingSubmit() {
     if (!pairingCode || pairingCode.length < 6) return;
-    dispatch('pairingAuth', { code: pairingCode });
+    onpairingauth?.({ code: pairingCode });
   }
 
   function handleKeydown(event: KeyboardEvent) {
@@ -83,23 +90,23 @@
     </div>
   {:else if isLocal && connectionState === 'disconnected'}
     <p class="error-text">Failed to connect to local server.</p>
-    <button on:click={() => dispatch('retryLocal')} class="btn">
+    <button onclick={() => onretrylocal?.()} class="btn">
       Retry Connection
     </button>
   {:else if !isLocal}
     <div class="tabs">
       <button
         class="tab" class:active={activeTab === 'password'}
-        on:click={() => activeTab = 'password'}>Password</button>
+        onclick={() => activeTab = 'password'}>Password</button>
       <button
         class="tab" class:active={activeTab === 'sshkey'}
-        on:click={() => activeTab = 'sshkey'}>SSH Key</button>
+        onclick={() => activeTab = 'sshkey'}>SSH Key</button>
       <button
         class="tab" class:active={activeTab === 'token'}
-        on:click={() => activeTab = 'token'}>Token</button>
+        onclick={() => activeTab = 'token'}>Token</button>
       <button
         class="tab" class:active={activeTab === 'pairing'}
-        on:click={() => activeTab = 'pairing'}>Pairing Code</button>
+        onclick={() => activeTab = 'pairing'}>Pairing Code</button>
     </div>
 
     <div class="tab-content">
@@ -111,7 +118,7 @@
             type="text"
             placeholder="OS username"
             bind:value={username}
-            on:keydown={handleKeydown}
+            onkeydown={handleKeydown}
             class="input"
             disabled={isAuthenticating}
           />
@@ -123,7 +130,7 @@
             type="password"
             placeholder="Password"
             bind:value={password}
-            on:keydown={handleKeydown}
+            onkeydown={handleKeydown}
             class="input"
             disabled={isAuthenticating}
           />
@@ -132,7 +139,7 @@
           <input type="checkbox" bind:checked={rememberMe} />
           <span>Remember me</span>
         </label>
-        <button on:click={handlePasswordSubmit} class="btn" disabled={isAuthenticating || !username || !password}>
+        <button onclick={handlePasswordSubmit} class="btn" disabled={isAuthenticating || !username || !password}>
           {isAuthenticating ? 'Authenticating...' : 'Sign In'}
         </button>
 
@@ -144,7 +151,7 @@
             type="text"
             placeholder="OS username"
             bind:value={sshUsername}
-            on:keydown={handleKeydown}
+            onkeydown={handleKeydown}
             class="input"
             disabled={isAuthenticating}
           />
@@ -154,7 +161,7 @@
           <div class="file-upload">
             <label class="btn-secondary file-label">
               {sshKeyFileName || 'Choose key file...'}
-              <input type="file" accept=".pem,.key,id_*" on:change={handleFileUpload} style="display:none" />
+              <input type="file" accept=".pem,.key,id_*" onchange={handleFileUpload} style="display:none" />
             </label>
           </div>
           <span class="hint">Or paste your private key below:</span>
@@ -170,7 +177,7 @@
           <input type="checkbox" bind:checked={rememberMe} />
           <span>Remember me</span>
         </label>
-        <button on:click={handleSshKeySubmit} class="btn" disabled={isAuthenticating || !sshUsername || !sshKeyPem}>
+        <button onclick={handleSshKeySubmit} class="btn" disabled={isAuthenticating || !sshUsername || !sshKeyPem}>
           {isAuthenticating ? 'Authenticating...' : 'Sign In with SSH Key'}
         </button>
 
@@ -180,11 +187,11 @@
           type="text"
           placeholder="UUID Token or JWT"
           bind:value={token}
-          on:keydown={handleKeydown}
+          onkeydown={handleKeydown}
           class="input"
           disabled={isAuthenticating}
         />
-        <button on:click={handleTokenSubmit} class="btn" disabled={isAuthenticating || !token}>
+        <button onclick={handleTokenSubmit} class="btn" disabled={isAuthenticating || !token}>
           {isAuthenticating ? 'Connecting...' : 'Connect'}
         </button>
 
@@ -194,12 +201,12 @@
           type="text"
           placeholder="Enter 8-digit code"
           bind:value={pairingCode}
-          on:keydown={handleKeydown}
+          onkeydown={handleKeydown}
           maxlength="8"
           class="input pairing-input"
           disabled={isAuthenticating}
         />
-        <button on:click={handlePairingSubmit} class="btn" disabled={isAuthenticating || pairingCode.length < 6}>
+        <button onclick={handlePairingSubmit} class="btn" disabled={isAuthenticating || pairingCode.length < 6}>
           {isAuthenticating ? 'Verifying...' : 'Submit'}
         </button>
         <div class="pairing-instructions">

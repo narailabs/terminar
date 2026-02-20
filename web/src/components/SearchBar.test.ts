@@ -33,8 +33,7 @@ describe('SearchBar', () => {
 
     const searchHandler = vi.fn();
     const { container } = render(SearchBar, {
-      props: { isOpen: true, caseSensitive: false, useRegex: false },
-      events: { search: searchHandler },
+      props: { isOpen: true, caseSensitive: false, useRegex: false, onsearch: searchHandler },
     });
 
     const input = container.querySelector('.search-input') as HTMLInputElement;
@@ -55,11 +54,9 @@ describe('SearchBar', () => {
     expect(searchHandler).toHaveBeenCalledTimes(1);
     expect(searchHandler).toHaveBeenCalledWith(
       expect.objectContaining({
-        detail: expect.objectContaining({
-          query: expect.any(String),
-          caseSensitive: false,
-          useRegex: false,
-        }),
+        query: expect.any(String),
+        caseSensitive: false,
+        useRegex: false,
       })
     );
   });
@@ -69,8 +66,7 @@ describe('SearchBar', () => {
   it('dispatches next event on Enter key', async () => {
     const nextHandler = vi.fn();
     const { container } = render(SearchBar, {
-      props: { isOpen: true },
-      events: { next: nextHandler },
+      props: { isOpen: true, onnext: nextHandler },
     });
 
     const input = container.querySelector('.search-input') as HTMLInputElement;
@@ -84,8 +80,7 @@ describe('SearchBar', () => {
   it('dispatches previous event on Shift+Enter', async () => {
     const previousHandler = vi.fn();
     const { container } = render(SearchBar, {
-      props: { isOpen: true },
-      events: { previous: previousHandler },
+      props: { isOpen: true, onprevious: previousHandler },
     });
 
     const input = container.querySelector('.search-input') as HTMLInputElement;
@@ -99,8 +94,7 @@ describe('SearchBar', () => {
   it('dispatches close event on Escape key', async () => {
     const closeHandler = vi.fn();
     const { container } = render(SearchBar, {
-      props: { isOpen: true },
-      events: { close: closeHandler },
+      props: { isOpen: true, onclose: closeHandler },
     });
 
     const input = container.querySelector('.search-input') as HTMLInputElement;
@@ -114,8 +108,7 @@ describe('SearchBar', () => {
   it('dispatches toggleCaseSensitive event when Aa button is clicked', async () => {
     const toggleHandler = vi.fn();
     const { container } = render(SearchBar, {
-      props: { isOpen: true },
-      events: { toggleCaseSensitive: toggleHandler },
+      props: { isOpen: true, ontogglecasesensitive: toggleHandler },
     });
 
     const aaButton = container.querySelector(
@@ -132,8 +125,7 @@ describe('SearchBar', () => {
   it('dispatches toggleRegex event when .* button is clicked', async () => {
     const toggleHandler = vi.fn();
     const { container } = render(SearchBar, {
-      props: { isOpen: true },
-      events: { toggleRegex: toggleHandler },
+      props: { isOpen: true, ontoggleregex: toggleHandler },
     });
 
     const regexButton = container.querySelector(
@@ -199,8 +191,7 @@ describe('SearchBar', () => {
   it('dispatches close event when close button is clicked', async () => {
     const closeHandler = vi.fn();
     const { container } = render(SearchBar, {
-      props: { isOpen: true },
-      events: { close: closeHandler },
+      props: { isOpen: true, onclose: closeHandler },
     });
 
     const closeButton = container.querySelector(
