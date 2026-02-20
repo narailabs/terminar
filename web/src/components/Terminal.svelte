@@ -1,12 +1,12 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { writable } from 'svelte/store';
-  import { Terminal } from 'xterm';
-  import { FitAddon } from 'xterm-addon-fit';
+  import { Terminal } from '@xterm/xterm';
+  import { FitAddon } from '@xterm/addon-fit';
   import { WebglAddon } from '@xterm/addon-webgl';
-  import { Unicode11Addon } from 'xterm-addon-unicode11';
-  import { SearchAddon } from 'xterm-addon-search';
-  import 'xterm/css/xterm.css';
+  import { Unicode11Addon } from '@xterm/addon-unicode11';
+  import { SearchAddon } from '@xterm/addon-search';
+  import '@xterm/xterm/css/xterm.css';
   import type { SessionManager } from '../lib/SessionManager';
   import { xtermOptions, settingsStore } from '../lib/settingsStore';
   import { themeState, getTerminalTheme } from '../lib/themeStore';
@@ -233,14 +233,12 @@
     viewportElement.addEventListener('scroll', () => {
       // Skip when we caused the scroll via our own scrollToBottom() in the write
       // callback. Those calls set scrolledByUs synchronously around the call, so
-      // the flag is only true for exactly those scroll events. This avoids the
-      // expensive isAtBottom() DOM measurement (which forces a synchronous layout
-      // reflow) on every write-chunk during heavy output — the primary cause of
-      // UI freezes. User scrolls (wheel, drag, touch) are unaffected.
+      // the flag is only true for exactly those scroll events.
       if (scrolledByUs) return;
-      if (isAtBottom()) {
+      const atBottom = isAtBottom();
+      if (atBottom && !$autoScroll) {
         autoScroll.set(true);
-      } else {
+      } else if (!atBottom && $autoScroll) {
         autoScroll.set(false);
       }
     }, { passive: true });
@@ -306,6 +304,14 @@
           term.scrollToBottom();
           scrolledByUs = false;
           lastScrollToBottomTime = now;
+          // Force a full repaint after each output burst completes.
+          // This ensures xterm's DOM rows are up-to-date even if the internal
+          // render loop missed a frame during heavy output. Without this,
+          // the terminal can appear frozen (stale rows) while all metrics
+          // show healthy — the data is in the buffer but not painted.
+          requestAnimationFrame(() => {
+            if (term) term.refresh(0, term.rows - 1);
+          });
         } else if (now - lastScrollToBottomTime >= SCROLL_THROTTLE_MS) {
           // Intermediate chunk but throttle interval elapsed — scroll for visual feedback
           scrolledByUs = true;
@@ -688,6 +694,30 @@
 
     // Setup auto-scroll tracking (needs viewport DOM element from term.open)
     initAutoScroll();
+
+    // Handle alternate buffer → normal buffer switches (TUI app exit).
+    // When a full-screen TUI (vim, Claude Code /config, etc.) exits, xterm.js
+    // switches from alternate buffer back to normal buffer and restores the
+    // viewport to its pre-TUI scroll position. This fires a scroll event that
+    // our scroll listener would interpret as "user scrolled up", permanently
+    // disabling autoScroll. Fix: suppress the scroll listener during the switch
+    // and force scroll-to-bottom so the user sees the prompt after TUI exit.
+    if (term.buffer.onBufferChange) {
+      term.buffer.onBufferChange(() => {
+        if (term.buffer.active.type === 'normal') {
+          autoScroll.set(true);
+          // Defer scrollToBottom to next frame to ensure xterm has finished
+          // all viewport updates from the buffer switch
+          requestAnimationFrame(() => {
+            if (term) {
+              scrolledByUs = true;
+              term.scrollToBottom();
+              scrolledByUs = false;
+            }
+          });
+        }
+      });
+    }
 
     // Load WebGL addon for GPU-accelerated rendering
     // This dramatically improves performance for wide terminals

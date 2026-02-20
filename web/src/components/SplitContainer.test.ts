@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, cleanup } from '@testing-library/svelte';
 
 // Mock xterm and addons (Pane -> Terminal -> xterm dependency chain)
-vi.mock('xterm', () => ({
+vi.mock('@xterm/xterm', () => ({
   Terminal: vi.fn().mockImplementation(function() {
     return {
       open: vi.fn(),
@@ -39,16 +39,16 @@ vi.mock('xterm', () => ({
   }),
 }));
 
-vi.mock('xterm-addon-fit', () => ({
+vi.mock('@xterm/addon-fit', () => ({
   FitAddon: vi.fn().mockImplementation(function() {
     return { fit: vi.fn(), proposeDimensions: vi.fn().mockReturnValue({ cols: 80, rows: 24 }) };
   }),
 }));
 
 vi.mock('@xterm/addon-webgl', () => ({ WebglAddon: vi.fn() }));
-vi.mock('xterm-addon-unicode11', () => ({ Unicode11Addon: vi.fn() }));
+vi.mock('@xterm/addon-unicode11', () => ({ Unicode11Addon: vi.fn() }));
 
-vi.mock('xterm-addon-search', () => ({
+vi.mock('@xterm/addon-search', () => ({
   SearchAddon: vi.fn().mockImplementation(function() {
     return {
       dispose: vi.fn(),

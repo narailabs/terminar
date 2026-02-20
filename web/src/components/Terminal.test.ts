@@ -86,11 +86,11 @@ const { TerminalMock, FitAddonMock, mockTerm, mockFit } = vi.hoisted(() => {
   };
 });
 
-vi.mock('xterm', () => ({ Terminal: TerminalMock }));
-vi.mock('xterm-addon-fit', () => ({ FitAddon: FitAddonMock }));
+vi.mock('@xterm/xterm', () => ({ Terminal: TerminalMock }));
+vi.mock('@xterm/addon-fit', () => ({ FitAddon: FitAddonMock }));
 vi.mock('@xterm/addon-webgl', () => ({ WebglAddon: vi.fn() }));
-vi.mock('xterm-addon-unicode11', () => ({ Unicode11Addon: vi.fn() }));
-vi.mock('xterm-addon-search', () => ({
+vi.mock('@xterm/addon-unicode11', () => ({ Unicode11Addon: vi.fn() }));
+vi.mock('@xterm/addon-search', () => ({
   SearchAddon: vi.fn().mockImplementation(function() {
     return {
       dispose: vi.fn(),
