@@ -67,6 +67,19 @@ function createWorkspaceStore() {
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
   let saveCallback: ((workspace: Workspace) => Promise<void>) | null = null;
 
+  /** Clone only the path from root to the target split, leaving the rest shared. */
+  function cloneWithNewRatios(node: SplitNode, splitId: string, ratios: number[]): SplitNode {
+    if (node.type === 'pane') return node;
+    if (node.id === splitId) return { ...node, ratios: [...ratios] };
+    let changed = false;
+    const newChildren = node.children.map((child) => {
+      const newChild = cloneWithNewRatios(child, splitId, ratios);
+      if (newChild !== child) changed = true;
+      return newChild;
+    });
+    return changed ? { ...node, children: newChildren } : node;
+  }
+
   function scheduleSave(workspace: Workspace) {
     saveToCache(workspace);
 
@@ -456,30 +469,22 @@ function createWorkspaceStore() {
     },
 
     /**
-     * Update split ratios
+     * Update split ratios (immutable — clones the path to the changed split
+     * so Svelte 5's fine-grained reactivity sees new object references).
      */
     updateRatios(splitId: string, ratios: number[]) {
       update((ws) => {
-        const tab = ws.tabs.find((t) => t.id === ws.activeTabId);
-        if (!tab) return ws;
-
-        function findSplit(node: SplitNode): SplitContainer | null {
-          if (node.type === 'split') {
-            if (node.id === splitId) return node;
-            for (const child of node.children) {
-              const found = findSplit(child);
-              if (found) return found;
-            }
-          }
-          return null;
-        }
-
-        const split = findSplit(tab.root);
-        if (split) {
-          split.ratios = ratios;
-          scheduleSave(ws);
-        }
-        return ws;
+        const tabIdx = ws.tabs.findIndex((t) => t.id === ws.activeTabId);
+        if (tabIdx < 0) return ws;
+        const tab = ws.tabs[tabIdx];
+        const newRoot = cloneWithNewRatios(tab.root, splitId, ratios);
+        if (newRoot === tab.root) return ws; // splitId not found
+        const newTab = { ...tab, root: newRoot };
+        const newTabs = [...ws.tabs];
+        newTabs[tabIdx] = newTab;
+        const newWs = { ...ws, tabs: newTabs };
+        scheduleSave(newWs);
+        return newWs;
       });
     },
 

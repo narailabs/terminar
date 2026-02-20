@@ -15,39 +15,22 @@
   import { getKeyBindingRegistry } from '../lib/keybindings';
   import { createActionDispatcher } from '../lib/actionDispatcher';
   import { createKeyEventHandler } from '../lib/keyEventHandler';
-  import { getManagerContext, getSessionsContext, getActionsContext } from '../lib/sessionContext.svelte';
+  import { getManagerContext, getSessionsContext, getActionsContext, getPaneActionsContext } from '../lib/sessionContext.svelte';
 
   let {
     paneId,
     sessionId,
     isActive = false,
-    ondrop,
-    onpaneDrop,
-    oncontextmenu,
-    onfocus,
-    ondetach,
-    onkill,
-    onActionPaneClose,
-    onActionSplitHorizontal,
-    onActionSplitVertical,
   }: {
     paneId: string;
     sessionId: SessionId | null;
     isActive?: boolean;
-    ondrop?: (detail: { paneId: string; sessionId: SessionId; dropZone: DropZone }) => void;
-    onpaneDrop?: (detail: { sourcePaneId: string; targetPaneId: string; dropZone: DropZone }) => void;
-    oncontextmenu?: (detail: { paneId: string; x: number; y: number }) => void;
-    onfocus?: (detail: { paneId: string }) => void;
-    ondetach?: (detail: { paneId: string }) => void;
-    onkill?: (detail: { paneId: string; sessionId: SessionId }) => void;
-    onActionPaneClose?: (detail: { paneId: string }) => void;
-    onActionSplitHorizontal?: (detail: { paneId: string }) => void;
-    onActionSplitVertical?: (detail: { paneId: string }) => void;
   } = $props();
 
   const managerBox = getManagerContext();
   const sessionsBox = getSessionsContext();
   const actions = getActionsContext();
+  const paneActions = getPaneActionsContext();
   let manager = $derived(managerBox.value);
 
   let showTitleBar = $state(true);
@@ -177,9 +160,9 @@
     },
     onSessionNew: () => actions.createNewTerminal(),
     onSidebarToggle: () => actions.toggleSidebar(),
-    onPaneClose: () => onActionPaneClose?.({ paneId }),
-    onSplitHorizontal: () => onActionSplitHorizontal?.({ paneId }),
-    onSplitVertical: () => onActionSplitVertical?.({ paneId }),
+    onPaneClose: () => paneActions.closePaneAction(paneId),
+    onSplitHorizontal: () => paneActions.splitHorizontal(paneId),
+    onSplitVertical: () => paneActions.splitVertical(paneId),
   });
 
   // Create key event handler using the keybinding registry
@@ -208,13 +191,13 @@
 
   function handleDetach() {
     showClosePopup = false;
-    ondetach?.({ paneId });
+    paneActions.detach(paneId);
   }
 
   function handleKill() {
     if (sessionId) {
       showClosePopup = false;
-      onkill?.({ paneId, sessionId });
+      paneActions.kill(paneId, sessionId);
     }
   }
 
@@ -329,7 +312,7 @@
     // Check for pane drag first
     const sourcePaneId = event.dataTransfer?.getData('application/x-terminar-pane');
     if (sourcePaneId) {
-      onpaneDrop?.({ sourcePaneId, targetPaneId: paneId, dropZone });
+      paneActions.paneDrop(sourcePaneId, paneId, dropZone);
       dropZone = null;
       return;
     }
@@ -337,18 +320,18 @@
     // Existing session drag behavior
     const dragSessionId = event.dataTransfer?.getData('text/plain');
     if (dragSessionId) {
-      ondrop?.({ paneId, sessionId: dragSessionId, dropZone });
+      paneActions.drop(paneId, dragSessionId, dropZone);
     }
     dropZone = null;
   }
 
   function handleContextMenu(event: MouseEvent) {
     event.preventDefault();
-    oncontextmenu?.({ paneId, x: event.clientX, y: event.clientY });
+    paneActions.contextMenu(paneId, event.clientX, event.clientY);
   }
 
   function handleClick() {
-    onfocus?.({ paneId });
+    paneActions.focus(paneId);
   }
 </script>
 

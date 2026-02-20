@@ -2,7 +2,7 @@
   /**
    * Test wrapper that sets up Svelte context for WorkspaceView tests.
    */
-  import { reactiveBox, setManagerContext, setSessionsContext, setActionsContext, type SessionInfo } from '../lib/sessionContext.svelte';
+  import { reactiveBox, setManagerContext, setSessionsContext, setActionsContext, setPaneActionsContext, type SessionInfo } from '../lib/sessionContext.svelte';
   import type { SessionManager } from '../lib/SessionManager';
   import WorkspaceView from './WorkspaceView.svelte';
 
@@ -25,6 +25,18 @@
     closeTerminal() {},
     renameTerminal() {},
     toggleSidebar() {},
+  });
+  setPaneActionsContext({
+    drop() {},
+    paneDrop() {},
+    contextMenu() {},
+    focus() {},
+    detach() {},
+    kill() {},
+    closePaneAction() {},
+    splitHorizontal() {},
+    splitVertical() {},
+    commitResize() {},
   });
 
   $effect(() => {
