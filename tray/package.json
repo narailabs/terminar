@@ -18,10 +18,10 @@
     "@sveltejs/vite-plugin-svelte": "^5",
     "electron": "^33",
     "electron-builder": "^25",
-    "svelte": "^5",
+    "svelte": "^5.53.0",
     "typescript": "^5.7",
     "vite": "^6",
-    "vite-plugin-electron": "^0.28",
+    "vite-plugin-electron": "^0.29.0",
     "vite-plugin-electron-renderer": "^0.14",
     "vitest": "^4.0.18"
   }
