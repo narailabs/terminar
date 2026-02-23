@@ -40,6 +40,7 @@ credentials.json
 
 # Log files
 *.log
+*.jsonl
 
 # Runtime data
 *.sock
