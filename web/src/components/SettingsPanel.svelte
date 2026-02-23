@@ -65,6 +65,11 @@
     settingsStore.updateSetting('showPaneTitleBars', target.checked);
   }
 
+  function handleDimInactivePanesChange(event: Event) {
+    const target = event.target as HTMLInputElement;
+    settingsStore.updateSetting('dimInactivePanes', target.checked);
+  }
+
   function handleAutoScrollChange(event: Event) {
     const target = event.target as HTMLInputElement;
     settingsStore.updateSetting('autoScroll', target.checked);
@@ -361,6 +366,20 @@
               id="showPaneTitleBars"
               checked={settings.showPaneTitleBars}
               onchange={handlePaneTitleBarsChange}
+            />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <!-- Dim Inactive Panes -->
+        <div class="setting-group toggle-group">
+          <label for="dimInactivePanes">Dim Inactive Panes</label>
+          <label class="toggle">
+            <input
+              type="checkbox"
+              id="dimInactivePanes"
+              checked={settings.dimInactivePanes}
+              onchange={handleDimInactivePanesChange}
             />
             <span class="slider"></span>
           </label>
