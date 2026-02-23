@@ -1034,7 +1034,7 @@
   .terminal-margins {
     width: 100%;
     height: 100%;
-    padding: 0 0 0 6px;
+    padding: 4px 0 0 6px;
     box-sizing: border-box;
   }
 
