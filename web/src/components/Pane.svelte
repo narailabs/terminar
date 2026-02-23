@@ -10,6 +10,7 @@
   import { searchStore } from '../lib/searchStore.svelte';
   import { broadcastTargets, broadcastEnabled } from '../lib/broadcastStore.svelte';
   import { exitedSessions } from '../lib/exitedSessionsStore.svelte';
+  import { focusedPane } from '../lib/focusStore.svelte';
   import { foregroundStore } from '../lib/foregroundStore.svelte';
   import { titleStore } from '../lib/titleStore.svelte';
   import { getKeyBindingRegistry } from '../lib/keybindings';
@@ -43,6 +44,9 @@
     const sh = currentSession?.shell ?? '';
     return sh.split('/').pop() || sh;
   })());
+
+  // Focus (zoom) state
+  let isFocused = $derived(focusedPane.id === paneId);
 
   // Broadcast target indicator
   let isBroadcastTarget = $derived(broadcastEnabled.value && sessionId !== null && broadcastTargets.value.has(sessionId));
@@ -91,8 +95,11 @@
   let searchUseRegex = $derived(searchStore.state.useRegex);
   let searchQuery = $derived(isSearchTarget ? searchStore.state.query : '');
 
+  let dimInactivePanes = $state(0.4);
+
   const unsubSettings = settingsStore.subscribe((s) => {
     showTitleBar = s.showPaneTitleBars;
+    dimInactivePanes = s.dimInactivePanes;
   });
 
   onDestroy(() => {
@@ -163,6 +170,7 @@
     onPaneClose: () => paneActions.closePaneAction(paneId),
     onSplitHorizontal: () => paneActions.splitHorizontal(paneId),
     onSplitVertical: () => paneActions.splitVertical(paneId),
+    onPaneFocus: () => paneActions.toggleFocus(paneId),
   });
 
   // Create key event handler using the keybinding registry
@@ -186,6 +194,10 @@
 
   function toggleClosePopup(event: MouseEvent) {
     event.stopPropagation();
+    if (isFocused) {
+      focusedPane.id = null;
+      return;
+    }
     showClosePopup = !showClosePopup;
   }
 
@@ -242,9 +254,24 @@
     terminalRef?.refreshTerminal();
   }
 
+  function refit() {
+    terminalRef?.refit();
+  }
+
   // Register this pane so WorkspaceView can access its methods by paneId
   $effect(() => {
-    registerPane(paneId, { getSelection, pasteText, selectAll, refreshTerminal });
+    registerPane(paneId, { getSelection, pasteText, selectAll, refreshTerminal, refit });
+  });
+
+  // Refit terminal when focus mode toggles. The CSS position: fixed → static
+  // transition causes a layout change that races with xterm's rendering.
+  // refit() uses double-rAF + suppressResize to measure after layout settles.
+  let prevFocused = false;
+  $effect(() => {
+    if (isFocused !== prevFocused) {
+      prevFocused = isFocused;
+      terminalRef?.refit();
+    }
   });
 
   let dropZone = $state<DropZone | null>(null);
@@ -340,6 +367,7 @@
 <div
   class="pane"
   class:active={isActive}
+  class:focused={isFocused}
   class:exited={sessionExited}
   class:broadcast-target={isBroadcastTarget}
   class:drag-over={isDragOver}
@@ -377,6 +405,21 @@
           <line x1="11" y1="11" x2="14" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
         </svg>
       </button>
+      {#if !isFocused}
+        <button
+          class="title-bar-icon-btn"
+          onclick={() => paneActions.toggleFocus(paneId)}
+          title="Focus Pane (Cmd+Shift+F)"
+          aria-label="Focus pane"
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+            <polyline points="10,2 14,2 14,6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <polyline points="6,14 2,14 2,10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <polyline points="2,6 2,2 6,2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <polyline points="14,10 14,14 10,14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      {/if}
       <button
         class="close-btn"
         bind:this={closeButtonRef}
@@ -399,7 +442,11 @@
     </div>
   {/if}
 
-  <div class="pane-content">
+  <div
+    class="pane-content"
+    style:opacity={!isActive && dimInactivePanes < 1 ? dimInactivePanes : undefined}
+    style:transition={dimInactivePanes < 1 ? 'opacity 0.15s' : undefined}
+  >
     {#if sessionId && managerBox.value && currentSession}
       <SearchBar
         isOpen={searchIsOpen}
@@ -704,5 +751,29 @@
     left: 4px;
     right: 4px;
     height: calc(50% - 8px);
+  }
+
+  .pane.focused {
+    position: fixed;
+    top: 10%;
+    left: 10%;
+    width: 80%;
+    height: 80%;
+    z-index: 50;
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+    opacity: 1 !important;
+    animation: focus-open 0.2s ease-out both;
+  }
+
+  @keyframes focus-open {
+    from {
+      opacity: 0;
+      transform: scale(0.92);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
   }
 </style>

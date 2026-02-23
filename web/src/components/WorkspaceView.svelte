@@ -11,6 +11,8 @@
   import { activityStore } from '../lib/activityStore.svelte';
   import { exitedSessions } from '../lib/exitedSessionsStore.svelte';
 
+  import { fade } from 'svelte/transition';
+  import { focusedPane } from '../lib/focusStore.svelte';
   import { getManagerContext, getSessionsContext, getActionsContext, setPaneActionsContext } from '../lib/sessionContext.svelte';
   import type { SessionManager } from '../lib/SessionManager';
 
@@ -125,10 +127,11 @@
       }
       workspaceStore.closePane(paneId);
     },
-    closePaneAction(paneId) { workspaceStore.closePane(paneId); },
-    splitHorizontal(paneId) { workspaceStore.splitPane(paneId, 'horizontal'); },
-    splitVertical(paneId) { workspaceStore.splitPane(paneId, 'vertical'); },
+    closePaneAction(paneId) { focusedPane.id = null; workspaceStore.closePane(paneId); },
+    splitHorizontal(paneId) { focusedPane.id = null; workspaceStore.splitPane(paneId, 'horizontal'); },
+    splitVertical(paneId) { focusedPane.id = null; workspaceStore.splitPane(paneId, 'vertical'); },
     commitResize(splitId, ratios) { workspaceStore.updateRatios(splitId, ratios); },
+    toggleFocus(paneId) { focusedPane.id = focusedPane.id === paneId ? null : paneId; },
   });
 
   // Context menu actions
@@ -225,6 +228,13 @@
     }
   }
 
+  function handleFocusPane() {
+    if (contextMenu) {
+      focusedPane.id = contextMenu.paneId;
+      contextMenu = null;
+    }
+  }
+
   function handleRename() {
     if (contextMenu) {
       const tab = $workspaceStore.tabs.find(t => t.id === $workspaceStore.activeTabId);
@@ -257,6 +267,12 @@
 
   // Keyboard shortcuts
   function handleKeydown(event: KeyboardEvent) {
+    // Escape dismisses focus overlay
+    if (event.key === 'Escape' && focusedPane.id) {
+      event.preventDefault();
+      focusedPane.id = null;
+      return;
+    }
     // Cmd/Ctrl + Shift + E = Split horizontal
     if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key === 'e') {
       event.preventDefault();
@@ -301,6 +317,7 @@
     { label: 'Select All', action: handleSelectAll, shortcut: 'Cmd+A' },
     { type: 'separator' as const },
     { label: 'Refresh', action: handleRefresh },
+    { label: 'Focus Pane', action: handleFocusPane, shortcut: 'Cmd+Shift+F' },
     { label: 'Rename', action: handleRename },
     { type: 'separator' as const },
     { label: 'Split', action: () => {}, children: [
@@ -355,6 +372,10 @@
         <button onclick={handleTabCreate}>Create Tab</button>
       </div>
     {/if}
+
+    {#if focusedPane.id}
+      <div class="focus-backdrop" transition:fade={{ duration: 200 }} onclick={() => focusedPane.id = null} role="presentation"></div>
+    {/if}
   </div>
 
   {#if contextMenu}
@@ -379,6 +400,14 @@
   .workspace-content {
     flex: 1;
     overflow: hidden;
+    position: relative;
+  }
+
+  .focus-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 49;
   }
 
   .no-tab {

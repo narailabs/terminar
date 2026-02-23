@@ -124,6 +124,34 @@
    * Register a custom key event handler on the terminal.
    * Returns false from the handler to prevent the key from being sent to the terminal.
    */
+  /** Force an immediate refit of the terminal to its container dimensions.
+   *  Bypasses all debouncing and output-activity guards. Use for layout
+   *  changes (e.g., focus/unfocus overlay) where the container size changes
+   *  instantly and the terminal must catch up. */
+  export function refit(): void {
+    if (!term || !fitAddon) return;
+    suppressResize = true; // Block ResizeObserver callbacks during layout transition
+    // Double rAF ensures the browser has applied any CSS layout changes
+    // (e.g., position: fixed → static) before we measure.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (!term || !fitAddon) { suppressResize = false; return; }
+        try {
+          fitAddon.fit();
+          lastCols = term.cols;
+          lastRows = term.rows;
+          if (manager && activeSessionId) {
+            manager.resize(activeSessionId, lastCols, lastRows);
+          }
+          term.refresh(0, term.rows - 1);
+        } catch {
+          // Container may not have dimensions yet
+        }
+        suppressResize = false;
+      });
+    });
+  }
+
   export function registerCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean): void {
     if (term) {
       term.attachCustomKeyEventHandler(handler);
@@ -489,12 +517,28 @@
   // render and clip it via CSS (overflow: hidden on .xterm), which is visually
   // seamless -- the partial row is simply not visible.
 
-  // Guard to prevent fitAddon.fit() from re-triggering ResizeObserver loop
+  // When refit() is handling a layout change (e.g., focus/unfocus overlay),
+  // suppress ResizeObserver callbacks to avoid racing with xterm's rendering.
+  // refit() uses double-rAF to wait for CSS layout to settle before measuring.
+  let suppressResize = false;
+
+  // Guard to prevent fitAddon.fit() from re-triggering ResizeObserver loop.
+  // When a resize arrives while one is in-flight, we queue it instead of
+  // dropping it — this prevents frozen/garbled displays when the container
+  // changes size rapidly (e.g., focus/unfocus overlay toggling position: fixed).
   let isApplyingResize = false;
+  let pendingResizeArgs: { cols: number; rows: number } | null = null;
 
   // Apply resize to terminal and PTY
   function applyResize(cols: number, rows: number) {
-    if (!term || isApplyingResize) return;
+    if (!term) return;
+
+    if (isApplyingResize) {
+      // Queue instead of dropping — the queued resize fires after the
+      // current one completes (see the setTimeout below).
+      pendingResizeArgs = { cols, rows };
+      return;
+    }
 
     isApplyingResize = true;
 
@@ -532,7 +576,16 @@
         term.scrollToBottom();
         scrolledByUs = false;
       }
+      // Force a full repaint so the screen isn't stale after reflow
+      if (term) term.refresh(0, term.rows - 1);
       isApplyingResize = false;
+
+      // Drain queued resize (e.g., unfocus arrived while focus resize was in-flight)
+      if (pendingResizeArgs) {
+        const queued = pendingResizeArgs;
+        pendingResizeArgs = null;
+        applyResize(queued.cols, queued.rows);
+      }
     }, 100);
   }
 
@@ -862,6 +915,10 @@
 
     // Handle container resize
     function handleResize() {
+      // refit() is handling a layout transition (e.g., focus/unfocus overlay) —
+      // it uses double-rAF to wait for CSS layout, so skip ResizeObserver noise.
+      if (suppressResize) return;
+
       // If actively resizing (drag), defer until resize ends
       if (resizeState.isResizing) {
         pendingFit = true;

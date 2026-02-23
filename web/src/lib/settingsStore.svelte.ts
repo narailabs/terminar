@@ -10,6 +10,7 @@ export interface TerminalSettings {
   cursorBlink: boolean;    // default true
   lineHeight: number;      // 1.0-2.0, default 1.0
   showPaneTitleBars: boolean; // default true
+  dimInactivePanes: number; // 0.1-1.0 opacity for inactive panes (1.0 = no dim)
   autoScroll: boolean;     // default true — scroll to bottom on new output
 }
 
@@ -23,6 +24,7 @@ export const DEFAULT_SETTINGS = {
   cursorBlink: true,
   lineHeight: 1.0,
   showPaneTitleBars: true,
+  dimInactivePanes: 0.4,
   autoScroll: true,
 } as const satisfies TerminalSettings;
 
@@ -54,7 +56,12 @@ function loadFromCache(): TerminalSettings | null {
     if (cached) {
       const parsed = JSON.parse(cached);
       // Validate and merge with defaults to handle missing fields
-      return { ...DEFAULT_SETTINGS, ...parsed };
+      const merged = { ...DEFAULT_SETTINGS, ...parsed };
+      // Migrate boolean dimInactivePanes → number
+      if (typeof merged.dimInactivePanes === 'boolean') {
+        merged.dimInactivePanes = merged.dimInactivePanes ? 0.4 : 1.0;
+      }
+      return merged;
     }
   } catch (e) {
     console.warn('[Settings] Failed to load from cache:', e);
