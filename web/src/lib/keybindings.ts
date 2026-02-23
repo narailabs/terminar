@@ -44,6 +44,10 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
   { key: 'H', ctrl: false, shift: true, alt: false, meta: true, action: 'split.horizontal' },
   { key: 'V', ctrl: true, shift: true, alt: false, meta: false, action: 'split.vertical' },
   { key: 'V', ctrl: false, shift: true, alt: false, meta: true, action: 'split.vertical' },
+
+  // Focus (zoom) pane
+  { key: 'F', ctrl: true, shift: true, alt: false, meta: false, action: 'pane.focus' },
+  { key: 'F', ctrl: false, shift: true, alt: false, meta: true, action: 'pane.focus' },
 ];
 
 /**
@@ -56,6 +60,7 @@ export const ACTION_LABELS: Record<string, string> = {
   'sidebar.toggle': 'Toggle Sidebar',
   'split.horizontal': 'Split Right',
   'split.vertical': 'Split Down',
+  'pane.focus': 'Focus Pane',
 };
 
 /**

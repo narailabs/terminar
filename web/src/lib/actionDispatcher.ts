@@ -12,6 +12,7 @@ export interface ActionCallbacks {
   onPaneClose: () => void;
   onSplitHorizontal: () => void;
   onSplitVertical: () => void;
+  onPaneFocus: () => void;
 }
 
 const ACTION_MAP: Record<string, keyof ActionCallbacks> = {
@@ -22,6 +23,7 @@ const ACTION_MAP: Record<string, keyof ActionCallbacks> = {
   'pane.close': 'onPaneClose',
   'split.horizontal': 'onSplitHorizontal',
   'split.vertical': 'onSplitVertical',
+  'pane.focus': 'onPaneFocus',
 };
 
 /**

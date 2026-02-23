@@ -107,6 +107,7 @@ export interface PaneActions {
   splitHorizontal(paneId: string): void;
   splitVertical(paneId: string): void;
   commitResize(splitId: string, ratios: number[]): void;
+  toggleFocus(paneId: string): void;
 }
 
 const NOOP_PANE_ACTIONS: PaneActions = {
@@ -120,6 +121,7 @@ const NOOP_PANE_ACTIONS: PaneActions = {
   splitHorizontal() {},
   splitVertical() {},
   commitResize() {},
+  toggleFocus() {},
 };
 
 // --- Pane actions context ---
