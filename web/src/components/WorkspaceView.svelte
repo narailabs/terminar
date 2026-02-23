@@ -11,6 +11,7 @@
   import { activityStore } from '../lib/activityStore.svelte';
   import { exitedSessions } from '../lib/exitedSessionsStore.svelte';
 
+  import { fade } from 'svelte/transition';
   import { focusedPane } from '../lib/focusStore.svelte';
   import { getManagerContext, getSessionsContext, getActionsContext, setPaneActionsContext } from '../lib/sessionContext.svelte';
   import type { SessionManager } from '../lib/SessionManager';
@@ -373,7 +374,7 @@
     {/if}
 
     {#if focusedPane.id}
-      <div class="focus-backdrop" onclick={() => focusedPane.id = null} role="presentation"></div>
+      <div class="focus-backdrop" transition:fade={{ duration: 200 }} onclick={() => focusedPane.id = null} role="presentation"></div>
     {/if}
   </div>
 

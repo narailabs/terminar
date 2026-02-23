@@ -9,6 +9,7 @@ export interface PaneHandle {
   pasteText(text: string): void;
   selectAll(): void;
   refreshTerminal?(): void;
+  refit?(): void;
 }
 
 const registry = new Map<string, PaneHandle>();
