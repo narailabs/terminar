@@ -91,7 +91,7 @@
   let searchUseRegex = $derived(searchStore.state.useRegex);
   let searchQuery = $derived(isSearchTarget ? searchStore.state.query : '');
 
-  let dimInactivePanes = $state(true);
+  let dimInactivePanes = $state(0.4);
 
   const unsubSettings = settingsStore.subscribe((s) => {
     showTitleBar = s.showPaneTitleBars;
@@ -343,7 +343,6 @@
 <div
   class="pane"
   class:active={isActive}
-  class:dim-inactive={dimInactivePanes && !isActive}
   class:exited={sessionExited}
   class:broadcast-target={isBroadcastTarget}
   class:drag-over={isDragOver}
@@ -357,6 +356,8 @@
   ondrop={handleDrop}
   oncontextmenu={handleContextMenu}
   onmousedown={handleClick}
+  style:opacity={!isActive && dimInactivePanes < 1 ? dimInactivePanes : undefined}
+  style:transition={dimInactivePanes < 1 ? 'opacity 0.15s' : undefined}
   role="region"
   tabindex="-1"
 >
@@ -613,11 +614,6 @@
     border-radius: 3px;
     background: rgba(255, 255, 255, 0.08);
     color: #9a9a9a;
-  }
-
-  .pane.dim-inactive {
-    opacity: 0.4;
-    transition: opacity 0.15s;
   }
 
   .pane.active {
