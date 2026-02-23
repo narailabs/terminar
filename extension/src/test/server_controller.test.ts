@@ -3,46 +3,59 @@ import { ServerController } from '../ServerController';
 import { EventEmitter } from 'events';
 
 class MockChildProcess extends EventEmitter {
+    public killed = false;
     unref() {}
+    kill(signal?: string) { this.killed = true; }
 }
 
 suite('ServerController', () => {
-    test('spawns server process', async () => {
-        let spawned = false;
+    test('spawns server process with correct binary path and detached mode', async () => {
+        let spawnedCmd = '';
+        let spawnedOpts: any = {};
+        const mockChild = new MockChildProcess();
         const mockSpawner = (cmd: string, args: string[], opts: any) => {
-            spawned = true;
-            assert.ok(cmd.endsWith('terminar-server'));
-            assert.ok(opts.detached);
-            return new MockChildProcess() as any;
+            spawnedCmd = cmd;
+            spawnedOpts = opts;
+            return mockChild as any;
         };
 
         const controller = new ServerController('/tmp', mockSpawner);
         await controller.spawn();
-        assert.ok(spawned);
+
+        assert.ok(spawnedCmd.endsWith('terminar-server'),
+            `Expected binary path ending with terminar-server, got: ${spawnedCmd}`);
+        assert.strictEqual(spawnedOpts.detached, true, 'Should spawn detached');
+        assert.strictEqual(spawnedOpts.stdio, 'ignore', 'Should ignore stdio');
     });
 
-    test('bubbles spawn errors', async () => {
+    test('spawn resolves immediately (fire-and-forget) and errors arrive via event', async () => {
+        const mockChild = new MockChildProcess();
         const mockSpawner = () => {
-            const child = new MockChildProcess();
-            setTimeout(() => child.emit('error', new Error('Spawn failed')), 10);
-            return child as any;
+            setTimeout(() => mockChild.emit('error', new Error('Spawn failed')), 10);
+            return mockChild as any;
         };
 
         const controller = new ServerController('/tmp', mockSpawner);
-        
-        try {
-            await controller.spawn();
-            // In current implementation, spawn resolves immediately after unref.
-            // Error is emitted via 'error' event on controller.
-        } catch (e) {
-            // Should not throw here unless sync error
-        }
 
-        return new Promise<void>((resolve, reject) => {
-            controller.on('error', (err) => {
-                assert.strictEqual(err.message, 'Spawn failed');
-                resolve();
-            });
+        // spawn() resolves immediately after unref, before the async error fires
+        await controller.spawn();
+
+        // The error arrives asynchronously via the controller's 'error' event
+        const err = await new Promise<Error>((resolve) => {
+            controller.on('error', resolve);
         });
+        assert.strictEqual(err.message, 'Spawn failed');
+    });
+
+    test('spawnWithPath uses the exact binary path provided', async () => {
+        let spawnedCmd = '';
+        const mockSpawner = (cmd: string, args: string[], opts: any) => {
+            spawnedCmd = cmd;
+            return new MockChildProcess() as any;
+        };
+
+        const controller = new ServerController('/irrelevant', mockSpawner);
+        await controller.spawnWithPath('/custom/bin/my-server');
+        assert.strictEqual(spawnedCmd, '/custom/bin/my-server');
     });
 });

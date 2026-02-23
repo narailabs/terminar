@@ -27,30 +27,56 @@ suite('VS Code Settings Configuration', () => {
         assert.strictEqual(autoStart, true, 'Default autoStart should be true');
     });
 
-    test('getSocketPath uses configured socketPath when set', () => {
-        // We test the getConfiguredSocketPath helper
+    test('getSocketPath returns default then respects config change', () => {
         const { getConfiguredSocketPath } = require('../settings');
 
-        // With no config value, should return default socket path
+        // Default path should contain 'terminar' and the uid
         const defaultPath = getConfiguredSocketPath();
-        assert.ok(defaultPath.includes('.sock') || defaultPath.includes('terminar'),
-            'Default path should be a socket path');
+        assert.ok(defaultPath.includes('terminar'), 'Default path should contain terminar');
+        assert.ok(defaultPath.endsWith('.sock'), 'Default path should end with .sock');
+
+        // Set a custom value and verify it takes effect
+        (vscode.workspace as any)._setConfigValue('terminar.socketPath', '/tmp/custom.sock');
+        assert.strictEqual(getConfiguredSocketPath(), '/tmp/custom.sock',
+            'Should return custom path after config change');
+
+        // Reset and verify it reverts to default
+        (vscode.workspace as any)._resetConfig();
+        const afterReset = getConfiguredSocketPath();
+        assert.strictEqual(afterReset, defaultPath,
+            'Should revert to default after config reset');
     });
 
-    test('getServerBinaryPath uses configured serverPath when set', () => {
+    test('getServerBinaryPath returns null then respects config change', () => {
         const { getConfiguredServerPath } = require('../settings');
 
-        // With no config value, should return null (use default)
-        const defaultBin = getConfiguredServerPath();
-        assert.strictEqual(defaultBin, null, 'Default should be null when not configured');
+        // Default should be null when not configured
+        assert.strictEqual(getConfiguredServerPath(), null, 'Default should be null');
+
+        // Set a custom value
+        (vscode.workspace as any)._setConfigValue('terminar.serverPath', '/usr/bin/custom-server');
+        assert.strictEqual(getConfiguredServerPath(), '/usr/bin/custom-server',
+            'Should return custom server path');
+
+        (vscode.workspace as any)._resetConfig();
+        assert.strictEqual(getConfiguredServerPath(), null,
+            'Should revert to null after config reset');
     });
 
-    test('getAutoStart returns configured value', () => {
+    test('getAutoStart returns true then respects config change', () => {
         const { getAutoStart } = require('../settings');
 
         // Default should be true
-        const autoStart = getAutoStart();
-        assert.strictEqual(autoStart, true, 'Default autoStart should be true');
+        assert.strictEqual(getAutoStart(), true, 'Default autoStart should be true');
+
+        // Set to false
+        (vscode.workspace as any)._setConfigValue('terminar.autoStart', false);
+        assert.strictEqual(getAutoStart(), false,
+            'Should return false after config change');
+
+        (vscode.workspace as any)._resetConfig();
+        assert.strictEqual(getAutoStart(), true,
+            'Should revert to true after config reset');
     });
 
     test('getConfiguredSocketPath returns custom path when configured', () => {

@@ -14,8 +14,9 @@ use futures::{SinkExt, StreamExt};
 use std::time::Duration;
 use std::collections::HashMap;
 
-/// Spawn a server with authentication ENABLED (no_auth = false)
-async fn spawn_auth_server(name: &str) -> (String, tokio::task::JoinHandle<()>) {
+/// Spawn a server with authentication ENABLED and require_auth=true
+/// (forces auth even on localhost connections)
+async fn spawn_require_auth_server(name: &str) -> (String, tokio::task::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     drop(listener);
@@ -23,7 +24,7 @@ async fn spawn_auth_server(name: &str) -> (String, tokio::task::JoinHandle<()>) 
     let cli = Cli {
         command: None,
         port,
-        socket: Some(format!("/tmp/test-security-{}-{}.sock", name, port)),
+        socket: Some(format!("/tmp/test-security-ra-{}-{}.sock", name, port)),
         log_level: "error".to_string(),
         no_auth: false, // Auth ENABLED
         mock_pty: true,
@@ -38,7 +39,7 @@ async fn spawn_auth_server(name: &str) -> (String, tokio::task::JoinHandle<()>) 
         audit_level: "off".to_string(),
         trusted_proxy: None,
         user_mode: false,
-        require_auth: false,
+        require_auth: true, // Force auth even on localhost
     };
 
     let socket_path = cli.socket.clone().unwrap();
@@ -86,15 +87,40 @@ async fn spawn_noauth_server(name: &str) -> (String, tokio::task::JoinHandle<()>
     (format!("ws://127.0.0.1:{}/ws", port), handle)
 }
 
+type WsStream = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+type WsSender = futures::stream::SplitSink<WsStream, Message>;
+type WsReader = futures::stream::SplitStream<WsStream>;
+
+/// Helper: send ListSessions and wait for a SessionList response.
+/// Returns the sessions vec, or panics with a timeout message.
+async fn send_list_sessions_and_get_response(
+    socket: &mut WsSender,
+    reader: &mut WsReader,
+    timeout_secs: u64,
+) -> Vec<terminar_server::messages::SessionInfo> {
+    socket.send(Message::Text(
+        serde_json::to_string(&ClientMessage::ListSessions).unwrap()
+    )).await.unwrap();
+
+    let start = std::time::Instant::now();
+    while start.elapsed() < Duration::from_secs(timeout_secs) {
+        if let Some(Ok(Message::Text(text))) = reader.next().await
+            && let Ok(ServerMessage::SessionList { sessions }) = serde_json::from_str::<ServerMessage>(&text)
+        {
+            return sessions;
+        }
+    }
+    panic!("Timed out waiting for SessionList response");
+}
+
 // ==================== Auth Bypass Tests ====================
 
-/// Test: Sending a non-Auth message as the first message should fail when auth is enabled.
-/// Note: localhost connections bypass auth, so this test verifies the code path exists
-/// but may pass on localhost. This is tested more meaningfully in remote/non-localhost scenarios.
+/// Test: Sending a non-Auth message as the first message should fail when auth is required.
+/// Uses --require-auth to force authentication even on localhost.
 #[tokio::test]
-#[ignore = "Integration test - localhost bypasses auth by design"]
+#[ignore = "Integration test - requires server startup"]
 async fn test_auth_required_non_auth_first_message() {
-    let (ws_url, _server) = spawn_auth_server("no-auth-msg").await;
+    let (ws_url, _server) = spawn_require_auth_server("no-auth-msg").await;
 
     let (mut socket, _) = connect_async(&ws_url)
         .await
@@ -104,44 +130,55 @@ async fn test_auth_required_non_auth_first_message() {
     let list_msg = ClientMessage::ListSessions;
     socket.send(Message::Text(serde_json::to_string(&list_msg).unwrap())).await.unwrap();
 
-    // On localhost, this will succeed because localhost bypasses auth.
-    // The test validates the server does not crash regardless of the auth outcome.
+    // With require_auth, the server should NOT process the ListSessions.
+    // It should either time out waiting for auth or close the connection.
+    // The message will be silently ignored during the auth phase because it's not an auth message.
+    // Wait briefly, then try sending another message - the connection should still be waiting for auth.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Send a valid-looking auth with wrong token to get a definitive response
+    let auth_msg = ClientMessage::Auth {
+        token: "wrong-token".to_string(),
+        protocol_version: None,
+    };
+    socket.send(Message::Text(serde_json::to_string(&auth_msg).unwrap())).await.unwrap();
+
     let start = std::time::Instant::now();
+    let mut got_auth_error = false;
     while start.elapsed() < Duration::from_secs(3) {
         match socket.next().await {
             Some(Ok(Message::Text(text))) => {
-                // Either SessionList (localhost bypass) or Error (auth required) is acceptable
                 if let Ok(msg) = serde_json::from_str::<ServerMessage>(&text) {
                     match msg {
-                        ServerMessage::SessionList { .. } => {
-                            // localhost bypass worked
+                        ServerMessage::Error { error_code, .. } => {
+                            assert_eq!(
+                                error_code.as_deref(), Some("AUTH_FAILED"),
+                                "Should get AUTH_FAILED error, not a successful response"
+                            );
+                            got_auth_error = true;
                             break;
                         }
-                        ServerMessage::Error { message, .. } => {
-                            assert!(
-                                message.contains("auth") || message.contains("Auth"),
-                                "Error should be about authentication: {}", message
-                            );
-                            break;
+                        ServerMessage::SessionList { .. } => {
+                            panic!("Server should NOT return SessionList without authentication when require_auth is set");
                         }
                         _ => {}
                     }
                 }
-            }
-            Some(Ok(Message::Close(_))) => {
-                // Server closed connection - also acceptable for failed auth
                 break;
             }
+            Some(Ok(Message::Close(_))) | None => break,
             _ => {}
         }
     }
+    assert!(got_auth_error, "Server should require authentication and reject wrong token with AUTH_FAILED");
 }
 
-/// Test: Sending an invalid token should be rejected
+/// Test: Sending an invalid token should be rejected with AUTH_FAILED error.
+/// Uses --require-auth to force authentication even on localhost.
 #[tokio::test]
-#[ignore = "Integration test - localhost bypasses auth by design"]
+#[ignore = "Integration test - requires server startup"]
 async fn test_auth_invalid_token_rejected() {
-    let (ws_url, _server) = spawn_auth_server("bad-token").await;
+    let (ws_url, _server) = spawn_require_auth_server("bad-token").await;
 
     let (mut socket, _) = connect_async(&ws_url)
         .await
@@ -154,45 +191,47 @@ async fn test_auth_invalid_token_rejected() {
     };
     socket.send(Message::Text(serde_json::to_string(&auth_msg).unwrap())).await.unwrap();
 
-    // On localhost, the auth check is bypassed, so this may be silently ignored
-    // The test verifies no crash occurs
+    // With require_auth, the server must reject the invalid token
     let start = std::time::Instant::now();
-    let mut _got_response = false;
+    let mut got_auth_error = false;
     while start.elapsed() < Duration::from_secs(3) {
         match socket.next().await {
             Some(Ok(Message::Text(text))) => {
                 if let Ok(msg) = serde_json::from_str::<ServerMessage>(&text) {
                     match msg {
-                        ServerMessage::Error { message, .. } => {
-                            assert!(message.contains("auth") || message.contains("Auth"),
-                                "Should be auth error: {}", message);
-                            _got_response = true;
+                        ServerMessage::Error { message, error_code } => {
+                            assert_eq!(
+                                error_code.as_deref(), Some("AUTH_FAILED"),
+                                "Expected AUTH_FAILED error code"
+                            );
+                            assert!(
+                                message.contains("Authentication failed"),
+                                "Error message should indicate auth failure: {}", message
+                            );
+                            got_auth_error = true;
                             break;
                         }
-                        _ => {
-                            // Localhost bypass - also acceptable
-                            _got_response = true;
-                            break;
+                        ServerMessage::AuthOk { .. } => {
+                            panic!("Server should NOT accept an invalid token");
                         }
+                        _ => {}
                     }
                 }
-            }
-            Some(Ok(Message::Close(_))) => {
-                _got_response = true;
                 break;
             }
-            None => break,
+            Some(Ok(Message::Close(_))) | None => break,
             _ => {}
         }
     }
-    // Server should not crash (pass by not panicking)
+    assert!(got_auth_error, "Server should reject invalid token with AUTH_FAILED error");
 }
 
-/// Test: Sending an empty token should be handled
+/// Test: Sending an empty token should be rejected with AUTH_FAILED error.
+/// Uses --require-auth to force authentication even on localhost.
 #[tokio::test]
-#[ignore = "Integration test - localhost bypasses auth by design"]
+#[ignore = "Integration test - requires server startup"]
 async fn test_auth_empty_token() {
-    let (ws_url, _server) = spawn_auth_server("empty-token").await;
+    let (ws_url, _server) = spawn_require_auth_server("empty-token").await;
 
     let (mut socket, _) = connect_async(&ws_url)
         .await
@@ -204,35 +243,50 @@ async fn test_auth_empty_token() {
     };
     socket.send(Message::Text(serde_json::to_string(&auth_msg).unwrap())).await.unwrap();
 
-    // Wait briefly to verify no crash
-    tokio::time::sleep(Duration::from_millis(500)).await;
-
-    // Try to send a message to verify the connection state
-    let list_msg = ClientMessage::ListSessions;
-    let send_result = socket.send(Message::Text(serde_json::to_string(&list_msg).unwrap())).await;
-
-    // Either still connected or closed - both are acceptable, no crash
-    match send_result {
-        Ok(_) => {
-            // Connection still open - could be localhost bypass
-        }
-        Err(_) => {
-            // Connection closed after failed auth - correct behavior
+    // With require_auth, the server must reject the empty token
+    let start = std::time::Instant::now();
+    let mut got_auth_error = false;
+    while start.elapsed() < Duration::from_secs(3) {
+        match socket.next().await {
+            Some(Ok(Message::Text(text))) => {
+                if let Ok(msg) = serde_json::from_str::<ServerMessage>(&text) {
+                    match msg {
+                        ServerMessage::Error { error_code, .. } => {
+                            assert_eq!(
+                                error_code.as_deref(), Some("AUTH_FAILED"),
+                                "Expected AUTH_FAILED error code for empty token"
+                            );
+                            got_auth_error = true;
+                            break;
+                        }
+                        ServerMessage::AuthOk { .. } => {
+                            panic!("Server should NOT accept an empty token");
+                        }
+                        _ => {}
+                    }
+                }
+                break;
+            }
+            Some(Ok(Message::Close(_))) | None => break,
+            _ => {}
         }
     }
+    assert!(got_auth_error, "Server should reject empty token with AUTH_FAILED error");
 }
 
 // ==================== Malformed Message Tests ====================
 
-/// Test: Deeply nested JSON should not cause stack overflow
+/// Test: Deeply nested JSON should not cause stack overflow.
+/// Server should reject the malformed input and continue to handle valid messages correctly.
 #[tokio::test]
 #[ignore = "Integration test - requires server startup"]
 async fn test_deeply_nested_json() {
     let (ws_url, _server) = spawn_noauth_server("deep-json").await;
 
-    let (mut socket, _) = connect_async(&ws_url)
+    let (ws_stream, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
+    let (mut sender, mut reader) = ws_stream.split();
 
     // Construct deeply nested JSON (1000 levels)
     let mut deep = String::from(r#"{"type":"create_session","cwd":"/"#);
@@ -243,69 +297,53 @@ async fn test_deeply_nested_json() {
         deep.push_str(r#"""}"#);
     }
 
-    socket.send(Message::Text(deep)).await.unwrap();
+    sender.send(Message::Text(deep)).await.unwrap();
 
     // Server should reject or ignore without crashing
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    // Verify server is still responsive
-    socket.send(Message::Text(serde_json::to_string(&ClientMessage::ListSessions).unwrap())).await.unwrap();
-
-    let mut responsive = false;
-    let start = std::time::Instant::now();
-    while start.elapsed() < Duration::from_secs(3) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if serde_json::from_str::<ServerMessage>(&text).is_ok() {
-                responsive = true;
-                break;
-            }
-        }
-    }
-    assert!(responsive, "Server should remain responsive after deeply nested JSON");
+    // Send a valid ListSessions and verify server responds with a proper SessionList.
+    // This proves the server properly rejected the malformed message and continued operating.
+    let _sessions = send_list_sessions_and_get_response(&mut sender, &mut reader, 3).await;
+    // If we got here, the server correctly handled the malformed input and responded to a valid request.
 }
 
-/// Test: JSON with wrong field types (e.g., cols as string instead of u16)
+/// Test: JSON with wrong field types (e.g., cols as string instead of u16).
+/// Server should reject the malformed input and continue to handle valid messages correctly.
 #[tokio::test]
 #[ignore = "Integration test - requires server startup"]
 async fn test_wrong_field_types() {
     let (ws_url, _server) = spawn_noauth_server("wrong-types").await;
 
-    let (mut socket, _) = connect_async(&ws_url)
+    let (ws_stream, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
+    let (mut sender, mut reader) = ws_stream.split();
 
     // cols should be u16, but we send it as a string
     let wrong_type_msg = r#"{"type":"create_session","cwd":"/","shell":"bash","env":{},"cols":"eighty","rows":24}"#;
-    socket.send(Message::Text(wrong_type_msg.to_string())).await.unwrap();
+    sender.send(Message::Text(wrong_type_msg.to_string())).await.unwrap();
 
     // Server should reject without crashing
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    // Verify still responsive
-    socket.send(Message::Text(serde_json::to_string(&ClientMessage::ListSessions).unwrap())).await.unwrap();
-
-    let mut responsive = false;
-    let start = std::time::Instant::now();
-    while start.elapsed() < Duration::from_secs(2) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if serde_json::from_str::<ServerMessage>(&text).is_ok() {
-                responsive = true;
-                break;
-            }
-        }
-    }
-    assert!(responsive, "Server should remain responsive after wrong field types");
+    // Send a valid ListSessions and verify server responds with a proper SessionList.
+    // This proves the server properly rejected the malformed message and continued operating.
+    let _sessions = send_list_sessions_and_get_response(&mut sender, &mut reader, 3).await;
+    // If we got here, the server correctly handled the malformed input and responded to a valid request.
 }
 
-/// Test: Extremely large JSON payload (1MB)
+/// Test: Extremely large JSON payload (1MB).
+/// Server should reject the oversized message and continue to handle valid messages correctly.
 #[tokio::test]
 #[ignore = "Integration test - requires server startup"]
 async fn test_extremely_large_json_payload() {
     let (ws_url, _server) = spawn_noauth_server("large-json").await;
 
-    let (mut socket, _) = connect_async(&ws_url)
+    let (ws_stream, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
+    let (mut sender, mut reader) = ws_stream.split();
 
     // 1MB payload
     let huge_value = "A".repeat(1_000_000);
@@ -313,73 +351,62 @@ async fn test_extremely_large_json_payload() {
         r#"{{"type":"create_session","cwd":"/","shell":"{}","env":{{}},"cols":80,"rows":24}}"#,
         huge_value
     );
-    socket.send(Message::Text(large_msg)).await.unwrap();
+    sender.send(Message::Text(large_msg)).await.unwrap();
 
     // Server should handle gracefully
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    // Verify still responsive
-    socket.send(Message::Text(serde_json::to_string(&ClientMessage::ListSessions).unwrap())).await.unwrap();
-
-    let mut responsive = false;
-    let start = std::time::Instant::now();
-    while start.elapsed() < Duration::from_secs(3) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if serde_json::from_str::<ServerMessage>(&text).is_ok() {
-                responsive = true;
-                break;
-            }
-        }
-    }
-    assert!(responsive, "Server should remain responsive after large JSON payload");
+    // Send a valid ListSessions and verify server responds with a proper SessionList.
+    // This proves the server properly rejected the oversized message and continued operating.
+    let _sessions = send_list_sessions_and_get_response(&mut sender, &mut reader, 3).await;
+    // If we got here, the server correctly handled the oversized input and responded to a valid request.
 }
 
-/// Test: NULL bytes in JSON
+/// Test: NULL bytes in JSON.
+/// Server should handle null bytes gracefully and continue to serve valid requests.
 #[tokio::test]
 #[ignore = "Integration test - requires server startup"]
 async fn test_null_bytes_in_json() {
     let (ws_url, _server) = spawn_noauth_server("null-bytes").await;
 
-    let (mut socket, _) = connect_async(&ws_url)
+    let (ws_stream, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
+    let (mut sender, mut reader) = ws_stream.split();
 
     // Message with null bytes embedded
     let null_msg = format!(
         r#"{{"type":"input","session_id":"test","data":"hello{}world"}}"#,
         '\0'
     );
-    socket.send(Message::Text(null_msg)).await.unwrap();
+    sender.send(Message::Text(null_msg)).await.unwrap();
 
     // Should not crash
     tokio::time::sleep(Duration::from_millis(300)).await;
 
-    socket.send(Message::Text(serde_json::to_string(&ClientMessage::ListSessions).unwrap())).await.unwrap();
-
-    let mut responsive = false;
-    let start = std::time::Instant::now();
-    while start.elapsed() < Duration::from_secs(2) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if serde_json::from_str::<ServerMessage>(&text).is_ok() {
-                responsive = true;
-                break;
-            }
-        }
-    }
-    assert!(responsive, "Server should remain responsive after null bytes in JSON");
+    // Send a valid ListSessions and verify server responds with a proper SessionList.
+    // This proves the server properly handled the null-byte message and continued operating.
+    let _sessions = send_list_sessions_and_get_response(&mut sender, &mut reader, 3).await;
+    // If we got here, the server correctly handled the null-byte input and responded to a valid request.
 }
 
 // ==================== Path Traversal Tests ====================
 
-/// Test: Path traversal in cwd parameter
+/// Test: Path traversal in cwd parameter.
+/// Server should reject the request AND no new session should be created.
 #[tokio::test]
 #[ignore = "Integration test - requires server startup"]
 async fn test_cwd_path_traversal() {
     let (ws_url, _server) = spawn_noauth_server("cwd-traversal").await;
 
-    let (mut socket, _) = connect_async(&ws_url)
+    let (ws_stream, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
+    let (mut sender, mut reader) = ws_stream.split();
+
+    // Get baseline session count (server may have restored sessions from persistence)
+    let baseline_sessions = send_list_sessions_and_get_response(&mut sender, &mut reader, 3).await;
+    let baseline_count = baseline_sessions.len();
 
     let create_msg = ClientMessage::CreateSession {
         cwd: "/tmp/../../../etc".to_string(),
@@ -388,34 +415,45 @@ async fn test_cwd_path_traversal() {
         cols: 80,
         rows: 24,
     };
-    socket.send(Message::Text(serde_json::to_string(&create_msg).unwrap())).await.unwrap();
+    sender.send(Message::Text(serde_json::to_string(&create_msg).unwrap())).await.unwrap();
 
     let mut got_error = false;
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(3) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::Error { message, .. }) = serde_json::from_str::<ServerMessage>(&text) {
-                assert!(
-                    message.contains("path traversal"),
-                    "Error should mention path traversal: {}", message
-                );
-                got_error = true;
-                break;
-            }
+        if let Some(Ok(Message::Text(text))) = reader.next().await
+            && let Ok(ServerMessage::Error { message, .. }) = serde_json::from_str::<ServerMessage>(&text)
+        {
+            assert!(
+                message.contains("path traversal"),
+                "Error should mention path traversal: {}", message
+            );
+            got_error = true;
+            break;
         }
     }
     assert!(got_error, "Server should reject path traversal in cwd");
+
+    // Verify no new session was created by the path traversal attempt
+    let sessions_after = send_list_sessions_and_get_response(&mut sender, &mut reader, 3).await;
+    assert_eq!(sessions_after.len(), baseline_count,
+        "No new session should be created from a path traversal attempt");
 }
 
-/// Test: Symlink-based path traversal in cwd
+/// Test: Embedded ".." path traversal in cwd.
+/// Server should reject the request AND no new session should be created.
 #[tokio::test]
 #[ignore = "Integration test - requires server startup"]
 async fn test_cwd_dot_dot_embedded() {
     let (ws_url, _server) = spawn_noauth_server("cwd-dotdot").await;
 
-    let (mut socket, _) = connect_async(&ws_url)
+    let (ws_stream, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
+    let (mut sender, mut reader) = ws_stream.split();
+
+    // Get baseline session count (server may have restored sessions from persistence)
+    let baseline_sessions = send_list_sessions_and_get_response(&mut sender, &mut reader, 3).await;
+    let baseline_count = baseline_sessions.len();
 
     let create_msg = ClientMessage::CreateSession {
         cwd: "/tmp/safe/../../etc/shadow".to_string(),
@@ -424,32 +462,47 @@ async fn test_cwd_dot_dot_embedded() {
         cols: 80,
         rows: 24,
     };
-    socket.send(Message::Text(serde_json::to_string(&create_msg).unwrap())).await.unwrap();
+    sender.send(Message::Text(serde_json::to_string(&create_msg).unwrap())).await.unwrap();
 
     let mut got_error = false;
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(3) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::Error { .. }) = serde_json::from_str::<ServerMessage>(&text) {
-                got_error = true;
-                break;
-            }
+        if let Some(Ok(Message::Text(text))) = reader.next().await
+            && let Ok(ServerMessage::Error { message, .. }) = serde_json::from_str::<ServerMessage>(&text)
+        {
+            assert!(
+                message.contains("path traversal"),
+                "Error should mention path traversal: {}", message
+            );
+            got_error = true;
+            break;
         }
     }
     assert!(got_error, "Server should reject cwd with embedded '..' path traversal");
+
+    // Verify no new session was created by the path traversal attempt
+    let sessions_after = send_list_sessions_and_get_response(&mut sender, &mut reader, 3).await;
+    assert_eq!(sessions_after.len(), baseline_count,
+        "No new session should be created from a path traversal attempt");
 }
 
 // ==================== Environment Injection Tests ====================
 
-/// Test: LD_PRELOAD environment variable is filtered
+/// Test: LD_PRELOAD environment variable is filtered out during session creation.
+/// The session should be created successfully (proving LD_PRELOAD was silently stripped).
 #[tokio::test]
 #[ignore = "Integration test - requires server startup"]
 async fn test_ld_preload_filtered() {
     let (ws_url, _server) = spawn_noauth_server("ld-preload").await;
 
-    let (mut socket, _) = connect_async(&ws_url)
+    let (ws_stream, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
+    let (mut sender, mut reader) = ws_stream.split();
+
+    // Get baseline session count (server may have restored sessions from persistence)
+    let baseline_sessions = send_list_sessions_and_get_response(&mut sender, &mut reader, 3).await;
+    let baseline_count = baseline_sessions.len();
 
     let mut env = HashMap::new();
     env.insert("LD_PRELOAD".to_string(), "/tmp/malicious.so".to_string());
@@ -462,30 +515,46 @@ async fn test_ld_preload_filtered() {
         cols: 80,
         rows: 24,
     };
-    socket.send(Message::Text(serde_json::to_string(&create_msg).unwrap())).await.unwrap();
+    sender.send(Message::Text(serde_json::to_string(&create_msg).unwrap())).await.unwrap();
 
-    // Server should create session (filtering LD_PRELOAD) or return error
-    // Either way, it should not pass LD_PRELOAD to the shell
+    // Server should create the session successfully (filtering LD_PRELOAD silently).
+    // Wait for the SessionList response that is broadcast after session creation.
     let start = std::time::Instant::now();
+    let mut session_created = false;
     while start.elapsed() < Duration::from_secs(3) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if serde_json::from_str::<ServerMessage>(&text).is_ok() {
-                break;
-            }
+        if let Some(Ok(Message::Text(text))) = reader.next().await
+            && let Ok(ServerMessage::SessionList { sessions }) = serde_json::from_str::<ServerMessage>(&text)
+        {
+            // Session count should have increased by 1, proving LD_PRELOAD was filtered (not rejected)
+            assert_eq!(sessions.len(), baseline_count + 1,
+                "Session should be created despite LD_PRELOAD in env (it should be filtered, not rejected)");
+            session_created = true;
+            break;
         }
     }
-    // Test passes if no crash - the filter_env function strips LD_PRELOAD before spawn
+    assert!(session_created, "Server should create the session after filtering LD_PRELOAD");
+
+    // Verify via explicit ListSessions that the session persists
+    let sessions = send_list_sessions_and_get_response(&mut sender, &mut reader, 3).await;
+    assert_eq!(sessions.len(), baseline_count + 1,
+        "The session created with filtered LD_PRELOAD should persist");
 }
 
-/// Test: DYLD_INSERT_LIBRARIES environment variable is filtered
+/// Test: DYLD_INSERT_LIBRARIES and related env vars are filtered out during session creation.
+/// The session should be created successfully (proving all DYLD_* vars were silently stripped).
 #[tokio::test]
 #[ignore = "Integration test - requires server startup"]
 async fn test_dyld_insert_libraries_filtered() {
     let (ws_url, _server) = spawn_noauth_server("dyld-inject").await;
 
-    let (mut socket, _) = connect_async(&ws_url)
+    let (ws_stream, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
+    let (mut sender, mut reader) = ws_stream.split();
+
+    // Get baseline session count (server may have restored sessions from persistence)
+    let baseline_sessions = send_list_sessions_and_get_response(&mut sender, &mut reader, 3).await;
+    let baseline_count = baseline_sessions.len();
 
     let mut env = HashMap::new();
     env.insert("DYLD_INSERT_LIBRARIES".to_string(), "/tmp/evil.dylib".to_string());
@@ -501,17 +570,28 @@ async fn test_dyld_insert_libraries_filtered() {
         cols: 80,
         rows: 24,
     };
-    socket.send(Message::Text(serde_json::to_string(&create_msg).unwrap())).await.unwrap();
+    sender.send(Message::Text(serde_json::to_string(&create_msg).unwrap())).await.unwrap();
 
+    // Server should create the session successfully (filtering all DYLD_* vars silently).
     let start = std::time::Instant::now();
+    let mut session_created = false;
     while start.elapsed() < Duration::from_secs(3) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if serde_json::from_str::<ServerMessage>(&text).is_ok() {
-                break;
-            }
+        if let Some(Ok(Message::Text(text))) = reader.next().await
+            && let Ok(ServerMessage::SessionList { sessions }) = serde_json::from_str::<ServerMessage>(&text)
+        {
+            // Session count should have increased by 1, proving DYLD_* vars were filtered (not rejected)
+            assert_eq!(sessions.len(), baseline_count + 1,
+                "Session should be created despite DYLD_* vars in env (they should be filtered, not rejected)");
+            session_created = true;
+            break;
         }
     }
-    // Test passes if no crash - all DYLD_* vars should be filtered
+    assert!(session_created, "Server should create the session after filtering DYLD_* vars");
+
+    // Verify via explicit ListSessions that the session persists
+    let sessions = send_list_sessions_and_get_response(&mut sender, &mut reader, 3).await;
+    assert_eq!(sessions.len(), baseline_count + 1,
+        "The session created with filtered DYLD_* vars should persist");
 }
 
 // ==================== Rate Limiting Tests ====================
@@ -659,11 +739,11 @@ async fn test_pair_exchange_rate_limiting() {
             .send()
             .await;
 
-        if let Ok(resp) = resp {
-            if resp.status() == 429 {
-                got_rate_limited = true;
-                break;
-            }
+        if let Ok(resp) = resp
+            && resp.status() == 429
+        {
+            got_rate_limited = true;
+            break;
         }
     }
 
@@ -672,18 +752,17 @@ async fn test_pair_exchange_rate_limiting() {
 
 /// Test: WebSocket auth rate limiting - after MAX_WS_AUTH_ATTEMPTS failed attempts,
 /// the server should send RATE_LIMIT_EXCEEDED and close the connection.
-/// Note: localhost bypasses auth, so this test verifies the rate-limit code path
-/// only works for non-localhost connections. On localhost, it verifies no crash occurs.
+/// Uses --require-auth to force authentication even on localhost.
 #[tokio::test]
-#[ignore = "Integration test - localhost bypasses auth by design"]
+#[ignore = "Integration test - requires server startup"]
 async fn test_ws_auth_rate_limit_after_5_failures() {
-    let (ws_url, _server) = spawn_auth_server("ws-rate-limit").await;
+    let (ws_url, _server) = spawn_require_auth_server("ws-rate-limit").await;
 
     let (mut socket, _) = connect_async(&ws_url)
         .await
         .expect("Failed to connect");
 
-    // Send 6 invalid auth attempts (MAX_WS_AUTH_ATTEMPTS = 5, so the 6th should trigger rate limit)
+    // Send 7 invalid auth attempts (MAX_WS_AUTH_ATTEMPTS = 5, so the 6th should trigger rate limit)
     let mut got_rate_limited = false;
     let mut auth_failed_count = 0;
     for i in 0..7 {
@@ -693,7 +772,7 @@ async fn test_ws_auth_rate_limit_after_5_failures() {
         };
         let send_result = socket.send(Message::Text(serde_json::to_string(&auth_msg).unwrap())).await;
         if send_result.is_err() {
-            // Connection was closed by the server
+            // Connection was closed by the server after rate limit
             break;
         }
 
@@ -731,21 +810,17 @@ async fn test_ws_auth_rate_limit_after_5_failures() {
         }
     }
 
-    // On localhost this will bypass auth entirely (no rate limit triggered).
-    // On non-localhost (remote) connections, we expect rate limiting.
-    // This test documents the behavior and verifies no crashes.
-    if got_rate_limited {
-        // Rate limit correctly triggered (non-localhost connection)
-        assert!(auth_failed_count <= 5, "Should get at most 5 AUTH_FAILED before RATE_LIMIT_EXCEEDED");
-    }
-    // If we got here without panicking, the server handled all attempts gracefully
+    // With require_auth, the server must enforce rate limiting
+    assert!(got_rate_limited, "Server should send RATE_LIMIT_EXCEEDED after {} failed attempts", auth_failed_count);
+    assert!(auth_failed_count <= 5, "Should get at most 5 AUTH_FAILED before RATE_LIMIT_EXCEEDED, got {}", auth_failed_count);
 }
 
-/// Test: WebSocket auth allows retry after failure (before hitting rate limit)
+/// Test: WebSocket auth allows retry after failure (before hitting rate limit).
+/// Uses --require-auth to force authentication even on localhost.
 #[tokio::test]
-#[ignore = "Integration test - localhost bypasses auth by design"]
+#[ignore = "Integration test - requires server startup"]
 async fn test_ws_auth_allows_retry_after_failure() {
-    let (ws_url, _server) = spawn_auth_server("ws-retry").await;
+    let (ws_url, _server) = spawn_require_auth_server("ws-retry").await;
 
     let (mut socket, _) = connect_async(&ws_url)
         .await
@@ -758,16 +833,18 @@ async fn test_ws_auth_allows_retry_after_failure() {
     };
     socket.send(Message::Text(serde_json::to_string(&bad_auth).unwrap())).await.unwrap();
 
-    // Read the error response
+    // Read the error response - should be AUTH_FAILED (not connection close)
     let start = std::time::Instant::now();
+    let mut got_first_error = false;
     while start.elapsed() < Duration::from_secs(2) {
         match socket.next().await {
             Some(Ok(Message::Text(text))) => {
                 if let Ok(ServerMessage::Error { error_code, .. }) = serde_json::from_str::<ServerMessage>(&text) {
-                    // On non-localhost, should get AUTH_FAILED (not connection close)
-                    if error_code.as_deref() == Some("AUTH_FAILED") {
-                        // Good - server allowed retry by not closing the connection
-                    }
+                    assert_eq!(
+                        error_code.as_deref(), Some("AUTH_FAILED"),
+                        "First bad token should get AUTH_FAILED"
+                    );
+                    got_first_error = true;
                 }
                 break;
             }
@@ -775,21 +852,36 @@ async fn test_ws_auth_allows_retry_after_failure() {
             _ => {}
         }
     }
+    assert!(got_first_error, "Should get AUTH_FAILED for first bad token");
 
-    // Verify the connection is still usable (we can still send another message)
+    // Verify the connection is still usable - send a second bad token and expect another AUTH_FAILED
     let second_auth = ClientMessage::Auth {
         token: "another-wrong-token".to_string(),
         protocol_version: None,
     };
     let send_result = socket.send(Message::Text(serde_json::to_string(&second_auth).unwrap())).await;
+    assert!(send_result.is_ok(), "Connection should still be open for retry after first AUTH_FAILED");
 
-    // On localhost, auth is bypassed so the first message already succeeded.
-    // On non-localhost, the connection should still be open for retry.
-    // Either way, no crash = test passes.
-    match send_result {
-        Ok(_) => { /* Connection still open - correct for retry behavior */ }
-        Err(_) => { /* Connection closed - acceptable on localhost where auth was bypassed */ }
+    // Read the second error response
+    let start = std::time::Instant::now();
+    let mut got_second_error = false;
+    while start.elapsed() < Duration::from_secs(2) {
+        match socket.next().await {
+            Some(Ok(Message::Text(text))) => {
+                if let Ok(ServerMessage::Error { error_code, .. }) = serde_json::from_str::<ServerMessage>(&text) {
+                    assert_eq!(
+                        error_code.as_deref(), Some("AUTH_FAILED"),
+                        "Second bad token should also get AUTH_FAILED (not RATE_LIMIT_EXCEEDED)"
+                    );
+                    got_second_error = true;
+                }
+                break;
+            }
+            Some(Ok(Message::Close(_))) | None => break,
+            _ => {}
+        }
     }
+    assert!(got_second_error, "Should get AUTH_FAILED for second bad token (connection allows retry)");
 }
 
 // ==================== Origin Validation Tests ====================

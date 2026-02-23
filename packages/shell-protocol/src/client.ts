@@ -14,6 +14,7 @@ export interface IShellSocket {
   on(event: 'open', listener: () => void): this;
   on(event: 'close', listener: () => void): this;
   on(event: 'error', listener: (err: any) => void): this;
+  removeAllListeners(event?: string): this;
 }
 
 /** Extract a specific variant from the ServerMessage union by its type literal */
@@ -57,6 +58,10 @@ export class ShellClient extends TypedEmitter {
   }
 
   connect(socket: IShellSocket) {
+    // Detach listeners from the old socket to prevent event leaks on reconnect
+    if (this.socket) {
+      this.socket.removeAllListeners();
+    }
     this.socket = socket;
     this._authenticated = false;
     this.messageQueue = [];

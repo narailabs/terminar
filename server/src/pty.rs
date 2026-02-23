@@ -145,6 +145,7 @@ impl portable_pty::Child for MockChild {
 pub struct MockMasterPty {
     sender: std::sync::mpsc::Sender<u8>,
     receiver: std::sync::Arc<std::sync::Mutex<std::sync::mpsc::Receiver<u8>>>,
+    size: std::sync::Mutex<PtySize>,
 }
 
 impl Default for MockMasterPty {
@@ -159,13 +160,19 @@ impl MockMasterPty {
         Self {
             sender: tx,
             receiver: std::sync::Arc::new(std::sync::Mutex::new(rx)),
+            size: std::sync::Mutex::new(PtySize::default()),
         }
     }
 }
 
 impl portable_pty::MasterPty for MockMasterPty {
-    fn resize(&self, _size: PtySize) -> Result<(), anyhow::Error> { Ok(()) }
-    fn get_size(&self) -> Result<PtySize, anyhow::Error> { Ok(PtySize::default()) }
+    fn resize(&self, size: PtySize) -> Result<(), anyhow::Error> {
+        *self.size.lock().unwrap() = size;
+        Ok(())
+    }
+    fn get_size(&self) -> Result<PtySize, anyhow::Error> {
+        Ok(*self.size.lock().unwrap())
+    }
     fn try_clone_reader(&self) -> Result<Box<dyn Read + Send + 'static>, anyhow::Error> {
         Ok(Box::new(MockReader { receiver: self.receiver.clone() }))
     }
@@ -289,9 +296,14 @@ pub mod tests {
 
         let pty = MockMasterPty::new();
 
-        assert!(pty.resize(PtySize::default()).is_ok());
+        let new_size = PtySize { rows: 50, cols: 120, pixel_width: 960, pixel_height: 400 };
+        pty.resize(new_size).unwrap();
 
-        assert!(pty.get_size().is_ok());
+        let retrieved = pty.get_size().unwrap();
+        assert_eq!(retrieved.rows, 50);
+        assert_eq!(retrieved.cols, 120);
+        assert_eq!(retrieved.pixel_width, 960);
+        assert_eq!(retrieved.pixel_height, 400);
 
     }
 

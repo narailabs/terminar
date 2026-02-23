@@ -59,15 +59,26 @@ describe('HealthPoller', () => {
 
     // Should have at least one event from the immediate poll
     expect(events.length).toBeGreaterThanOrEqual(1);
+    // Verify the callback payload has the correct stopped status
+    expect(events[0]).toEqual(expect.objectContaining({ status: 'stopped' }));
   });
 
-  it('start() stops previous interval before starting a new one', () => {
+  it('start() stops previous interval before starting a new one', async () => {
     poller = new HealthPoller();
+    const events: unknown[] = [];
+    poller.setCallback((h) => events.push(h));
+
     poller.start(59999);
     // Starting again should not cause double intervals
     poller.start(59998);
+    await new Promise((r) => setTimeout(r, 500));
     poller.stop();
-    // No error means the old interval was properly cleared
+
+    // All events should reflect the second port (59998), not double-firing from both
+    expect(events.length).toBeGreaterThanOrEqual(1);
+    for (const event of events) {
+      expect(event).toEqual(expect.objectContaining({ status: 'stopped' }));
+    }
   });
 
   it('returns running status for valid health response', async () => {

@@ -44,7 +44,7 @@ suite('ServerController Error Handling', () => {
         controller.spawn().catch(() => {});
     });
 
-    test('spawn rejects when child process emits error', async () => {
+    test('async child process error emits on controller with original message', async () => {
         const mockSpawner = () => {
             const child = new MockChildProcess();
             setTimeout(() => child.emit('error', new Error('Spawn failed')), 10);
@@ -53,14 +53,16 @@ suite('ServerController Error Handling', () => {
 
         const controller = new ServerController('/tmp', mockSpawner);
 
-        let errorEmitted = false;
-        controller.on('error', () => { errorEmitted = true; });
+        // spawn() resolves immediately (fire-and-forget); errors arrive asynchronously
+        const errorPromise = new Promise<Error>((resolve) => {
+            controller.on('error', resolve);
+        });
 
-        // The current implementation resolves immediately after unref,
-        // so we need to wait for the async error
         await controller.spawn();
-        await new Promise(r => setTimeout(r, 50));
-        assert.ok(errorEmitted, 'Error event should have been emitted');
+
+        const emittedError = await errorPromise;
+        assert.strictEqual(emittedError.message, 'Spawn failed',
+            'Emitted error should contain the original error message');
     });
 
     test('spawn rejects on synchronous throw', async () => {
