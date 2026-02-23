@@ -146,16 +146,15 @@
   // Without this, high-throughput programs (Claude Code, cat large-file, etc.) flood
   // xterm.js with many small write() calls per frame, overwhelming the rendering pipeline
   // and causing the terminal to appear frozen or not scroll to the bottom.
-  const WRITE_CHUNK_SIZE = 64 * 1024; // 64KB max per term.write() call
+  const WRITE_CHUNK_SIZE = 16 * 1024; // 16KB per term.write() call — small enough for xterm to process within its ~16ms frame budget.
+                                      // TUI flicker is avoided by the burst batching logic (FLUSH_TIME_BUDGET_MS) which flushes
+                                      // multiple chunks synchronously in the same frame before yielding.
   const MAX_BUFFER_SIZE = 512 * 1024; // 512KB cap to prevent unbounded memory growth (and GC pressure from large string copies)
-  const WRITE_PENDING_TIMEOUT = 150; // 150ms recovery timeout if term.write() callback never fires (e.g. WebGL context loss)
   const SCROLL_THROTTLE_MS = 100; // During burst output, scroll at most every 100ms
   const FLUSH_TIME_BUDGET_MS = 8; // Max ms to spend flushing before yielding to browser
   const REFRESH_INTERVAL_MS = 200; // During sustained output, force a screen repaint every 200ms
   let writeBuffer = '';
   let writeRafId: number | null = null;
-  let writePending = false;
-  let writePendingTimer: ReturnType<typeof setTimeout> | null = null;
   let flushBurstStart = 0; // Timestamp of first flush in current burst
   let lastRefreshTime = 0; // Last time we forced a term.refresh() during sustained output
   // Independent screen refresh timer — runs during active output regardless of
@@ -163,6 +162,9 @@
   // (xterm defers heavy ANSI parsing, or WebGL context loss recovery), the screen
   // freezes because the only refresh calls lived inside the write callback.
   let refreshIntervalId: ReturnType<typeof setInterval> | null = null;
+  // Track number of in-flight writes to xterm (writes sent but callbacks not yet fired).
+  // Used to schedule scroll-to-bottom only after all in-flight writes have been processed.
+  let writesInFlight = 0;
   // Flag set synchronously around programmatic scrollToBottom() calls so the
   // scroll event listener can skip the deferred isAtBottom() check. Setting
   // scrollTop fires the scroll event synchronously, so this flag is only true
@@ -276,106 +278,89 @@
   }
 
   function scheduleFlush() {
-    if (writeRafId === null && !writePending && writeBuffer) {
+    if (writeRafId === null && writeBuffer) {
       writeRafId = requestAnimationFrame(flushWriteBuffer);
     }
   }
 
   function flushWriteBuffer() {
-    // Reset burst timer only when entering via rAF (not on direct calls from callback).
-    // This ensures the 8ms budget spans the entire burst, not each individual chunk.
+    // Reset burst timer when entering via rAF (not on recursive calls within the same frame).
     if (writeRafId !== null) flushBurstStart = performance.now();
     writeRafId = null;
     if (!writeBuffer || !term) return;
 
-    // Take at most WRITE_CHUNK_SIZE from the front of the buffer
-    const chunk = writeBuffer.length <= WRITE_CHUNK_SIZE
-      ? writeBuffer
-      : writeBuffer.slice(0, WRITE_CHUNK_SIZE);
-    writeBuffer = writeBuffer.length <= WRITE_CHUNK_SIZE
-      ? ''
-      : writeBuffer.slice(WRITE_CHUNK_SIZE);
+    // Drain our buffer into xterm in chunks, staying within the time budget.
+    // xterm has its own internal write queue that processes data asynchronously
+    // (~16ms per frame). We don't need to wait for each callback — just hand off
+    // chunks and let xterm queue them. The callback is used only for scroll/refresh
+    // coordination after xterm finishes processing each chunk.
+    while (writeBuffer && performance.now() - flushBurstStart < FLUSH_TIME_BUDGET_MS) {
+      const chunk = writeBuffer.length <= WRITE_CHUNK_SIZE
+        ? writeBuffer
+        : writeBuffer.slice(0, WRITE_CHUNK_SIZE);
+      writeBuffer = writeBuffer.length <= WRITE_CHUNK_SIZE
+        ? ''
+        : writeBuffer.slice(WRITE_CHUNK_SIZE);
 
-    writePending = true;
+      const isLastChunk = !writeBuffer;
+      writesInFlight++;
 
-    // Safety timeout: if term.write() callback never fires (e.g. WebGL context loss,
-    // xterm parser error), force-clear writePending to prevent permanent pipeline freeze.
-    // Without this, a single lost callback deadlocks all future output permanently.
-    if (writePendingTimer !== null) clearTimeout(writePendingTimer);
-    writePendingTimer = setTimeout(() => {
-      if (writePending) {
-        console.warn('[Terminal] write callback did not fire within timeout -- recovering pipeline');
-        writePending = false;
-        writePendingTimer = null;
-        // Force a screen repaint so the user sees whatever has been parsed so far
-        if (term) term.refresh(0, term.rows - 1);
-        scheduleFlush();
-      }
-    }, WRITE_PENDING_TIMEOUT);
+      term.write(chunk, () => {
+        writesInFlight--;
 
-    term.write(chunk, () => {
-      writePending = false;
-      if (writePendingTimer !== null) {
-        clearTimeout(writePendingTimer);
-        writePendingTimer = null;
-      }
+        if (!term) return;
 
-      if (term) {
-        const now = performance.now();
-        if (!writeBuffer) {
-          // Last chunk in buffer — force a full repaint after each output burst completes.
-          // This ensures xterm's DOM rows are up-to-date even if the internal
-          // render loop missed a frame during heavy output (e.g. after WebGL
-          // context loss or renderer fallback). Without this, the terminal can
-          // appear frozen (stale rows, missing cursor) while the data is in the
-          // buffer but not painted. This MUST NOT be gated on autoScroll —
-          // repainting the screen is independent of scroll position.
-          lastRefreshTime = now;
-          requestAnimationFrame(() => {
-            if (term) term.refresh(0, term.rows - 1);
-          });
-        } else if (now - lastRefreshTime >= REFRESH_INTERVAL_MS) {
-          // Sustained output — buffer hasn't drained yet. Force a periodic repaint
-          // so the screen stays live during long bursts (e.g. large colored output).
-          // Without this, the terminal can appear frozen for the entire burst duration
-          // because term.refresh() only fires when the buffer fully drains.
-          lastRefreshTime = now;
-          requestAnimationFrame(() => {
-            if (term) term.refresh(0, term.rows - 1);
-          });
-        }
-      }
+        // Refresh / scroll coordination — only act when this is the last
+        // in-flight write (all queued data has been processed by xterm).
+        if (writesInFlight === 0) {
+          if (!writeBuffer) {
+            // All data processed — force a full repaint so the cursor and
+            // final lines are visible. This MUST NOT be gated on autoScroll.
+            lastRefreshTime = performance.now();
+            requestAnimationFrame(() => {
+              if (term) term.refresh(0, term.rows - 1);
+            });
+          }
 
-      if (autoScroll && settingsStore.value.autoScroll && term) {
-        const now = Date.now();
-        if (!writeBuffer) {
-          // Last chunk in buffer -- always scroll so final position is correct
-          scrolledByUs = true;
-          term.scrollToBottom();
-          scrolledByUs = false;
-          lastScrollToBottomTime = now;
-        } else if (now - lastScrollToBottomTime >= SCROLL_THROTTLE_MS) {
-          // Intermediate chunk but throttle interval elapsed -- scroll for visual feedback
-          scrolledByUs = true;
-          term.scrollToBottom();
-          scrolledByUs = false;
-          lastScrollToBottomTime = now;
-        }
-        // Otherwise skip -- next chunk or trailing call will handle it
-      }
-
-      // If there's more data, flush immediately to batch writes in the same
-      // frame. This prevents TUI screen clear+redraw from being split across
-      // multiple browser paints (which shows as flicker). Yield via rAF only
-      // if we've exceeded the time budget to keep the UI responsive.
-      if (writeBuffer) {
-        if (performance.now() - flushBurstStart < FLUSH_TIME_BUDGET_MS) {
-          flushWriteBuffer();
+          // Scroll to bottom after the last in-flight write resolves
+          if (autoScroll && settingsStore.value.autoScroll) {
+            scrolledByUs = true;
+            term.scrollToBottom();
+            scrolledByUs = false;
+            lastScrollToBottomTime = Date.now();
+          }
         } else {
+          // Intermediate callback — periodic refresh/scroll for visual feedback
+          const now = performance.now();
+          if (now - lastRefreshTime >= REFRESH_INTERVAL_MS) {
+            lastRefreshTime = now;
+            requestAnimationFrame(() => {
+              if (term) term.refresh(0, term.rows - 1);
+            });
+          }
+
+          if (autoScroll && settingsStore.value.autoScroll) {
+            const nowMs = Date.now();
+            if (nowMs - lastScrollToBottomTime >= SCROLL_THROTTLE_MS) {
+              scrolledByUs = true;
+              term.scrollToBottom();
+              scrolledByUs = false;
+              lastScrollToBottomTime = nowMs;
+            }
+          }
+        }
+
+        // If new data arrived while we were processing, schedule another flush
+        if (writeBuffer && writeRafId === null) {
           scheduleFlush();
         }
-      }
-    });
+      });
+    }
+
+    // If buffer still has data (time budget exceeded), yield and schedule next frame
+    if (writeBuffer) {
+      scheduleFlush();
+    }
   }
 
   // Minimum change in dimensions before we consider refitting
@@ -765,6 +750,7 @@
     // and force scroll-to-bottom so the user sees the prompt after TUI exit.
     if (term.buffer.onBufferChange) {
       term.buffer.onBufferChange(() => {
+        console.log(`[Terminal:${terminalInstanceId}] Buffer change to: ${term.buffer.active.type}, writesInFlight=${writesInFlight}, buffer=${writeBuffer.length}B`);
         if (term.buffer.active.type === 'normal') {
           autoScroll = true;
           // Defer scrollToBottom to next frame to ensure xterm has finished
@@ -792,7 +778,7 @@
         // are stale — we must force a full repaint so the screen doesn't appear
         // frozen with a missing cursor.
         webglAddon.onContextLoss(() => {
-          console.warn('[Terminal] WebGL context lost, disposing addon and refreshing');
+          console.warn(`[Terminal:${terminalInstanceId}] WebGL context lost! writesInFlight=${writesInFlight}, buffer=${writeBuffer.length}B`);
           webglAddon?.dispose();
           webglAddon = null;
           // Force DOM renderer to repaint all rows after takeover
@@ -937,10 +923,9 @@
   onDestroy(() => {
     console.log(`[Terminal:${terminalInstanceId}] Destroying terminal component. Session: ${currentAttachedSessionId?.slice(0, 8)}`);
     if (writeRafId !== null) cancelAnimationFrame(writeRafId);
-    if (writePendingTimer !== null) clearTimeout(writePendingTimer);
     if (refreshIntervalId) clearInterval(refreshIntervalId);
     writeBuffer = '';
-    writePending = false;
+    writesInFlight = 0;
     if (resizeTimeout) clearTimeout(resizeTimeout);
     if (outputActivityTimeout) clearTimeout(outputActivityTimeout);
     if (resizeDebouncer) resizeDebouncer.dispose();
