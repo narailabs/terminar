@@ -1011,7 +1011,9 @@
 </script>
 
 <div class="terminal-wrapper">
-  <div class="terminal-container" bind:this={terminalContainer} style:background-color={resolvedOptions?.theme?.background} onmousedown={() => { if (term) term.focus(); }}></div>
+  <div class="terminal-margins" style:background-color={resolvedOptions?.theme?.background}>
+    <div class="terminal-container" bind:this={terminalContainer} onmousedown={() => { if (term) term.focus(); }}></div>
+  </div>
   <button
     class="scroll-to-bottom-badge"
     class:visible={!autoScroll}
@@ -1027,6 +1029,13 @@
     width: 100%;
     height: 100%;
     overflow: hidden;
+  }
+
+  .terminal-margins {
+    width: 100%;
+    height: 100%;
+    padding: 0 0 0 6px;
+    box-sizing: border-box;
   }
 
   .terminal-container {
