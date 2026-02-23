@@ -10,6 +10,7 @@ export interface TerminalSettings {
   cursorBlink: boolean;    // default true
   lineHeight: number;      // 1.0-2.0, default 1.0
   showPaneTitleBars: boolean; // default true
+  dimInactivePanes: boolean; // default true — visually dim unfocused panes
   autoScroll: boolean;     // default true — scroll to bottom on new output
 }
 
@@ -23,6 +24,7 @@ export const DEFAULT_SETTINGS = {
   cursorBlink: true,
   lineHeight: 1.0,
   showPaneTitleBars: true,
+  dimInactivePanes: true,
   autoScroll: true,
 } as const satisfies TerminalSettings;
 
