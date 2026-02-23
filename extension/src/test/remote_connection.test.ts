@@ -32,31 +32,27 @@ suite('Remote Connection - WebSocketSessionManager', () => {
         assert.strictEqual(mgr.getState(), 'disconnected');
     });
 
-    test('WebSocketSessionManager has required methods', () => {
-        const mgr = new WebSocketSessionManager('ws://localhost:6749/ws', 'test-token');
-        assert.strictEqual(typeof mgr.connect, 'function');
-        assert.strictEqual(typeof mgr.disconnect, 'function');
-        assert.strictEqual(typeof mgr.listSessions, 'function');
-        assert.strictEqual(typeof mgr.createSession, 'function');
-        assert.strictEqual(typeof mgr.attach, 'function');
-        assert.strictEqual(typeof mgr.sendInput, 'function');
-        assert.strictEqual(typeof mgr.resize, 'function');
-        assert.strictEqual(typeof mgr.killSession, 'function');
-    });
+    test('WebSocketSessionManager connect to invalid URL emits error with message', async () => {
+        const mgr = new WebSocketSessionManager('ws://127.0.0.1:1/ws', 'test-token');
 
-    test('WebSocketSessionManager emits events', () => {
-        const mgr = new WebSocketSessionManager('ws://localhost:6749/ws', 'test-token');
+        const errorPromise = new Promise<Error>((resolve) => {
+            mgr.on('error', resolve);
+        });
 
-        // Verify it is an EventEmitter with the expected event methods
-        assert.strictEqual(typeof mgr.on, 'function');
-        assert.strictEqual(typeof mgr.emit, 'function');
+        try {
+            await mgr.connect();
+        } catch {
+            // connect may reject — that's fine
+        }
 
-        // Test that event listeners can be registered
-        let errorCalled = false;
-        mgr.on('error', () => { errorCalled = true; });
-        mgr.emit('error', new Error('test'));
-        assert.ok(errorCalled, 'Should handle error events');
-    });
+        const err = await Promise.race([
+            errorPromise,
+            new Promise<Error>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+        ]);
+
+        assert.ok(err instanceof Error, 'Should emit an Error object');
+        assert.ok(err.message.length > 0, 'Error message should be non-empty');
+    }).timeout(10000);
 
     test('disconnect can be called on a non-connected manager', () => {
         const mgr = new WebSocketSessionManager('ws://localhost:6749/ws', 'test-token');

@@ -44,30 +44,28 @@ describe('ShellClient Lifecycle', () => {
     expect(socket.close).toHaveBeenCalled();
   });
 
-  it('should handle reconnect (connect called twice)', () => {
+  it('should detach old socket listeners on reconnect', () => {
     const socket1 = new MockSocket();
     const socket2 = new MockSocket();
     const client = new ShellClient('token');
-    
+
     client.connect(socket1);
     socket1.emit('open');
     expect(socket1.send).toHaveBeenCalled();
 
-    // Reconnect
+    // Reconnect with a new socket
     client.connect(socket2);
     socket2.emit('open');
     expect(socket2.send).toHaveBeenCalled();
-    
-    // Old socket events should probably not affect client if we detached?
-    // Current implementation DOES NOT detach old listeners!
-    // This is a potential bug or behavior we should verify.
-    // If socket1 emits message, client will still emit it.
-    
+
+    // Old socket events must NOT reach the client after reconnect
     const onMsg = vi.fn();
     client.on('message', onMsg);
     socket1.emit('message', JSON.stringify({ type: 'SessionList', sessions: [] }));
-    expect(onMsg).toHaveBeenCalled(); 
-    // This confirms we have a "leak" or "feature" where multiple sockets can drive the client if not cleaned up.
-    // For now, we just test that it works.
+    expect(onMsg).not.toHaveBeenCalled();
+
+    // New socket events should still work
+    socket2.emit('message', JSON.stringify({ type: 'SessionList', sessions: [] }));
+    expect(onMsg).toHaveBeenCalledTimes(1);
   });
 });

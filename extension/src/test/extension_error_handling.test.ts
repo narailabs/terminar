@@ -78,7 +78,7 @@ suite('Extension Server Error Handling Integration', () => {
         assert.ok(lines.some(l => l.includes('Something went wrong')), 'Should include error message');
     });
 
-    test('setupServerErrorHandler wires controller error to notification', (done) => {
+    test('setupServerErrorHandler wires controller error to notification with message and Retry', (done) => {
         const { setupServerErrorHandler } = require('../errorHandling');
 
         const mockSpawner = () => {
@@ -96,10 +96,12 @@ suite('Extension Server Error Handling Integration', () => {
             dispose: () => {}
         };
 
-        let errorShown = false;
+        let notificationMessage = '';
+        let notificationItems: string[] = [];
         const originalShowError = vscode.window.showErrorMessage;
         (vscode.window as any).showErrorMessage = (msg: string, ...items: string[]) => {
-            errorShown = true;
+            notificationMessage = msg;
+            notificationItems = items;
             return Promise.resolve(undefined);
         };
 
@@ -108,8 +110,20 @@ suite('Extension Server Error Handling Integration', () => {
         controller.spawn().catch(() => {});
 
         setTimeout(() => {
-            assert.ok(errorShown, 'Should show error notification');
-            assert.ok(lines.some(l => l.includes('Test error')), 'Should log error');
+            // Verify the notification message contains the error text
+            assert.ok(notificationMessage.includes('Test error'),
+                `Notification should contain error text, got: ${notificationMessage}`);
+            assert.ok(notificationMessage.includes('server'),
+                `Notification should mention server, got: ${notificationMessage}`);
+
+            // Verify Retry option is offered
+            assert.ok(notificationItems.includes('Retry'),
+                'Notification should offer Retry option');
+
+            // Verify error was logged to the output channel
+            assert.ok(lines.some(l => l.includes('Test error')),
+                'Should log error message to output channel');
+
             (vscode.window as any).showErrorMessage = originalShowError;
             done();
         }, 50);

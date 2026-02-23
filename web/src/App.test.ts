@@ -696,7 +696,7 @@ describe('App - Manager Events', () => {
     expect(foregroundStore.setForeground).toHaveBeenCalledWith('session-2', 'vim');
   });
 
-  it('stateChange callback updates connectionState', async () => {
+  it('stateChange callback updates connectionState and toggles UI', async () => {
     render(App, { props: { serverWsUrl: 'ws://localhost:6749/ws', serverHttpUrl: 'http://localhost:6749' } });
 
     await waitFor(() => {
@@ -707,11 +707,25 @@ describe('App - Manager Events', () => {
     const stateChangeCb = getCallback('stateChange');
     expect(stateChangeCb).toBeDefined();
 
-    // Invoking stateChange with 'disconnected' should update internal state
-    // We can't directly inspect connectionState, but the callback should not throw
+    // Transition to 'disconnected' should show LoginPage with failure message
     stateChangeCb('disconnected');
+    await waitFor(() => {
+      expect(screen.getByText('Failed to connect to local server.')).toBeTruthy();
+      expect(screen.getByText('Retry Connection')).toBeTruthy();
+    });
+
+    // Transition to 'connecting' should show connecting spinner
     stateChangeCb('connecting');
+    await waitFor(() => {
+      expect(screen.getByText('Connecting to local server...')).toBeTruthy();
+    });
+
+    // Transition to 'connected' should hide LoginPage and show connected UI
     stateChangeCb('connected');
+    await waitFor(() => {
+      expect(screen.queryByText('Failed to connect to local server.')).toBeNull();
+      expect(screen.queryByText('Connecting to local server...')).toBeNull();
+    });
   });
 
   it('sessionActivity callback calls activityStore.setActivity', async () => {
