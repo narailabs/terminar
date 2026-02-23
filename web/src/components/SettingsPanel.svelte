@@ -65,6 +65,11 @@
     settingsStore.updateSetting('showPaneTitleBars', target.checked);
   }
 
+  function handleDimInactivePanesChange(event: Event) {
+    const target = event.target as HTMLInputElement;
+    settingsStore.updateSetting('dimInactivePanes', parseFloat(target.value));
+  }
+
   function handleAutoScrollChange(event: Event) {
     const target = event.target as HTMLInputElement;
     settingsStore.updateSetting('autoScroll', target.checked);
@@ -366,6 +371,20 @@
           </label>
         </div>
 
+        <!-- Dim Inactive Panes -->
+        <div class="setting-group">
+          <label for="dimInactivePanes">Dim Inactive Panes {settings.dimInactivePanes >= 1 ? '(off)' : `(${Math.round(settings.dimInactivePanes * 100)}%)`}</label>
+          <input
+            type="range"
+            id="dimInactivePanes"
+            min="0.1"
+            max="1"
+            step="0.1"
+            value={settings.dimInactivePanes}
+            oninput={handleDimInactivePanesChange}
+          />
+        </div>
+
         <!-- Auto-Scroll -->
         <div class="setting-group toggle-group">
           <label for="autoScroll">Auto-Scroll on Output</label>
@@ -526,6 +545,27 @@
   .setting-group select:focus {
     outline: none;
     border-color: var(--ui-accent, #0e639c);
+  }
+
+  .setting-group input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 6px;
+    background: var(--ui-bg-tertiary, #3c3c3c);
+    border-radius: 3px;
+    outline: none;
+    cursor: pointer;
+  }
+
+  .setting-group input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    background: var(--ui-accent, #0e639c);
+    border-radius: 50%;
+    cursor: pointer;
   }
 
   .toggle-group {
