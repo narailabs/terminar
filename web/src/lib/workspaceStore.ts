@@ -80,6 +80,29 @@ function createWorkspaceStore() {
     return changed ? { ...node, children: newChildren } : node;
   }
 
+  /**
+   * Shallow-clone every node in the tree so Svelte 5's fine-grained prop
+   * reactivity sees new object references after in-place mutations.
+   */
+  function shallowCloneTree(node: SplitNode): SplitNode {
+    if (node.type === 'pane') return { ...node };
+    return { ...node, children: node.children.map(shallowCloneTree) };
+  }
+
+  /**
+   * Return a new ws where the active tab's entire tree has new object references.
+   * Call this at the end of every update() that mutates the pane tree in-place,
+   * so that SplitContainer/Pane props detect the change via === comparison.
+   */
+  function refreshActiveTab(ws: Workspace): Workspace {
+    const tabIdx = ws.tabs.findIndex((t) => t.id === ws.activeTabId);
+    if (tabIdx < 0) return ws;
+    const tab = ws.tabs[tabIdx];
+    const newTabs = [...ws.tabs];
+    newTabs[tabIdx] = { ...tab, root: shallowCloneTree(tab.root) };
+    return { ...ws, tabs: newTabs };
+  }
+
   function scheduleSave(workspace: Workspace) {
     saveToCache(workspace);
 
@@ -237,10 +260,9 @@ function createWorkspaceStore() {
             }
           }
         }
-        if (changed) {
-          scheduleSave(ws);
-        }
-        return ws;
+        if (!changed) return ws;
+        scheduleSave(ws);
+        return refreshActiveTab(ws);
       });
     },
 
@@ -253,11 +275,10 @@ function createWorkspaceStore() {
         if (!tab) return ws;
 
         const pane = findPane(tab.root, paneId);
-        if (pane) {
-          pane.sessionId = sessionId;
-          scheduleSave(ws);
-        }
-        return ws;
+        if (!pane) return ws;
+        pane.sessionId = sessionId;
+        scheduleSave(ws);
+        return refreshActiveTab(ws);
       });
     },
 
@@ -285,6 +306,7 @@ function createWorkspaceStore() {
             newPaneId = newPane.id;
             tab.root = createSplit(direction, [tab.root, newPane]);
             scheduleSave(ws);
+            return refreshActiveTab(ws);
           }
           return ws;
         }
@@ -310,7 +332,7 @@ function createWorkspaceStore() {
         }
 
         scheduleSave(ws);
-        return ws;
+        return refreshActiveTab(ws);
       });
 
       return newPaneId;
@@ -338,7 +360,7 @@ function createWorkspaceStore() {
             [parent.children[index], parent.children[index - 1]];
         }
         scheduleSave(ws);
-        return ws;
+        return refreshActiveTab(ws);
       });
 
       return newPaneId;
@@ -399,7 +421,7 @@ function createWorkspaceStore() {
           sourcePane.sessionId = targetPane.sessionId;
           targetPane.sessionId = tmp;
           scheduleSave(ws);
-          return ws;
+          return refreshActiveTab(ws);
         });
       } else {
         // Edge drop: move source session to a new split at target, then close source
@@ -435,7 +457,7 @@ function createWorkspaceStore() {
         if (tab.root.type === 'pane' && tab.root.id === paneId) {
           tab.root.sessionId = null;
           scheduleSave(ws);
-          return ws;
+          return refreshActiveTab(ws);
         }
 
         const parentResult = findParent(tab.root, paneId);
@@ -464,7 +486,7 @@ function createWorkspaceStore() {
         }
 
         scheduleSave(ws);
-        return ws;
+        return refreshActiveTab(ws);
       });
     },
 

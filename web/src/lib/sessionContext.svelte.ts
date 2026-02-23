@@ -44,6 +44,7 @@ export interface AppActions {
   closeTerminal(sessionId: string): void;
   renameTerminal(sessionId: string, newName: string): void;
   toggleSidebar(): void;
+  resetTerminal(sessionId: string, paneId: string): void;
 }
 
 // No-op actions for when context is not available (e.g., unit tests)
@@ -52,6 +53,7 @@ const NOOP_ACTIONS: AppActions = {
   closeTerminal() {},
   renameTerminal() {},
   toggleSidebar() {},
+  resetTerminal() {},
 };
 
 // --- Manager context ---

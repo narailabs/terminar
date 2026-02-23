@@ -84,6 +84,7 @@
     closeTerminal,
     renameTerminal,
     toggleSidebar: () => { sidebarOpen = !sidebarOpen; },
+    resetTerminal,
   };
   setActionsContext(appActions);
 
@@ -800,6 +801,19 @@
 
   function renameTerminal(sessionId: string, newName: string) {
     manager?.renameSession(sessionId, newName);
+  }
+
+  function resetTerminal(sessionId: string, paneId: string) {
+    const session = sessions.find(s => s.id === sessionId);
+    const cwd = session?.cwd || '';
+    const shell = session?.shell || '';
+    manager?.killSession(sessionId);
+    pendingNewTerminal = true;
+    pendingNewTerminalPaneId = paneId;
+    const estimatedCols = Math.max(40, Math.floor((window.innerWidth * 0.75) / 8));
+    const estimatedRows = Math.max(10, Math.floor((window.innerHeight * 0.85) / 17));
+    const envVars = getEffectiveEnv({});
+    manager?.createSession(cwd, shell, envVars, estimatedCols, estimatedRows);
   }
 
   // Sidebar event handlers

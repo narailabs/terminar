@@ -1011,7 +1011,7 @@
 </script>
 
 <div class="terminal-wrapper">
-  <div class="terminal-container" bind:this={terminalContainer} onmousedown={() => { if (term) term.focus(); }}></div>
+  <div class="terminal-container" bind:this={terminalContainer} style:background-color={resolvedOptions?.theme?.background} onmousedown={() => { if (term) term.focus(); }}></div>
   <button
     class="scroll-to-bottom-badge"
     class:visible={!autoScroll}
@@ -1071,6 +1071,21 @@
     width: 100%;
     height: 100%;
     overflow: hidden;
+  }
+
+  /* Fix bottom gap: xterm.css hardcodes viewport bg to #000 which
+     doesn't match the terminal theme. Inherit from container instead.
+     Also hide native scrollbar — xterm v6 uses SmoothScrollableElement
+     for scrolling with its own custom scrollbar. The native scrollbar
+     leaks through in the partial-row gap area. */
+  .terminal-container :global(.xterm-viewport) {
+    background-color: inherit !important;
+    scrollbar-width: none;
+  }
+
+  .terminal-container :global(.xterm-viewport::-webkit-scrollbar) {
+    width: 0;
+    height: 0;
   }
 
   /* xterm v6 uses VS Code's SmoothScrollableElement with class .xterm-scrollable-element.

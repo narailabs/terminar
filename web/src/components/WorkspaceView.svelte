@@ -258,6 +258,18 @@
     }
   }
 
+  function handleResetTerminal() {
+    if (!contextMenu) return;
+    const tab = $workspaceStore.tabs.find(t => t.id === $workspaceStore.activeTabId);
+    if (!tab) { contextMenu = null; return; }
+    const pane = findPane(tab.root, contextMenu.paneId);
+    if (!pane?.sessionId) { contextMenu = null; return; }
+    const confirmed = window.confirm('Reset this terminal?\n\nThis will end the current session and start a fresh one in the same directory.');
+    if (!confirmed) { contextMenu = null; return; }
+    actions.resetTerminal(pane.sessionId, contextMenu.paneId);
+    contextMenu = null;
+  }
+
   function handleSetTerminalTheme(themeId: string) {
     if (contextMenu) {
       setTerminalOverride(contextMenu.paneId, themeId);
@@ -341,6 +353,8 @@
     { type: 'separator' as const },
     { label: 'Clear Pane', action: handleClearPane },
     { label: 'Close Pane', action: handleClosePane, shortcut: 'Cmd+W' },
+    { type: 'separator' as const },
+    { label: 'Reset Terminal', action: handleResetTerminal },
   ] : []);
 </script>
 
