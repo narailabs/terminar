@@ -208,13 +208,12 @@ fn resolve_process_name_raw(pid: i32) -> Option<String> {
     }
 
     // Fallback: /proc/<pid>/cmdline (null-separated args)
-    if let Ok(cmdline_bytes) = std::fs::read(format!("/proc/{}/cmdline", pid)) {
-        if let Some(first_arg) = cmdline_bytes.split(|&b| b == 0).next() {
-            if let Ok(arg) = std::str::from_utf8(first_arg) {
-                let binary = std::path::Path::new(arg).file_name()?.to_str()?.to_string();
-                return Some(binary);
-            }
-        }
+    if let Ok(cmdline_bytes) = std::fs::read(format!("/proc/{}/cmdline", pid))
+        && let Some(first_arg) = cmdline_bytes.split(|&b| b == 0).next()
+        && let Ok(arg) = std::str::from_utf8(first_arg)
+    {
+        let binary = std::path::Path::new(arg).file_name()?.to_str()?.to_string();
+        return Some(binary);
     }
 
     None
