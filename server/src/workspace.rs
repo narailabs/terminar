@@ -98,18 +98,16 @@ pub fn load_workspace() -> WorkspaceState {
     let path = get_workspace_path();
 
     match fs::read_to_string(&path) {
-        Ok(content) => {
-            match serde_json::from_str::<WorkspaceState>(&content) {
-                Ok(state) => {
-                    info!("Loaded workspace from {:?}", path);
-                    state
-                }
-                Err(e) => {
-                    warn!("Failed to parse workspace file: {}. Using defaults.", e);
-                    WorkspaceState::default()
-                }
+        Ok(content) => match serde_json::from_str::<WorkspaceState>(&content) {
+            Ok(state) => {
+                info!("Loaded workspace from {:?}", path);
+                state
             }
-        }
+            Err(e) => {
+                warn!("Failed to parse workspace file: {}. Using defaults.", e);
+                WorkspaceState::default()
+            }
+        },
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
             info!("No workspace file found, using defaults");
             WorkspaceState::default()
@@ -140,8 +138,7 @@ pub fn save_workspace(state: &WorkspaceState) -> Result<(), io::Error> {
     }
 
     // Serialize to pretty JSON
-    let json = serde_json::to_string_pretty(state)
-        .map_err(io::Error::other)?;
+    let json = serde_json::to_string_pretty(state).map_err(io::Error::other)?;
 
     // Write to file
     fs::write(&path, json)?;
@@ -186,8 +183,14 @@ mod tests {
             id: "split1".to_string(),
             direction: SplitDirection::Horizontal,
             children: vec![
-                SplitNode::Pane { id: "pane1".to_string(), session_id: None },
-                SplitNode::Pane { id: "pane2".to_string(), session_id: None },
+                SplitNode::Pane {
+                    id: "pane1".to_string(),
+                    session_id: None,
+                },
+                SplitNode::Pane {
+                    id: "pane2".to_string(),
+                    session_id: None,
+                },
             ],
             ratios: vec![0.5, 0.5],
         };
@@ -266,7 +269,13 @@ mod tests {
         let state: WorkspaceState = serde_json::from_str(json).unwrap();
         assert_eq!(state.workspace.tabs.len(), 1);
 
-        if let SplitNode::Split { direction, children, ratios, .. } = &state.workspace.tabs[0].root {
+        if let SplitNode::Split {
+            direction,
+            children,
+            ratios,
+            ..
+        } = &state.workspace.tabs[0].root
+        {
             assert_eq!(*direction, SplitDirection::Horizontal);
             assert_eq!(children.len(), 2);
             assert_eq!(ratios.len(), 2);
@@ -284,8 +293,14 @@ mod tests {
                 id: "s1".to_string(),
                 direction: SplitDirection::Horizontal,
                 children: vec![
-                    SplitNode::Pane { id: "p1".to_string(), session_id: None },
-                    SplitNode::Pane { id: "p2".to_string(), session_id: None },
+                    SplitNode::Pane {
+                        id: "p1".to_string(),
+                        session_id: None,
+                    },
+                    SplitNode::Pane {
+                        id: "p2".to_string(),
+                        session_id: None,
+                    },
                 ],
                 ratios: vec![0.5, 0.5],
             },

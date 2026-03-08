@@ -9,7 +9,7 @@
 
 use axum::{
     extract::State,
-    http::{Request, HeaderValue},
+    http::{HeaderValue, Request},
     middleware::Next,
     response::Response,
 };
@@ -29,13 +29,16 @@ pub async fn security_headers_middleware(
     let mut response = next.run(req).await;
     let headers = response.headers_mut();
 
-    headers.insert("X-Content-Type-Options", HeaderValue::from_static("nosniff"));
+    headers.insert(
+        "X-Content-Type-Options",
+        HeaderValue::from_static("nosniff"),
+    );
     headers.insert("X-Frame-Options", HeaderValue::from_static("DENY"));
     headers.insert("Referrer-Policy", HeaderValue::from_static("no-referrer"));
     headers.insert(
         "Content-Security-Policy",
         HeaderValue::from_static(
-            "default-src 'self'; connect-src 'self' wss:; style-src 'self' 'unsafe-inline'"
+            "default-src 'self'; connect-src 'self' wss:; style-src 'self' 'unsafe-inline'",
         ),
     );
 
@@ -52,7 +55,7 @@ pub async fn security_headers_middleware(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{body::Body, http::Request, routing::get, Router, middleware};
+    use axum::{Router, body::Body, http::Request, middleware, routing::get};
     use tower::ServiceExt;
 
     fn test_app(tls_enabled: bool) -> Router {
@@ -78,10 +81,7 @@ mod tests {
             response.headers().get("X-Content-Type-Options").unwrap(),
             "nosniff"
         );
-        assert_eq!(
-            response.headers().get("X-Frame-Options").unwrap(),
-            "DENY"
-        );
+        assert_eq!(response.headers().get("X-Frame-Options").unwrap(), "DENY");
         assert_eq!(
             response.headers().get("Referrer-Policy").unwrap(),
             "no-referrer"
@@ -91,7 +91,12 @@ mod tests {
             "default-src 'self'; connect-src 'self' wss:; style-src 'self' 'unsafe-inline'"
         );
         // HSTS should NOT be set when tls_enabled=false
-        assert!(response.headers().get("Strict-Transport-Security").is_none());
+        assert!(
+            response
+                .headers()
+                .get("Strict-Transport-Security")
+                .is_none()
+        );
     }
 
     #[tokio::test]
@@ -118,6 +123,11 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(response.headers().get("Strict-Transport-Security").is_none());
+        assert!(
+            response
+                .headers()
+                .get("Strict-Transport-Security")
+                .is_none()
+        );
     }
 }

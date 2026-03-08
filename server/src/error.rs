@@ -145,14 +145,29 @@ mod tests {
 
     #[test]
     fn test_error_codes() {
-        assert_eq!(ServerError::session_not_found("x").error_code(), "SESSION_NOT_FOUND");
+        assert_eq!(
+            ServerError::session_not_found("x").error_code(),
+            "SESSION_NOT_FOUND"
+        );
         assert_eq!(ServerError::AuthFailed.error_code(), "AUTH_FAILED");
         assert_eq!(ServerError::pty("x").error_code(), "PTY_ERROR");
-        assert_eq!(ServerError::WebSocketError("x".into()).error_code(), "WEBSOCKET_ERROR");
+        assert_eq!(
+            ServerError::WebSocketError("x".into()).error_code(),
+            "WEBSOCKET_ERROR"
+        );
         assert_eq!(ServerError::protocol("x").error_code(), "PROTOCOL_ERROR");
-        assert_eq!(ServerError::RateLimitExceeded.error_code(), "RATE_LIMIT_EXCEEDED");
-        assert_eq!(ServerError::invalid_input("x").error_code(), "INVALID_INPUT");
-        assert_eq!(ServerError::Internal("x".into()).error_code(), "INTERNAL_ERROR");
+        assert_eq!(
+            ServerError::RateLimitExceeded.error_code(),
+            "RATE_LIMIT_EXCEEDED"
+        );
+        assert_eq!(
+            ServerError::invalid_input("x").error_code(),
+            "INVALID_INPUT"
+        );
+        assert_eq!(
+            ServerError::Internal("x".into()).error_code(),
+            "INTERNAL_ERROR"
+        );
     }
 
     #[test]
@@ -160,7 +175,10 @@ mod tests {
         let err = ServerError::session_not_found("test-id");
         let msg = err.to_error_message();
         match msg {
-            crate::messages::ServerMessage::Error { message, error_code } => {
+            crate::messages::ServerMessage::Error {
+                message,
+                error_code,
+            } => {
                 assert_eq!(message, "session not found: test-id");
                 assert_eq!(error_code, Some("SESSION_NOT_FOUND".to_string()));
             }

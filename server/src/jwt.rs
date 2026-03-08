@@ -3,7 +3,7 @@
 //! After successful authentication (PAM password or SSH pubkey),
 //! the server issues a JWT that clients use for reconnection.
 
-use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey};
+use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -37,7 +37,7 @@ fn default_token_type() -> String {
 
 /// Generate a cryptographically random 256-bit signing key.
 pub fn generate_signing_key() -> Vec<u8> {
-    use ring::rand::{SystemRandom, SecureRandom};
+    use ring::rand::{SecureRandom, SystemRandom};
     let rng = SystemRandom::new();
     let mut key = vec![0u8; 32];
     rng.fill(&mut key).expect("Failed to generate random key");
@@ -97,7 +97,11 @@ fn issue_typed_token_at(
         jti: uuid::Uuid::new_v4().to_string(),
     };
 
-    encode(&Header::new(Algorithm::HS256), &claims, &EncodingKey::from_secret(key))
+    encode(
+        &Header::new(Algorithm::HS256),
+        &claims,
+        &EncodingKey::from_secret(key),
+    )
 }
 
 /// Issue a short-lived access token (typically 15 minutes).
@@ -157,10 +161,7 @@ pub fn validate_refresh_token(
 }
 
 /// Validate a JWT token and return its claims.
-pub fn validate_token(
-    key: &[u8],
-    token: &str,
-) -> Result<Claims, jsonwebtoken::errors::Error> {
+pub fn validate_token(key: &[u8], token: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
     let mut validation = Validation::new(Algorithm::HS256);
     validation.leeway = 0;
     validation.required_spec_claims.clear();
@@ -238,7 +239,10 @@ mod tests {
             .expect("Should issue token");
 
         let result = validate_token(&key2, &token);
-        assert!(result.is_err(), "Token signed with different key should fail validation");
+        assert!(
+            result.is_err(),
+            "Token signed with different key should fail validation"
+        );
     }
 
     #[test]
@@ -248,9 +252,16 @@ mod tests {
         let past = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
-            .as_secs() - 7200;
-        let token = issue_token_at(&key, "narayan", "server-123", past, Duration::from_secs(3600))
-            .expect("Should issue token");
+            .as_secs()
+            - 7200;
+        let token = issue_token_at(
+            &key,
+            "narayan",
+            "server-123",
+            past,
+            Duration::from_secs(3600),
+        )
+        .expect("Should issue token");
 
         let result = validate_token(&key, &token);
         assert!(result.is_err(), "Expired token should fail validation");
@@ -272,7 +283,11 @@ mod tests {
         let claims = validate_token(&key, &token).expect("Should validate");
         assert!(claims.iat > 0, "iat should be set");
         assert!(claims.exp > claims.iat, "exp should be after iat");
-        assert_eq!(claims.exp - claims.iat, 3600, "Expiry should match requested duration");
+        assert_eq!(
+            claims.exp - claims.iat,
+            3600,
+            "Expiry should match requested duration"
+        );
     }
 
     #[test]
@@ -297,11 +312,15 @@ mod tests {
     #[test]
     fn test_refresh_token_cannot_be_used_as_access() {
         let key = generate_signing_key();
-        let refresh = issue_refresh_token(&key, "narayan", "server-123", Duration::from_secs(604800))
-            .expect("Should issue refresh token");
+        let refresh =
+            issue_refresh_token(&key, "narayan", "server-123", Duration::from_secs(604800))
+                .expect("Should issue refresh token");
         // validate_token (for access) should reject refresh tokens
         let result = validate_access_token(&key, &refresh);
-        assert!(result.is_err(), "Refresh token should not be accepted as access token");
+        assert!(
+            result.is_err(),
+            "Refresh token should not be accepted as access token"
+        );
     }
 
     #[test]
@@ -310,7 +329,10 @@ mod tests {
         let access = issue_access_token(&key, "narayan", "server-123", Duration::from_secs(900))
             .expect("Should issue access token");
         let result = validate_refresh_token(&key, &access);
-        assert!(result.is_err(), "Access token should not be accepted as refresh token");
+        assert!(
+            result.is_err(),
+            "Access token should not be accepted as refresh token"
+        );
     }
 
     #[test]
@@ -344,7 +366,10 @@ mod tests {
         let claims2 = validate_token(&key, &token2).unwrap();
         assert!(!claims1.jti.is_empty(), "jti should not be empty");
         assert!(!claims2.jti.is_empty(), "jti should not be empty");
-        assert_ne!(claims1.jti, claims2.jti, "Each token should have a unique jti");
+        assert_ne!(
+            claims1.jti, claims2.jti,
+            "Each token should have a unique jti"
+        );
     }
 
     #[test]
