@@ -5,20 +5,17 @@
   "description": "terminar - Persistent terminal sessions with web, electron, and VS Code extension frontends",
   "scripts": {
     "server:build": "cd server && cargo build --release",
-    "server:dev": "cd server && PATH=\"$HOME/.cargo/bin:$PATH\" cargo run --bin terminar-server -- --no-auth",
-    "server:dev:mock": "cd server && PATH=\"$HOME/.cargo/bin:$PATH\" cargo run --bin terminar-server -- --no-auth --mock-pty",
+    "server:dev": "cd server && PATH=\"$HOME/.cargo/bin:$PATH\" cargo run --bin terminar-server -- --no-auth --port 6750",
+    "server:dev:mock": "cd server && PATH=\"$HOME/.cargo/bin:$PATH\" cargo run --bin terminar-server -- --no-auth --mock-pty --port 6750",
     "web:dev": "cd web && pnpm dev",
-    "electron:dev": "cd electron && pnpm dev",
     "tray:dev": "cd tray && pnpm dev",
     "tray:build": "cd tray && pnpm build:electron",
     "dev": "concurrently -k -n server,web -c blue,green \"pnpm server:dev\" \"pnpm wait-then:web\"",
     "dev:mock": "concurrently -k -n server,web -c blue,green \"pnpm server:dev:mock\" \"pnpm wait-then:web\"",
     "dev:tray": "concurrently --kill-others-on-fail -n server,web,tray -c blue,green,magenta \"pnpm server:dev\" \"pnpm wait-then:web\" \"pnpm wait-then:tray\"",
-    "dev:electron": "concurrently --kill-others-on-fail -n server,electron -c blue,yellow \"pnpm server:dev\" \"pnpm wait-then:electron\"",
-    "dev:all": "concurrently --kill-others-on-fail -n server,web,tray,electron -c blue,green,magenta,yellow \"pnpm server:dev\" \"pnpm wait-then:web\" \"pnpm wait-then:tray\" \"pnpm wait-then:electron\"",
-    "wait-then:web": "wait-on tcp:6749 && pnpm web:dev",
-    "wait-then:tray": "wait-on tcp:6749 && pnpm tray:dev",
-    "wait-then:electron": "wait-on tcp:6749 && pnpm electron:dev",
+    "dev:all": "concurrently --kill-others-on-fail -n server,web,tray -c blue,green,magenta \"pnpm server:dev\" \"pnpm wait-then:web\" \"pnpm wait-then:tray\"",
+    "wait-then:web": "wait-on tcp:6750 && pnpm web:dev",
+    "wait-then:tray": "wait-on tcp:6750 && pnpm tray:dev",
     "build": "pnpm server:build && cd web && pnpm build",
     "test": "cd server && cargo test && cd ../web && pnpm test",
     "test:server": "cd server && cargo test",
@@ -33,7 +30,8 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "electron",
-      "esbuild"
+      "esbuild",
+      "node-pty"
     ]
   }
 }
