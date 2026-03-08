@@ -8,6 +8,7 @@
   import { WebSocketSessionManager } from './lib/WebSocketSessionManager';
   import type { ConnectionState, SessionManager } from './lib/SessionManager';
   import { LocalEchoManager } from './lib/LocalEchoManager';
+  import { createManager as singletonCreate, destroyManager as singletonDestroy, isActiveManager } from './lib/connectionSingleton';
   import { settingsStore } from './lib/settingsStore.svelte';
   import { initializeSettings } from './lib/settingsApi';
   import { workspaceStore } from './lib/workspaceStore';
@@ -31,6 +32,10 @@
     (typeof localStorage !== 'undefined' && typeof localStorage.getItem === 'function' && localStorage.getItem('local-echo') === '1')
   );
 
+  // Connection management uses connectionSingleton.ts for deduplication.
+  // That module is a plain .ts file with true module-level scope, unlike
+  // Svelte 5 components where all <script> code is per-instance.
+
   interface SessionInfo {
     id: string;
     name: string;
@@ -41,8 +46,8 @@
 
   // Props for server URLs (allows testing with different URLs)
   let {
-    serverHttpUrl = 'http://localhost:6749',
-    serverWsUrl = 'ws://localhost:6749/ws',
+    serverHttpUrl = 'http://localhost:6750',
+    serverWsUrl = 'ws://localhost:6750/ws',
   }: {
     serverHttpUrl?: string;
     serverWsUrl?: string;
@@ -54,6 +59,8 @@
   let isPairingMode = $state(false);
   let isExchangingCode = $state(false);
   let isConnected = $state(false);
+  let hasConnectedOnce = $state(false);  // Track if we've ever connected
+  let serverRequiresAuth = $state(false);  // True when local server unexpectedly requires auth
   let authError = $state('');
   let isAuthenticating = $state(false);
   let manager = $state<SessionManager | null>(null);
@@ -288,6 +295,9 @@
   onDestroy(() => {
     window.removeEventListener('keydown', handleGlobalKeydown);
     stopTokenRefresh();
+    // Clean up via singleton (ensures only current active manager is affected)
+    singletonDestroy();
+    manager = null;
   });
 
   function handleKeydown(e: KeyboardEvent) {
@@ -332,17 +342,26 @@
   // Connect without authentication (for local connections)
   async function connectLocal() {
     console.log('[App] Auto-connecting to local server (no auth required)');
-    manager = new WebSocketSessionManager(serverWsUrl);
+    // Capture raw reference before assigning to $state (Svelte 5 may wrap
+    // plain objects in a reactive proxy, breaking strict-equality checks).
+    const mgr = singletonCreate(serverWsUrl);
+    manager = mgr;
 
     setupManagerEvents();
 
     connectionState = 'connecting';
     try {
-      await manager.connect();
+      await mgr.connect();
+      // After async connect, verify this manager is still the active singleton.
+      // If another mount replaced it while we were connecting, bail out.
+      if (!isActiveManager(mgr)) {
+        console.log('[App] Connection superseded by newer mount, skipping');
+        return;
+      }
       console.log('[App] Connected to local server');
       isConnected = true;
       connectionState = 'connected';
-      manager?.listSessions();
+      mgr.listSessions();
 
       // Initialize workspace
       const serverWorkspace = await loadWorkspace();
@@ -359,9 +378,21 @@
   function setupManagerEvents() {
     if (!manager) return;
 
+    // Remove all existing listeners to prevent accumulation during HMR or reconnection
+    manager.removeAllListeners();
+
     manager.on('stateChange', (state: ConnectionState) => {
       connectionState = state;
-      isConnected = state === 'connected';
+      if (state === 'connected') {
+        isConnected = true;
+        hasConnectedOnce = true;
+      } else if (state === 'disconnected' && !hasConnectedOnce) {
+        // Only show LoginPage if we've never successfully connected.
+        // During reconnection cycles, keep the workspace visible so
+        // terminals aren't destroyed — the toolbar shows reconnection status.
+        isConnected = false;
+      }
+      // For 'reconnecting' and 'connecting' after first connection, keep isConnected = true
     });
 
     manager.on('reconnecting', (attempt: number, delay: number) => {
@@ -464,6 +495,28 @@
 
     manager.on('error', (err: Error) => {
       console.error('WebSocket error:', err);
+
+      // Detect auth-related errors from the server (e.g. when the gateway
+      // requires authentication but connectLocal() skipped auth).  In that
+      // case, stop the reconnect loop and fall back to the login page so the
+      // user can provide credentials.
+      const isAuthError = /auth|Expected Auth|authentication/i.test(err.message);
+      if (isAuthError && isLocal) {
+        console.warn('[App] Local server requires authentication — showing login page');
+        // Stop reconnection (same auth-less attempt would fail again)
+        manager?.disconnect();
+        singletonDestroy();
+        manager = null;
+        hasConnectedOnce = false;
+        isConnected = false;
+        connectionState = 'disconnected';
+        // Switch LoginPage to auth mode so the login form is shown
+        // instead of the "Retry Connection" button.
+        serverRequiresAuth = true;
+        authError = 'Server requires authentication. Please sign in.';
+        return;
+      }
+
       if (connectionState === 'disconnected') {
         alert(`Connection error: ${err.message}`);
       }
@@ -523,7 +576,7 @@
 
     console.log('[App] Connecting to remote server with token');
     const wsUrl = enforceSecureConnection(serverWsUrl);
-    manager = new WebSocketSessionManager(wsUrl, token);
+    manager = singletonCreate(wsUrl, token);
 
     setupManagerEvents();
 
@@ -556,7 +609,7 @@
   // This runs silently (no isAuthenticating UI state) -- if it fails, the login page shows.
   async function connectWithCookie(): Promise<boolean> {
     const wsUrl = enforceSecureConnection(serverWsUrl);
-    const wsManager = new WebSocketSessionManager(wsUrl);
+    const wsManager = singletonCreate(wsUrl);
 
     // Set manager and wire up events BEFORE connecting, so events emitted
     // during auth are not missed (matches connectLocal/connectWithPassword pattern).
@@ -588,9 +641,8 @@
       workspaceStore.setSaveCallback(saveWorkspace);
       return true;
     } catch {
-      // Cookie auth failed -- clean up the manager to avoid resource leaks
-      // (WebSocketSessionManager registers a beforeunload listener in constructor)
-      wsManager.disconnect();
+      // Cookie auth failed -- clean up
+      singletonDestroy();
       manager = null;
       return false;
     }
@@ -603,7 +655,7 @@
 
     try {
       const wsUrl = enforceSecureConnection(serverWsUrl);
-      manager = new WebSocketSessionManager(wsUrl);
+      manager = singletonCreate(wsUrl);
       setupManagerEvents();
 
       const authPromise = new Promise<void>((resolve, reject) => {
@@ -635,7 +687,7 @@
       token = '';
       isConnected = false;
       connectionState = 'disconnected';
-      manager?.disconnect();
+      singletonDestroy();
       manager = null;
     } finally {
       isAuthenticating = false;
@@ -649,7 +701,7 @@
 
     try {
       const wsUrl = enforceSecureConnection(serverWsUrl);
-      manager = new WebSocketSessionManager(wsUrl);
+      manager = singletonCreate(wsUrl);
       setupManagerEvents();
 
       // Listen for auth result
@@ -685,7 +737,7 @@
       authError = err?.message || 'Authentication failed';
       isConnected = false;
       connectionState = 'disconnected';
-      manager?.disconnect();
+      singletonDestroy();
       manager = null;
     } finally {
       isAuthenticating = false;
@@ -702,7 +754,7 @@
       const { publicKeyStr, algorithm, signFn } = await parseSshPrivateKey(privateKeyPem);
 
       const wsUrl = enforceSecureConnection(serverWsUrl);
-      manager = new WebSocketSessionManager(wsUrl);
+      manager = singletonCreate(wsUrl);
       setupManagerEvents();
 
       const authPromise = new Promise<void>((resolve, reject) => {
@@ -738,7 +790,7 @@
       authError = err?.message || 'SSH key authentication failed';
       isConnected = false;
       connectionState = 'disconnected';
-      manager?.disconnect();
+      singletonDestroy();
       manager = null;
     } finally {
       isAuthenticating = false;
@@ -765,14 +817,18 @@
   }
 
   function handleRetryLocal() {
+    serverRequiresAuth = false;
+    authError = '';
     connectLocal();
   }
 
   // Logout: disconnect and clear token
   function logout() {
-    manager?.disconnect();
+    singletonDestroy();
     manager = null;
     isConnected = false;
+    hasConnectedOnce = false;
+    serverRequiresAuth = false;
     connectionState = 'disconnected';
     clearSessionCookie();
     token = '';
@@ -878,7 +934,7 @@
 <main>
   {#if !isConnected}
     <LoginPage
-      {isLocal}
+      isLocal={isLocal && !serverRequiresAuth}
       {connectionState}
       {authError}
       {isAuthenticating}
