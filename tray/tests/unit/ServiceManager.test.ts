@@ -1,4 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+// Mock getAppRoot before importing ServiceManager (it calls getAppRoot in findBinary)
+vi.mock('../../src/main/paths.js', () => ({
+  getAppRoot: () => '/tmp/mock-tray',
+}));
+
 import { ServiceManager } from '../../src/main/ServiceManager.js';
 import { DEFAULT_CONFIG } from '../../src/main/types.js';
 import type { TrayConfig } from '../../src/main/types.js';

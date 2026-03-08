@@ -8,7 +8,6 @@ import {
   app,
 } from 'electron';
 import path from 'path';
-import { spawn } from 'child_process';
 import { getAppRoot } from './paths.js';
 import { computeMenuSpec } from './menuSpec.js';
 import { ConfigStore } from './ConfigStore.js';
@@ -237,16 +236,7 @@ export class TrayManager {
       }
 
       case 'open-desktop-app': {
-        // Launch the electron desktop app from the electron/ directory.
-        // In dev, this runs `npx electron .` in the electron workspace.
-        // In production, this would open the packaged .app bundle.
-        const electronDir = path.resolve(getAppRoot(), '..', 'electron');
-        const child = spawn('npx', ['electron', '.'], {
-          cwd: electronDir,
-          detached: true,
-          stdio: 'ignore',
-        });
-        child.unref();
+        this.windowManager.openTerminal();
         break;
       }
 

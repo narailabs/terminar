@@ -17,6 +17,9 @@ if (!gotLock) {
   app.quit();
 }
 
+// Shared reference for lifecycle handlers
+let windowManager: WindowManager | null = null;
+
 // ------------------------------------------------------------------
 // App ready — main setup
 // ------------------------------------------------------------------
@@ -31,7 +34,7 @@ void app.whenReady().then(() => {
   const config = configStore.load();
   const serviceManager = new ServiceManager();
   const healthPoller = new HealthPoller();
-  const windowManager = new WindowManager();
+  windowManager = new WindowManager();
 
   // Create the tray (builds initial menu internally)
   const trayManager = new TrayManager(
@@ -71,6 +74,15 @@ app.on('window-all-closed', () => {
   // macOS: hide Dock icon when no windows are open
   if (process.platform === 'darwin') {
     app.dock?.hide();
+  }
+});
+
+// ------------------------------------------------------------------
+// macOS: reopen terminal when Dock icon is clicked with no windows
+// ------------------------------------------------------------------
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length === 0 && windowManager) {
+    windowManager.openTerminal();
   }
 });
 
