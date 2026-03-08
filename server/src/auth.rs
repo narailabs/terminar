@@ -28,7 +28,9 @@ pub struct PamVerifier {
 
 impl PamVerifier {
     pub fn new(service: &str) -> Self {
-        Self { service: service.to_string() }
+        Self {
+            service: service.to_string(),
+        }
     }
 }
 
@@ -113,7 +115,9 @@ impl PasswordVerifier for WinVerifier {
 
         if result != 0 {
             if !token.is_null() {
-                unsafe { CloseHandle(token); }
+                unsafe {
+                    CloseHandle(token);
+                }
             }
             Ok(())
         } else {
@@ -124,7 +128,7 @@ impl PasswordVerifier for WinVerifier {
 
 /// Direct FFI bindings to libpam. Avoids the pam-client crate's libclang dependency.
 mod pam_ffi {
-    use std::ffi::{CString, c_void, c_int, c_char};
+    use std::ffi::{CString, c_char, c_int, c_void};
     use std::ptr;
 
     // PAM constants
@@ -280,7 +284,8 @@ pub fn handle_password_auth(
     let expires_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .expect("Time went backwards")
-        .as_secs() + token_expiry.as_secs();
+        .as_secs()
+        + token_expiry.as_secs();
 
     // Format as ISO 8601
     let expires = format_unix_timestamp(expires_at);
@@ -289,10 +294,7 @@ pub fn handle_password_auth(
 }
 
 /// Validate a JWT token for reconnection.
-pub fn handle_token_auth(
-    signing_key: &[u8],
-    token: &str,
-) -> Result<AuthResult, String> {
+pub fn handle_token_auth(signing_key: &[u8], token: &str) -> Result<AuthResult, String> {
     let claims = jwt::validate_token(signing_key, token)
         .map_err(|e| format!("Token validation failed: {}", e))?;
 
@@ -336,7 +338,7 @@ pub fn read_authorized_keys(home_dir: &Path) -> Result<Vec<String>, String> {
 pub fn generate_nonce() -> String {
     use base64::Engine;
     let mut nonce = vec![0u8; 32];
-    use ring::rand::{SystemRandom, SecureRandom};
+    use ring::rand::{SecureRandom, SystemRandom};
     let rng = SystemRandom::new();
     rng.fill(&mut nonce).expect("Failed to generate nonce");
     base64::engine::general_purpose::STANDARD.encode(&nonce)
@@ -412,11 +414,10 @@ fn verify_signature_for_key(
     match pubkey.key_data() {
         KeyData::Ed25519(key) => {
             let key_bytes = key.as_ref();
-            let peer_public_key = ring::signature::UnparsedPublicKey::new(
-                &ring::signature::ED25519,
-                key_bytes,
-            );
-            peer_public_key.verify(message, signature)
+            let peer_public_key =
+                ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, key_bytes);
+            peer_public_key
+                .verify(message, signature)
                 .map_err(|_| "Ed25519 signature verification failed".to_string())
         }
         KeyData::Rsa(key) => {
@@ -428,7 +429,8 @@ fn verify_signature_for_key(
                 &ring::signature::RSA_PKCS1_2048_8192_SHA256,
                 &rsa_der,
             );
-            peer_public_key.verify(message, signature)
+            peer_public_key
+                .verify(message, signature)
                 .map_err(|_| "RSA signature verification failed".to_string())
         }
         KeyData::Ecdsa(key) => {
@@ -440,7 +442,8 @@ fn verify_signature_for_key(
                         &ring::signature::ECDSA_P256_SHA256_ASN1,
                         point_bytes,
                     );
-                    peer_public_key.verify(message, signature)
+                    peer_public_key
+                        .verify(message, signature)
                         .map_err(|_| "ECDSA-P256 signature verification failed".to_string())
                 }
                 other => Err(format!("Unsupported ECDSA curve: {:?}", other)),
@@ -457,7 +460,9 @@ fn build_rsa_spki_der(e: &[u8], n: &[u8]) -> Vec<u8> {
     //   SEQUENCE { OID rsaEncryption, NULL }
     //   BIT STRING { SEQUENCE { INTEGER n, INTEGER e } }
     // }
-    let rsa_oid: &[u8] = &[0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00];
+    let rsa_oid: &[u8] = &[
+        0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00,
+    ];
 
     fn encode_integer(value: &[u8]) -> Vec<u8> {
         let mut result = Vec::new();
@@ -535,7 +540,8 @@ pub fn handle_pubkey_verify(
     let expires_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .expect("Time went backwards")
-        .as_secs() + token_expiry.as_secs();
+        .as_secs()
+        + token_expiry.as_secs();
 
     let expires = format_unix_timestamp(expires_at);
     Ok(AuthResult { token, expires })
@@ -578,8 +584,15 @@ fn format_unix_timestamp(ts: u64) -> String {
         remaining_days -= md;
     }
 
-    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        y, m + 1, remaining_days + 1, hours, minutes, seconds)
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        y,
+        m + 1,
+        remaining_days + 1,
+        hours,
+        minutes,
+        seconds
+    )
 }
 
 fn is_leap_year(y: i64) -> bool {
@@ -620,7 +633,11 @@ mod tests {
         let verifier = MockVerifier::new("narayan", "correct-password");
         let key = jwt::generate_signing_key();
         let result = handle_password_auth(
-            &verifier, &key, "server-1", "narayan", "correct-password",
+            &verifier,
+            &key,
+            "server-1",
+            "narayan",
+            "correct-password",
             Duration::from_secs(86400),
         );
         assert!(result.is_ok());
@@ -634,7 +651,11 @@ mod tests {
         let verifier = MockVerifier::new("narayan", "correct-password");
         let key = jwt::generate_signing_key();
         let result = handle_password_auth(
-            &verifier, &key, "server-1", "narayan", "wrong-password",
+            &verifier,
+            &key,
+            "server-1",
+            "narayan",
+            "wrong-password",
             Duration::from_secs(86400),
         );
         assert!(result.is_err());
@@ -646,7 +667,11 @@ mod tests {
         let verifier = MockVerifier::new("narayan", "password");
         let key = jwt::generate_signing_key();
         let result = handle_password_auth(
-            &verifier, &key, "server-1", "unknown", "password",
+            &verifier,
+            &key,
+            "server-1",
+            "unknown",
+            "password",
             Duration::from_secs(86400),
         );
         assert!(result.is_err());
@@ -657,9 +682,14 @@ mod tests {
         let verifier = MockVerifier::new("narayan", "pass");
         let key = jwt::generate_signing_key();
         let result = handle_password_auth(
-            &verifier, &key, "srv-1", "narayan", "pass",
+            &verifier,
+            &key,
+            "srv-1",
+            "narayan",
+            "pass",
             Duration::from_secs(3600),
-        ).unwrap();
+        )
+        .unwrap();
 
         // Validate the issued JWT
         let claims = jwt::validate_token(&key, &result.token).unwrap();
@@ -690,8 +720,13 @@ mod tests {
         let key = jwt::generate_signing_key();
         // Create a token that expired an hour ago
         let past = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() - 7200;
-        let token = jwt::issue_token_for_test(&key, "narayan", "srv-1", past, Duration::from_secs(3600)).unwrap();
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            - 7200;
+        let token =
+            jwt::issue_token_for_test(&key, "narayan", "srv-1", past, Duration::from_secs(3600))
+                .unwrap();
 
         let result = handle_token_auth(&key, &token);
         assert!(result.is_err());
@@ -710,12 +745,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let ssh_dir = dir.path().join(".ssh");
         std::fs::create_dir_all(&ssh_dir).unwrap();
-        std::fs::write(ssh_dir.join("authorized_keys"),
+        std::fs::write(
+            ssh_dir.join("authorized_keys"),
             "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITest user@host\n\
              # comment line\n\
              ssh-rsa AAAAB3NzaC1yc2EAAAADAQABATest another@host\n\
-             \n"
-        ).unwrap();
+             \n",
+        )
+        .unwrap();
 
         let keys = read_authorized_keys(dir.path()).unwrap();
         assert_eq!(keys.len(), 2);
@@ -741,15 +778,24 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let ssh_dir = dir.path().join(".ssh");
         std::fs::create_dir_all(&ssh_dir).unwrap();
-        std::fs::write(ssh_dir.join("authorized_keys"),
-            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGtest user@test\n"
-        ).unwrap();
+        std::fs::write(
+            ssh_dir.join("authorized_keys"),
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGtest user@test\n",
+        )
+        .unwrap();
 
-        let result = handle_pubkey_init(dir.path(), "narayan", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGtest");
+        let result = handle_pubkey_init(
+            dir.path(),
+            "narayan",
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGtest",
+        );
         assert!(result.is_ok());
         let challenge = result.unwrap();
         assert_eq!(challenge.username, "narayan");
-        assert_eq!(challenge.pubkey, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGtest");
+        assert_eq!(
+            challenge.pubkey,
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGtest"
+        );
         assert!(!challenge.nonce.is_empty());
     }
 
@@ -758,11 +804,17 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let ssh_dir = dir.path().join(".ssh");
         std::fs::create_dir_all(&ssh_dir).unwrap();
-        std::fs::write(ssh_dir.join("authorized_keys"),
-            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGtest user@test\n"
-        ).unwrap();
+        std::fs::write(
+            ssh_dir.join("authorized_keys"),
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGtest user@test\n",
+        )
+        .unwrap();
 
-        let result = handle_pubkey_init(dir.path(), "narayan", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGother");
+        let result = handle_pubkey_init(
+            dir.path(),
+            "narayan",
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGother",
+        );
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not authorized"));
     }
@@ -770,7 +822,11 @@ mod tests {
     #[test]
     fn test_pubkey_init_no_authorized_keys_file() {
         let dir = tempfile::tempdir().unwrap();
-        let result = handle_pubkey_init(dir.path(), "narayan", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGtest");
+        let result = handle_pubkey_init(
+            dir.path(),
+            "narayan",
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGtest",
+        );
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not authorized"));
     }
@@ -778,7 +834,7 @@ mod tests {
     #[test]
     fn test_verify_ed25519_signature() {
         use base64::Engine;
-        use ed25519_dalek::{SigningKey, Signer};
+        use ed25519_dalek::{Signer, SigningKey};
 
         // Generate an ed25519 keypair
         let mut rng_bytes = [0u8; 32];
@@ -795,11 +851,16 @@ mod tests {
         ssh_blob.extend_from_slice(algo);
         ssh_blob.extend_from_slice(&(pubkey_bytes.len() as u32).to_be_bytes());
         ssh_blob.extend_from_slice(&pubkey_bytes);
-        let pubkey_str = format!("ssh-ed25519 {}", base64::engine::general_purpose::STANDARD.encode(&ssh_blob));
+        let pubkey_str = format!(
+            "ssh-ed25519 {}",
+            base64::engine::general_purpose::STANDARD.encode(&ssh_blob)
+        );
 
         // Create a challenge
         let nonce = generate_nonce();
-        let nonce_bytes = base64::engine::general_purpose::STANDARD.decode(&nonce).unwrap();
+        let nonce_bytes = base64::engine::general_purpose::STANDARD
+            .decode(&nonce)
+            .unwrap();
 
         // Sign the nonce
         let sig = signing_key.sign(&nonce_bytes);
@@ -812,7 +873,11 @@ mod tests {
         };
 
         let result = verify_pubkey_signature(&challenge, &sig_b64);
-        assert!(result.is_ok(), "Ed25519 signature should verify: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Ed25519 signature should verify: {:?}",
+            result
+        );
     }
 
     #[test]
@@ -834,7 +899,7 @@ mod tests {
     #[test]
     fn test_handle_pubkey_verify_issues_jwt() {
         use base64::Engine;
-        use ed25519_dalek::{SigningKey, Signer};
+        use ed25519_dalek::{Signer, SigningKey};
 
         // Generate keypair
         let mut rng_bytes = [0u8; 32];
@@ -850,10 +915,15 @@ mod tests {
         ssh_blob.extend_from_slice(algo);
         ssh_blob.extend_from_slice(&(pubkey_bytes.len() as u32).to_be_bytes());
         ssh_blob.extend_from_slice(&pubkey_bytes);
-        let pubkey_str = format!("ssh-ed25519 {}", base64::engine::general_purpose::STANDARD.encode(&ssh_blob));
+        let pubkey_str = format!(
+            "ssh-ed25519 {}",
+            base64::engine::general_purpose::STANDARD.encode(&ssh_blob)
+        );
 
         let nonce = generate_nonce();
-        let nonce_bytes = base64::engine::general_purpose::STANDARD.decode(&nonce).unwrap();
+        let nonce_bytes = base64::engine::general_purpose::STANDARD
+            .decode(&nonce)
+            .unwrap();
         let sig = signing_key_ed.sign(&nonce_bytes);
         let sig_b64 = base64::engine::general_purpose::STANDARD.encode(sig.to_bytes());
 
@@ -865,7 +935,11 @@ mod tests {
 
         let jwt_key = jwt::generate_signing_key();
         let result = handle_pubkey_verify(
-            &challenge, &jwt_key, "srv-1", &sig_b64, Duration::from_secs(3600),
+            &challenge,
+            &jwt_key,
+            "srv-1",
+            &sig_b64,
+            Duration::from_secs(3600),
         );
         assert!(result.is_ok(), "Should issue JWT: {:?}", result);
         let auth = result.unwrap();
@@ -881,7 +955,10 @@ mod tests {
     fn test_create_platform_verifier_returns_verifier() {
         // On any platform, create_platform_verifier should return a verifier
         let verifier = create_platform_verifier("login");
-        assert!(verifier.is_some(), "Platform verifier should be available on this OS");
+        assert!(
+            verifier.is_some(),
+            "Platform verifier should be available on this OS"
+        );
     }
 
     #[test]

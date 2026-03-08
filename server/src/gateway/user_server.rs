@@ -10,7 +10,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 use tokio::process::Command;
 use tokio::sync::Mutex;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 /// Validate a username before using it in paths or commands.
 ///
@@ -129,9 +129,9 @@ impl UserServerManager {
         // Spawn a new server
         info!(username, socket_path = %socket_path, "spawning per-user server");
         let mut cmd = self.build_spawn_command(username);
-        let mut child = cmd.spawn().map_err(|e| {
-            format!("failed to spawn server for user {}: {}", username, e)
-        })?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("failed to spawn server for user {}: {}", username, e))?;
 
         let pid = child.id().unwrap_or(0);
 
@@ -210,7 +210,7 @@ impl UserServerManager {
                 // Send SIGTERM to the server process using nix for safety
                 #[cfg(unix)]
                 {
-                    use nix::sys::signal::{kill, Signal};
+                    use nix::sys::signal::{Signal, kill};
                     use nix::unistd::Pid;
                     if let Err(e) = kill(Pid::from_raw(info.pid as i32), Signal::SIGTERM) {
                         warn!(
@@ -292,11 +292,8 @@ mod tests {
 
     #[test]
     fn test_user_server_spawn_command() {
-        let manager = UserServerManager::new(
-            "/usr/local/bin/terminar-server",
-            "/run/terminar",
-            1800,
-        );
+        let manager =
+            UserServerManager::new("/usr/local/bin/terminar-server", "/run/terminar", 1800);
         let cmd = manager.build_spawn_command("alice");
         assert_eq!(cmd.as_std().get_program(), "sudo");
         let args: Vec<&str> = cmd
@@ -319,28 +316,15 @@ mod tests {
 
     #[test]
     fn test_socket_path_for() {
-        let manager = UserServerManager::new(
-            "/usr/local/bin/terminar-server",
-            "/run/terminar",
-            1800,
-        );
-        assert_eq!(
-            manager.socket_path_for("alice"),
-            "/run/terminar/alice.sock"
-        );
-        assert_eq!(
-            manager.socket_path_for("bob"),
-            "/run/terminar/bob.sock"
-        );
+        let manager =
+            UserServerManager::new("/usr/local/bin/terminar-server", "/run/terminar", 1800);
+        assert_eq!(manager.socket_path_for("alice"), "/run/terminar/alice.sock");
+        assert_eq!(manager.socket_path_for("bob"), "/run/terminar/bob.sock");
     }
 
     #[test]
     fn test_manager_creation() {
-        let manager = UserServerManager::new(
-            "terminar-server",
-            "/tmp/terminar",
-            3600,
-        );
+        let manager = UserServerManager::new("terminar-server", "/tmp/terminar", 3600);
         assert_eq!(manager.server_bin, "terminar-server");
         assert_eq!(manager.socket_dir, "/tmp/terminar");
         assert_eq!(manager.idle_timeout, Duration::from_secs(3600));

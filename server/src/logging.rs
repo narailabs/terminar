@@ -1,6 +1,6 @@
 use crate::config::Cli;
 use tracing_subscriber::prelude::*;
-use tracing_subscriber::{fmt, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt};
 
 /// Initialize the tracing subscriber based on CLI configuration.
 ///
@@ -13,8 +13,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 /// Returns a guard that must be kept alive for the duration of the program
 /// to ensure file logs are flushed.
 pub fn init_logging(cli: &Cli) -> Option<tracing_appender::non_blocking::WorkerGuard> {
-    let env_filter = EnvFilter::try_new(&cli.log_level)
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let env_filter = EnvFilter::try_new(&cli.log_level).unwrap_or_else(|_| EnvFilter::new("info"));
 
     match (&cli.log_file, cli.log_json) {
         // No file, no JSON -- plain console
@@ -65,10 +64,12 @@ pub fn init_logging(cli: &Cli) -> Option<tracing_appender::non_blocking::WorkerG
 /// Split a log file path into directory and filename components.
 fn split_log_path(path: &str) -> (String, String) {
     let p = std::path::Path::new(path);
-    let dir = p.parent()
+    let dir = p
+        .parent()
         .map(|d| d.to_string_lossy().to_string())
         .unwrap_or_else(|| ".".to_string());
-    let filename = p.file_name()
+    let filename = p
+        .file_name()
         .map(|f| f.to_string_lossy().to_string())
         .unwrap_or_else(|| "server.log".to_string());
     (dir, filename)
@@ -95,7 +96,11 @@ mod tests {
         let id = new_request_id();
         // UUID v4 format: 8-4-4-4-12 hex chars
         assert_eq!(id.len(), 36, "UUID should be 36 chars");
-        assert_eq!(id.chars().filter(|c| *c == '-').count(), 4, "UUID should have 4 dashes");
+        assert_eq!(
+            id.chars().filter(|c| *c == '-').count(),
+            4,
+            "UUID should have 4 dashes"
+        );
     }
 
     #[test]

@@ -134,7 +134,7 @@ mod tests {
         let args = vec!["server", "pair"];
         let cli = Cli::try_parse_from(args).unwrap();
         match cli.command {
-            Some(Commands::Pair) => {},
+            Some(Commands::Pair) => {}
             _ => panic!("Expected Pair command"),
         }
     }
@@ -182,8 +182,10 @@ mod tests {
     fn test_tls_cert_and_key_flags() {
         let args = vec![
             "server",
-            "--tls-cert", "/path/to/cert.pem",
-            "--tls-key", "/path/to/key.pem",
+            "--tls-cert",
+            "/path/to/cert.pem",
+            "--tls-key",
+            "/path/to/key.pem",
         ];
         let cli = Cli::try_parse_from(args).unwrap();
         assert_eq!(cli.tls_cert, Some("/path/to/cert.pem".to_string()));
@@ -194,9 +196,12 @@ mod tests {
     fn test_tls_port_custom() {
         let args = vec![
             "server",
-            "--tls-cert", "/path/to/cert.pem",
-            "--tls-key", "/path/to/key.pem",
-            "--tls-port", "9443",
+            "--tls-cert",
+            "/path/to/cert.pem",
+            "--tls-key",
+            "/path/to/key.pem",
+            "--tls-port",
+            "9443",
         ];
         let cli = Cli::try_parse_from(args).unwrap();
         assert_eq!(cli.tls_port, 9443);

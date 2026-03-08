@@ -8,12 +8,10 @@
 //! - History buffer operations (append, replay)
 //! - Compression/decompression throughput
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use std::collections::HashMap;
 
-use terminar_server::history::{
-    CircularBuffer, compress_history, decompress_history,
-};
+use terminar_server::history::{CircularBuffer, compress_history, decompress_history};
 use terminar_server::messages::{ClientMessage, ServerMessage, SessionInfo};
 
 // ---------------------------------------------------------------------------
@@ -71,7 +69,8 @@ fn bench_deserialize_client_messages(c: &mut Criterion) {
         b.iter(|| serde_json::from_str::<ClientMessage>(black_box(list_json)).unwrap())
     });
 
-    let input_json = r#"{"type":"input","session_id":"550e8400-e29b-41d4-a716-446655440000","data":"ls -la\n"}"#;
+    let input_json =
+        r#"{"type":"input","session_id":"550e8400-e29b-41d4-a716-446655440000","data":"ls -la\n"}"#;
     group.bench_function("Input_small", |b| {
         b.iter(|| serde_json::from_str::<ClientMessage>(black_box(input_json)).unwrap())
     });
@@ -95,13 +94,15 @@ fn bench_serialize_server_messages(c: &mut Criterion) {
         b.iter(|| serde_json::to_string(black_box(&output_msg)).unwrap())
     });
 
-    let sessions: Vec<SessionInfo> = (0..10).map(|i| SessionInfo {
-        id: format!("session-{}", i),
-        name: format!("Terminal {}", i),
-        shell: "/bin/bash".to_string(),
-        cwd: "/home/user".to_string(),
-        started_at: "2025-01-28T10:00:00Z".to_string(),
-    }).collect();
+    let sessions: Vec<SessionInfo> = (0..10)
+        .map(|i| SessionInfo {
+            id: format!("session-{}", i),
+            name: format!("Terminal {}", i),
+            shell: "/bin/bash".to_string(),
+            cwd: "/home/user".to_string(),
+            started_at: "2025-01-28T10:00:00Z".to_string(),
+        })
+        .collect();
     let session_list_msg = ServerMessage::SessionList { sessions };
     group.bench_function("SessionList_10", |b| {
         b.iter(|| serde_json::to_string(black_box(&session_list_msg)).unwrap())
@@ -208,8 +209,8 @@ fn bench_compression(c: &mut Criterion) {
     let mut group = c.benchmark_group("compression");
 
     // Typical terminal output (repetitive, compresses well)
-    let terminal_output = "user@host:~$ ls -la\ndrwxr-xr-x  5 user user 4096 Jan 28 10:00 .\n"
-        .repeat(1000);
+    let terminal_output =
+        "user@host:~$ ls -la\ndrwxr-xr-x  5 user user 4096 Jan 28 10:00 .\n".repeat(1000);
     let terminal_bytes = terminal_output.as_bytes();
 
     group.bench_function("compress_terminal_output_50kb", |b| {
@@ -277,9 +278,6 @@ criterion_group!(
     bench_history_buffer_creation,
 );
 
-criterion_group!(
-    compression,
-    bench_compression,
-);
+criterion_group!(compression, bench_compression,);
 
 criterion_main!(serialization, history, compression);

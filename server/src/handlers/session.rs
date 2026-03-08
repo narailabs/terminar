@@ -1,21 +1,21 @@
 //! Session lifecycle message handlers: CreateSession, KillSession, RenameSession, ListSessions.
 
-use crate::constants::{SHELL_WHITELIST, ENV_BLOCKLIST, PTY_READ_BUFFER_SIZE};
+use crate::AppState;
+use crate::constants::{ENV_BLOCKLIST, PTY_READ_BUFFER_SIZE, SHELL_WHITELIST};
 use crate::history::CircularBuffer;
 use crate::messages::{ServerMessage, SessionInfo};
 use crate::persistence;
 use crate::pty::{MockPtyProvider, PtyProvider};
 use crate::session::{Session, SessionEvent, SessionMap, SessionState};
-use crate::AppState;
 
-use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use parking_lot::Mutex;
+use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use std::collections::HashMap;
 use std::io::Read;
 use std::sync::Arc;
-use parking_lot::Mutex;
 use tokio::sync::{broadcast, mpsc};
+use tracing::{error, info, instrument, warn};
 use uuid::Uuid;
-use tracing::{info, error, warn, instrument};
 
 /// Find the last byte index in `data` that ends a complete UTF-8 sequence.
 /// Any trailing bytes that start but don't complete a multi-byte character
@@ -49,9 +49,10 @@ fn find_utf8_safe_boundary(data: &[u8]) -> usize {
 /// Falls back to /bin/sh if $SHELL is not set or not in whitelist.
 fn get_default_shell() -> String {
     if let Ok(shell) = std::env::var("SHELL")
-        && SHELL_WHITELIST.contains(&shell.as_str()) {
-            return shell;
-        }
+        && SHELL_WHITELIST.contains(&shell.as_str())
+    {
+        return shell;
+    }
     "/bin/sh".to_string()
 }
 
@@ -78,7 +79,10 @@ pub(crate) fn resolve_cwd(cwd: &str) -> String {
 pub(crate) fn validate_shell(shell: &str) -> Option<String> {
     // Reject path traversal attempts (contains "..")
     if shell.contains("..") {
-        return Some(format!("Shell path '{}' contains path traversal and is not allowed", shell));
+        return Some(format!(
+            "Shell path '{}' contains path traversal and is not allowed",
+            shell
+        ));
     }
 
     // Reject relative paths (must start with /)
@@ -99,7 +103,10 @@ pub(crate) fn validate_shell(shell: &str) -> Option<String> {
 pub(crate) fn validate_cwd(cwd: &str) -> Option<String> {
     // Reject path traversal
     if cwd.contains("..") {
-        return Some(format!("Working directory '{}' contains path traversal and is not allowed", cwd));
+        return Some(format!(
+            "Working directory '{}' contains path traversal and is not allowed",
+            cwd
+        ));
     }
 
     // Check path exists and is a directory
@@ -139,17 +146,20 @@ pub(crate) fn clamp_dimension(val: u16, name: &str) -> u16 {
 /// Build a SessionInfo list from the current sessions.
 fn build_session_list(sessions: &SessionMap) -> Vec<SessionInfo> {
     let guard = sessions.lock();
-    guard.values().map(|s| SessionInfo {
-        id: s.id.clone(),
-        name: s.name.clone(),
-        shell: s.shell_cmd.clone(),
-        cwd: s.cwd.clone(),
-        started_at: "now".to_string(),
-        state: Some(s.state.display_name().to_string()),
-        foreground_process: s.foreground_process.clone(),
-        last_activity_at: s.last_output_at.lock().map(|_| "now".to_string()),
-        exit_code: s.exit_code,
-    }).collect()
+    guard
+        .values()
+        .map(|s| SessionInfo {
+            id: s.id.clone(),
+            name: s.name.clone(),
+            shell: s.shell_cmd.clone(),
+            cwd: s.cwd.clone(),
+            started_at: "now".to_string(),
+            state: Some(s.state.display_name().to_string()),
+            foreground_process: s.foreground_process.clone(),
+            last_activity_at: s.last_output_at.lock().map(|_| "now".to_string()),
+            exit_code: s.exit_code,
+        })
+        .collect()
 }
 
 /// Core PTY session creation logic shared by handle_create_session and session restoration.
@@ -182,7 +192,12 @@ pub(crate) fn create_session_core(
         let _c = provider.spawn_command(&*master, CommandBuilder::new(shell_cmd))?;
     } else {
         let pty_system = native_pty_system();
-        let pair = pty_system.openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })?;
+        let pair = pty_system.openpty(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })?;
         master = pair.master;
 
         let mut cmd = CommandBuilder::new(shell_cmd);
@@ -195,7 +210,9 @@ pub(crate) fn create_session_core(
         let _c = pair.slave.spawn_command(cmd)?;
     }
 
-    let id = session_id.map(|s| s.to_string()).unwrap_or_else(|| Uuid::new_v4().to_string());
+    let id = session_id
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
     let (tx, _) = broadcast::channel(100);
     let history = Arc::new(Mutex::new(CircularBuffer::with_default_capacity()));
 
@@ -250,7 +267,7 @@ pub(crate) fn create_session_core(
                         // PTY EOF - shell process exited
                         let _ = tx_clone.send(SessionEvent::Exited(None));
                         break;
-                    },
+                    }
                     Ok(n) => {
                         // Prepend any leftover bytes from previous read
                         buf[..read_start].copy_from_slice(&utf8_remainder);
@@ -273,7 +290,8 @@ pub(crate) fn create_session_core(
                             let has_bell = safe_bytes.contains(&0x07);
 
                             // Update activity timestamps (using Arc-wrapped fields, no sessions map lock needed)
-                            let was_silent = reader_silence_notified.swap(false, std::sync::atomic::Ordering::Relaxed);
+                            let was_silent = reader_silence_notified
+                                .swap(false, std::sync::atomic::Ordering::Relaxed);
                             {
                                 let mut t = reader_last_output_at.lock();
                                 *t = Some(std::time::Instant::now());
@@ -306,7 +324,7 @@ pub(crate) fn create_session_core(
                         // I/O error - treat as process exit
                         let _ = tx_clone.send(SessionEvent::Exited(None));
                         break;
-                    },
+                    }
                 }
             }
         }));
@@ -375,7 +393,9 @@ pub(crate) async fn handle_list_sessions(
     sessions: &SessionMap,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let list = build_session_list(sessions);
-    tx_out.send(ServerMessage::SessionList { sessions: list }).await?;
+    tx_out
+        .send(ServerMessage::SessionList { sessions: list })
+        .await?;
     Ok(())
 }
 
@@ -399,13 +419,23 @@ pub(crate) async fn handle_create_session(
 
     // Validate shell against whitelist before spawning
     if let Some(error_msg) = validate_shell(&resolved_shell) {
-        tx_out.send(ServerMessage::Error { message: error_msg, error_code: Some("INVALID_INPUT".to_string()) }).await?;
+        tx_out
+            .send(ServerMessage::Error {
+                message: error_msg,
+                error_code: Some("INVALID_INPUT".to_string()),
+            })
+            .await?;
         return Ok(());
     }
 
     // Validate working directory
     if let Some(error_msg) = validate_cwd(&resolved_cwd) {
-        tx_out.send(ServerMessage::Error { message: error_msg, error_code: Some("INVALID_INPUT".to_string()) }).await?;
+        tx_out
+            .send(ServerMessage::Error {
+                message: error_msg,
+                error_code: Some("INVALID_INPUT".to_string()),
+            })
+            .await?;
         return Ok(());
     }
 
@@ -413,7 +443,12 @@ pub(crate) async fn handle_create_session(
     let cols = clamp_dimension(cols, "cols");
     let rows = clamp_dimension(rows, "rows");
 
-    let name = format!("Terminal {}", state.session_name_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+    let name = format!(
+        "Terminal {}",
+        state
+            .session_name_counter
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    );
 
     // Map to Result<String, String> so the non-Send error is dropped before any .await
     let result = create_session_core(
@@ -421,24 +456,32 @@ pub(crate) async fn handle_create_session(
         &name,
         &resolved_shell,
         &resolved_cwd,
-        cols, rows,
+        cols,
+        rows,
         env,
         sessions,
         state.mock_provider.as_ref(),
         None,
-    ).map_err(|e| format!("Failed to create session: {}", e));
+    )
+    .map_err(|e| format!("Failed to create session: {}", e));
 
     match result {
         Ok(_id) => {
-            state.sessions_total.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            state
+                .sessions_total
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let list = build_session_list(sessions);
-            tx_out.send(ServerMessage::SessionList { sessions: list }).await?;
+            tx_out
+                .send(ServerMessage::SessionList { sessions: list })
+                .await?;
         }
         Err(msg) => {
-            tx_out.send(ServerMessage::Error {
-                message: msg,
-                error_code: Some("SESSION_ERROR".to_string()),
-            }).await?;
+            tx_out
+                .send(ServerMessage::Error {
+                    message: msg,
+                    error_code: Some("SESSION_ERROR".to_string()),
+                })
+                .await?;
         }
     }
 
@@ -458,19 +501,24 @@ pub(crate) async fn handle_rename_session(
         if let Some(session) = guard.get_mut(session_id) {
             session.name = new_name.to_string();
         }
-        guard.values().map(|s| SessionInfo {
-            id: s.id.clone(),
-            name: s.name.clone(),
-            shell: s.shell_cmd.clone(),
-            cwd: s.cwd.clone(),
-            started_at: "now".to_string(),
-            state: Some(s.state.display_name().to_string()),
-            foreground_process: s.foreground_process.clone(),
-            last_activity_at: s.last_output_at.lock().map(|_| "now".to_string()),
-            exit_code: s.exit_code,
-        }).collect::<Vec<_>>()
+        guard
+            .values()
+            .map(|s| SessionInfo {
+                id: s.id.clone(),
+                name: s.name.clone(),
+                shell: s.shell_cmd.clone(),
+                cwd: s.cwd.clone(),
+                started_at: "now".to_string(),
+                state: Some(s.state.display_name().to_string()),
+                foreground_process: s.foreground_process.clone(),
+                last_activity_at: s.last_output_at.lock().map(|_| "now".to_string()),
+                exit_code: s.exit_code,
+            })
+            .collect::<Vec<_>>()
     };
-    tx_out.send(ServerMessage::SessionList { sessions: list }).await?;
+    tx_out
+        .send(ServerMessage::SessionList { sessions: list })
+        .await?;
     Ok(())
 }
 
@@ -485,17 +533,20 @@ pub(crate) async fn handle_kill_session(
     let (was_removed, list) = {
         let mut guard = sessions.lock();
         let removed = guard.remove(session_id).is_some();
-        let list = guard.values().map(|s| SessionInfo {
-            id: s.id.clone(),
-            name: s.name.clone(),
-            shell: s.shell_cmd.clone(),
-            cwd: s.cwd.clone(),
-            started_at: "now".to_string(),
-            state: Some(s.state.display_name().to_string()),
-            foreground_process: s.foreground_process.clone(),
-            last_activity_at: s.last_output_at.lock().map(|_| "now".to_string()),
-            exit_code: s.exit_code,
-        }).collect::<Vec<_>>();
+        let list = guard
+            .values()
+            .map(|s| SessionInfo {
+                id: s.id.clone(),
+                name: s.name.clone(),
+                shell: s.shell_cmd.clone(),
+                cwd: s.cwd.clone(),
+                started_at: "now".to_string(),
+                state: Some(s.state.display_name().to_string()),
+                foreground_process: s.foreground_process.clone(),
+                last_activity_at: s.last_output_at.lock().map(|_| "now".to_string()),
+                exit_code: s.exit_code,
+            })
+            .collect::<Vec<_>>();
         (removed, list)
     };
 
@@ -504,8 +555,14 @@ pub(crate) async fn handle_kill_session(
         // Delete history file and update metadata
         persistence::delete_history(session_id);
         persistence::persist_all(sessions);
-        tx_out.send(ServerMessage::SessionClosed { session_id: session_id.to_string() }).await?;
-        tx_out.send(ServerMessage::SessionList { sessions: list }).await?;
+        tx_out
+            .send(ServerMessage::SessionClosed {
+                session_id: session_id.to_string(),
+            })
+            .await?;
+        tx_out
+            .send(ServerMessage::SessionList { sessions: list })
+            .await?;
     }
     Ok(())
 }
