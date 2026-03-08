@@ -143,6 +143,9 @@ jobs:
             server/target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('server/Cargo.lock') }}
 
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libpam0g-dev
+
       - name: Build Rust server (release)
         working-directory: server
         run: cargo build --release
