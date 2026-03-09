@@ -6,7 +6,7 @@ use crate::session::{SessionEvent, SessionMap};
 
 use portable_pty::PtySize;
 use tokio::sync::mpsc;
-use tracing::{info, error, instrument};
+use tracing::{error, info, instrument};
 
 /// Handle Input message.
 #[instrument(skip(data, tx_out, sessions), fields(session_id = %session_id))]
@@ -21,7 +21,10 @@ pub(crate) async fn handle_input(
         let guard = sessions.lock();
         if let Some(session) = guard.get(session_id) {
             if !session.allows_input() {
-                Err(format!("Session '{}' is not accepting input (state: {:?})", session_id, session.state))
+                Err(format!(
+                    "Session '{}' is not accepting input (state: {:?})",
+                    session_id, session.state
+                ))
             } else {
                 // Use the cached writer instead of calling take_writer() each time.
                 let mut writer_guard = session.writer.lock();
@@ -40,7 +43,12 @@ pub(crate) async fn handle_input(
     // Now the guard is dropped, safe to .await
     if let Err(ref message) = result {
         info!(session_id = %session_id, event = "session_error", error = %message, "Session lifecycle: error");
-        tx_out.send(ServerMessage::Error { message: message.clone(), error_code: Some("SESSION_NOT_FOUND".to_string()) }).await?;
+        tx_out
+            .send(ServerMessage::Error {
+                message: message.clone(),
+                error_code: Some("SESSION_NOT_FOUND".to_string()),
+            })
+            .await?;
     }
     Ok(())
 }
@@ -63,17 +71,24 @@ pub(crate) async fn handle_resize(
         if let Some(session) = guard.get(session_id) {
             // Lock the master mutex for exclusive access
             let master_guard = session.master.lock();
-            let _ = master_guard.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 });
+            let _ = master_guard.resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            });
             true
         } else {
             false
         }
     };
     if !found {
-        tx_out.send(ServerMessage::Error {
-            message: format!("Session '{}' not found", session_id),
-            error_code: Some("SESSION_NOT_FOUND".to_string()),
-        }).await?;
+        tx_out
+            .send(ServerMessage::Error {
+                message: format!("Session '{}' not found", session_id),
+                error_code: Some("SESSION_NOT_FOUND".to_string()),
+            })
+            .await?;
     }
     Ok(())
 }
@@ -103,7 +118,10 @@ pub(crate) async fn handle_attach(
             // mid-character if a character was split at the ring boundary.
             // The reader now properly handles UTF-8 boundaries for live output,
             // but history replay may have a truncated start.
-            Some((String::from_utf8_lossy(&raw).to_string(), session.output_tx.subscribe()))
+            Some((
+                String::from_utf8_lossy(&raw).to_string(),
+                session.output_tx.subscribe(),
+            ))
         } else {
             None
         }
@@ -111,10 +129,12 @@ pub(crate) async fn handle_attach(
 
     if let Some((history_data, mut rx)) = history_data_opt {
         info!(session_id = %session_id, event = "session_attached", "Session lifecycle: attached");
-        tx_out.send(ServerMessage::Output {
-            session_id: session_id.to_string(),
-            data: history_data
-        }).await?;
+        tx_out
+            .send(ServerMessage::Output {
+                session_id: session_id.to_string(),
+                data: history_data,
+            })
+            .await?;
 
         let tx_out_clone = tx_out.clone();
         let session_id_clone = session_id.to_string();
@@ -123,56 +143,74 @@ pub(crate) async fn handle_attach(
             while let Ok(event) = rx.recv().await {
                 match event {
                     SessionEvent::Output(data) => {
-                        if tx_out_clone.send(ServerMessage::Output {
-                            session_id: session_id_clone.clone(),
-                            data
-                        }).await.is_err() {
+                        if tx_out_clone
+                            .send(ServerMessage::Output {
+                                session_id: session_id_clone.clone(),
+                                data,
+                            })
+                            .await
+                            .is_err()
+                        {
                             break;
                         }
-                    },
+                    }
                     SessionEvent::Closed => {
-                        let _ = tx_out_clone.send(ServerMessage::SessionClosed {
-                            session_id: session_id_clone.clone()
-                        }).await;
+                        let _ = tx_out_clone
+                            .send(ServerMessage::SessionClosed {
+                                session_id: session_id_clone.clone(),
+                            })
+                            .await;
                         break;
-                    },
+                    }
                     SessionEvent::Exited(exit_code) => {
-                        let _ = tx_out_clone.send(ServerMessage::SessionExited {
-                            session_id: session_id_clone.clone(),
-                            exit_code,
-                        }).await;
+                        let _ = tx_out_clone
+                            .send(ServerMessage::SessionExited {
+                                session_id: session_id_clone.clone(),
+                                exit_code,
+                            })
+                            .await;
                         break;
-                    },
+                    }
                     SessionEvent::Bell => {
-                        let _ = tx_out_clone.send(ServerMessage::SessionActivity {
-                            session_id: session_id_clone.clone(),
-                            activity_type: "bell".to_string(),
-                        }).await;
-                    },
+                        let _ = tx_out_clone
+                            .send(ServerMessage::SessionActivity {
+                                session_id: session_id_clone.clone(),
+                                activity_type: "bell".to_string(),
+                            })
+                            .await;
+                    }
                     SessionEvent::Activity => {
-                        let _ = tx_out_clone.send(ServerMessage::SessionActivity {
-                            session_id: session_id_clone.clone(),
-                            activity_type: "activity".to_string(),
-                        }).await;
-                    },
+                        let _ = tx_out_clone
+                            .send(ServerMessage::SessionActivity {
+                                session_id: session_id_clone.clone(),
+                                activity_type: "activity".to_string(),
+                            })
+                            .await;
+                    }
                     SessionEvent::Silence => {
-                        let _ = tx_out_clone.send(ServerMessage::SessionActivity {
-                            session_id: session_id_clone.clone(),
-                            activity_type: "silence".to_string(),
-                        }).await;
-                    },
+                        let _ = tx_out_clone
+                            .send(ServerMessage::SessionActivity {
+                                session_id: session_id_clone.clone(),
+                                activity_type: "silence".to_string(),
+                            })
+                            .await;
+                    }
                     SessionEvent::ForegroundChanged(process_name) => {
-                        let _ = tx_out_clone.send(ServerMessage::ForegroundChanged {
-                            session_id: session_id_clone.clone(),
-                            process_name,
-                        }).await;
-                    },
+                        let _ = tx_out_clone
+                            .send(ServerMessage::ForegroundChanged {
+                                session_id: session_id_clone.clone(),
+                                process_name,
+                            })
+                            .await;
+                    }
                     SessionEvent::CwdChanged(cwd) => {
-                        let _ = tx_out_clone.send(ServerMessage::CwdChanged {
-                            session_id: session_id_clone.clone(),
-                            cwd,
-                        }).await;
-                    },
+                        let _ = tx_out_clone
+                            .send(ServerMessage::CwdChanged {
+                                session_id: session_id_clone.clone(),
+                                cwd,
+                            })
+                            .await;
+                    }
                 }
             }
         });

@@ -76,9 +76,10 @@ impl ConnectionHealth {
         if let Some(ping_time) = self.last_ping_sent {
             // If we got a pong after the last ping, not stale
             if let Some(pong_time) = self.last_pong_received
-                && pong_time >= ping_time {
-                    return false;
-                }
+                && pong_time >= ping_time
+            {
+                return false;
+            }
             // No pong after last ping - check timeout
             now.duration_since(ping_time) >= PONG_TIMEOUT
         } else {
@@ -104,8 +105,14 @@ mod tests {
     #[test]
     fn test_new_connection_health() {
         let health = ConnectionHealth::new();
-        assert!(health.latency().is_none(), "New connection should have no latency");
-        assert!(!health.is_stale(Instant::now()), "New connection should not be stale");
+        assert!(
+            health.latency().is_none(),
+            "New connection should have no latency"
+        );
+        assert!(
+            !health.is_stale(Instant::now()),
+            "New connection should not be stale"
+        );
     }
 
     #[test]
@@ -114,13 +121,17 @@ mod tests {
         let health = ConnectionHealth::new_at(start);
 
         // Immediately after creation, should not send ping
-        assert!(!health.should_send_ping(start),
-            "Should not ping immediately after creation");
+        assert!(
+            !health.should_send_ping(start),
+            "Should not ping immediately after creation"
+        );
 
         // After PING_INTERVAL, should send ping
         let after_interval = start + PING_INTERVAL;
-        assert!(health.should_send_ping(after_interval),
-            "Should send ping after interval elapsed");
+        assert!(
+            health.should_send_ping(after_interval),
+            "Should send ping after interval elapsed"
+        );
     }
 
     #[test]
@@ -133,20 +144,26 @@ mod tests {
         health.record_ping_sent(ping_time);
 
         // Right after ping, should not send another
-        assert!(!health.should_send_ping(ping_time + Duration::from_secs(1)),
-            "Should not ping right after sending one");
+        assert!(
+            !health.should_send_ping(ping_time + Duration::from_secs(1)),
+            "Should not ping right after sending one"
+        );
 
         // After another interval, should send again
-        assert!(health.should_send_ping(ping_time + PING_INTERVAL),
-            "Should send ping after another interval");
+        assert!(
+            health.should_send_ping(ping_time + PING_INTERVAL),
+            "Should send ping after another interval"
+        );
     }
 
     #[test]
     fn test_is_stale_no_ping_sent() {
         let health = ConnectionHealth::new();
         let far_future = Instant::now() + Duration::from_secs(300);
-        assert!(!health.is_stale(far_future),
-            "Cannot be stale if no ping was ever sent");
+        assert!(
+            !health.is_stale(far_future),
+            "Cannot be stale if no ping was ever sent"
+        );
     }
 
     #[test]
@@ -164,8 +181,10 @@ mod tests {
 
         // Even after PONG_TIMEOUT, not stale because pong was received
         let check_time = ping_time + PONG_TIMEOUT + Duration::from_secs(1);
-        assert!(!health.is_stale(check_time),
-            "Should not be stale if pong was received after ping");
+        assert!(
+            !health.is_stale(check_time),
+            "Should not be stale if pong was received after ping"
+        );
     }
 
     #[test]
@@ -179,8 +198,10 @@ mod tests {
 
         // No pong received, check after timeout
         let after_timeout = ping_time + PONG_TIMEOUT;
-        assert!(health.is_stale(after_timeout),
-            "Should be stale if no pong received within timeout");
+        assert!(
+            health.is_stale(after_timeout),
+            "Should be stale if no pong received within timeout"
+        );
     }
 
     #[test]
@@ -199,8 +220,10 @@ mod tests {
 
         // The pong from ping1 was before ping2, so connection should be stale after timeout
         let after_timeout = ping2 + PONG_TIMEOUT;
-        assert!(health.is_stale(after_timeout),
-            "Should be stale: pong was from previous ping, not the latest");
+        assert!(
+            health.is_stale(after_timeout),
+            "Should be stale: pong was from previous ping, not the latest"
+        );
     }
 
     #[test]
@@ -217,8 +240,11 @@ mod tests {
         health.record_pong_received(pong_time);
 
         let latency = health.latency().expect("Should have latency after pong");
-        assert_eq!(latency, Duration::from_millis(50),
-            "Latency should be time between ping and pong");
+        assert_eq!(
+            latency,
+            Duration::from_millis(50),
+            "Latency should be time between ping and pong"
+        );
     }
 
     #[test]
@@ -228,8 +254,10 @@ mod tests {
         health.record_pong_received(Instant::now());
         // Actually, record_pong_received only sets latency if last_ping_sent is Some
         // Since no ping was sent, latency should remain None
-        assert!(health.latency().is_none(),
-            "Latency should be None if pong received without prior ping");
+        assert!(
+            health.latency().is_none(),
+            "Latency should be None if pong received without prior ping"
+        );
     }
 
     #[test]

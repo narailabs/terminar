@@ -7,7 +7,11 @@ use clap::Parser;
 
 /// Command-line arguments for the terminar gateway.
 #[derive(Parser, Debug, Clone)]
-#[command(name = "terminar-gateway", version, about = "Multi-user gateway for terminar")]
+#[command(
+    name = "terminar-gateway",
+    version,
+    about = "Multi-user gateway for terminar"
+)]
 pub struct GatewayConfig {
     /// Port to listen on for HTTP/WebSocket connections
     #[arg(short, long, default_value_t = 6749)]
@@ -79,12 +83,18 @@ mod tests {
     fn test_gateway_custom_config() {
         let args = vec![
             "terminar-gateway",
-            "--port", "8080",
-            "--server-bin", "/usr/local/bin/terminar-server",
-            "--socket-dir", "/tmp/terminar",
-            "--idle-timeout", "3600",
-            "--max-auth-attempts", "10",
-            "--audit-level", "verbose",
+            "--port",
+            "8080",
+            "--server-bin",
+            "/usr/local/bin/terminar-server",
+            "--socket-dir",
+            "/tmp/terminar",
+            "--idle-timeout",
+            "3600",
+            "--max-auth-attempts",
+            "10",
+            "--audit-level",
+            "verbose",
         ];
         let config = GatewayConfig::try_parse_from(args).unwrap();
         assert_eq!(config.port, 8080);
@@ -99,9 +109,12 @@ mod tests {
     fn test_gateway_tls_config() {
         let args = vec![
             "terminar-gateway",
-            "--tls-cert", "/path/to/cert.pem",
-            "--tls-key", "/path/to/key.pem",
-            "--tls-port", "9443",
+            "--tls-cert",
+            "/path/to/cert.pem",
+            "--tls-key",
+            "/path/to/key.pem",
+            "--tls-port",
+            "9443",
         ];
         let config = GatewayConfig::try_parse_from(args).unwrap();
         assert_eq!(config.tls_cert, Some("/path/to/cert.pem".to_string()));

@@ -5,7 +5,7 @@ import type { TerminalSettings } from './settingsStore.svelte';
  * Handles GET/PUT requests to the server with localStorage fallback
  */
 
-let baseUrl = 'http://localhost:6749';
+let baseUrl = 'http://localhost:6750';
 
 /**
  * Configure the API base URL

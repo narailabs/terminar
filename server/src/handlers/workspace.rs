@@ -9,7 +9,7 @@ use std::fs;
 use std::io;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
-use tracing::{info, warn, error, instrument};
+use tracing::{error, info, instrument, warn};
 
 /// Maximum workspace payload size: 1MB
 const MAX_WORKSPACE_SIZE: usize = 1_048_576;
@@ -33,7 +33,13 @@ pub fn get_workspace_path(client_id: &str) -> PathBuf {
 fn sanitize_client_id(client_id: &str) -> String {
     client_id
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -41,7 +47,10 @@ fn sanitize_client_id(client_id: &str) -> String {
 ///
 /// Writes atomically: write to a temp file first, then rename to the final path.
 /// Creates the workspaces directory if it doesn't exist.
-pub fn save_workspace_to_disk(client_id: &str, workspace: &serde_json::Value) -> Result<(), io::Error> {
+pub fn save_workspace_to_disk(
+    client_id: &str,
+    workspace: &serde_json::Value,
+) -> Result<(), io::Error> {
     let dir = get_workspaces_dir();
     let path = get_workspace_path(client_id);
 
@@ -58,8 +67,7 @@ pub fn save_workspace_to_disk(client_id: &str, workspace: &serde_json::Value) ->
     }
 
     // Serialize to pretty JSON
-    let json = serde_json::to_string_pretty(workspace)
-        .map_err(io::Error::other)?;
+    let json = serde_json::to_string_pretty(workspace).map_err(io::Error::other)?;
 
     // Atomic write: write to temp file, then rename
     let temp_path = path.with_extension("json.tmp");
@@ -85,18 +93,19 @@ pub fn load_workspace_from_disk(client_id: &str) -> Result<Option<serde_json::Va
     let path = get_workspace_path(client_id);
 
     match fs::read_to_string(&path) {
-        Ok(content) => {
-            match serde_json::from_str::<serde_json::Value>(&content) {
-                Ok(workspace) => {
-                    info!(client_id = %client_id, "Loaded workspace from disk");
-                    Ok(Some(workspace))
-                }
-                Err(e) => {
-                    warn!(client_id = %client_id, error = %e, "Failed to parse workspace file");
-                    Err(io::Error::other(format!("Failed to parse workspace: {}", e)))
-                }
+        Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
+            Ok(workspace) => {
+                info!(client_id = %client_id, "Loaded workspace from disk");
+                Ok(Some(workspace))
             }
-        }
+            Err(e) => {
+                warn!(client_id = %client_id, error = %e, "Failed to parse workspace file");
+                Err(io::Error::other(format!(
+                    "Failed to parse workspace: {}",
+                    e
+                )))
+            }
+        },
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
             info!(client_id = %client_id, "No workspace file found");
             Ok(None)
@@ -128,7 +137,12 @@ pub(crate) async fn handle_save_workspace(
             payload_size, MAX_WORKSPACE_SIZE
         );
         warn!("{}", msg);
-        tx_out.send(ServerMessage::Error { message: msg, error_code: Some("INVALID_INPUT".to_string()) }).await?;
+        tx_out
+            .send(ServerMessage::Error {
+                message: msg,
+                error_code: Some("INVALID_INPUT".to_string()),
+            })
+            .await?;
         return Ok(());
     }
 
@@ -136,14 +150,21 @@ pub(crate) async fn handle_save_workspace(
     match save_workspace_to_disk(client_id, workspace) {
         Ok(()) => {
             // Return the saved workspace data as confirmation
-            tx_out.send(ServerMessage::WorkspaceData {
-                workspace: Some(workspace.clone()),
-            }).await?;
+            tx_out
+                .send(ServerMessage::WorkspaceData {
+                    workspace: Some(workspace.clone()),
+                })
+                .await?;
         }
         Err(e) => {
             let msg = format!("Failed to save workspace: {}", e);
             error!("{}", msg);
-            tx_out.send(ServerMessage::Error { message: msg, error_code: Some("INTERNAL_ERROR".to_string()) }).await?;
+            tx_out
+                .send(ServerMessage::Error {
+                    message: msg,
+                    error_code: Some("INTERNAL_ERROR".to_string()),
+                })
+                .await?;
         }
     }
 
@@ -161,12 +182,19 @@ pub(crate) async fn handle_load_workspace(
 ) -> Result<(), Box<dyn std::error::Error>> {
     match load_workspace_from_disk(client_id) {
         Ok(workspace) => {
-            tx_out.send(ServerMessage::WorkspaceData { workspace }).await?;
+            tx_out
+                .send(ServerMessage::WorkspaceData { workspace })
+                .await?;
         }
         Err(e) => {
             let msg = format!("Failed to load workspace: {}", e);
             error!("{}", msg);
-            tx_out.send(ServerMessage::Error { message: msg, error_code: Some("INTERNAL_ERROR".to_string()) }).await?;
+            tx_out
+                .send(ServerMessage::Error {
+                    message: msg,
+                    error_code: Some("INTERNAL_ERROR".to_string()),
+                })
+                .await?;
         }
     }
 
@@ -205,7 +233,9 @@ mod tests {
         });
 
         let (tx, mut rx) = mpsc::channel(32);
-        handle_save_workspace(client_id, &workspace, &tx).await.unwrap();
+        handle_save_workspace(client_id, &workspace, &tx)
+            .await
+            .unwrap();
 
         // Check response
         let msg = rx.recv().await.unwrap();
@@ -239,7 +269,9 @@ mod tests {
 
         // Save first
         let (tx, mut rx) = mpsc::channel(32);
-        handle_save_workspace(client_id, &workspace, &tx).await.unwrap();
+        handle_save_workspace(client_id, &workspace, &tx)
+            .await
+            .unwrap();
         let _ = rx.recv().await; // consume save response
 
         // Load
@@ -285,12 +317,21 @@ mod tests {
         let workspace = serde_json::json!({ "data": large_string });
 
         let (tx, mut rx) = mpsc::channel(32);
-        handle_save_workspace(client_id, &workspace, &tx).await.unwrap();
+        handle_save_workspace(client_id, &workspace, &tx)
+            .await
+            .unwrap();
 
         let msg = rx.recv().await.unwrap();
         match msg {
-            ServerMessage::Error { message, error_code } => {
-                assert!(message.contains("too large"), "Error should mention size: {}", message);
+            ServerMessage::Error {
+                message,
+                error_code,
+            } => {
+                assert!(
+                    message.contains("too large"),
+                    "Error should mention size: {}",
+                    message
+                );
                 assert_eq!(error_code, Some("INVALID_INPUT".to_string()));
             }
             other => panic!("Expected Error message, got {:?}", other),
@@ -298,7 +339,10 @@ mod tests {
 
         // Verify no file was saved
         let path = get_workspace_path(client_id);
-        assert!(!path.exists(), "Oversized workspace should not be saved to disk");
+        assert!(
+            !path.exists(),
+            "Oversized workspace should not be saved to disk"
+        );
         teardown_test_dir(&original_home);
     }
 
@@ -315,7 +359,9 @@ mod tests {
         // Save with one channel
         {
             let (tx, mut rx) = mpsc::channel(32);
-            handle_save_workspace(client_id, &workspace, &tx).await.unwrap();
+            handle_save_workspace(client_id, &workspace, &tx)
+                .await
+                .unwrap();
             let _ = rx.recv().await;
         }
 
@@ -345,11 +391,15 @@ mod tests {
         let (tx, mut rx) = mpsc::channel(32);
 
         // Save for client A
-        handle_save_workspace("client-a", &workspace_a, &tx).await.unwrap();
+        handle_save_workspace("client-a", &workspace_a, &tx)
+            .await
+            .unwrap();
         let _ = rx.recv().await;
 
         // Save for client B
-        handle_save_workspace("client-b", &workspace_b, &tx).await.unwrap();
+        handle_save_workspace("client-b", &workspace_b, &tx)
+            .await
+            .unwrap();
         let _ = rx.recv().await;
 
         // Load for client A - should get A's data
@@ -382,23 +432,35 @@ mod tests {
         let workspace = serde_json::json!({"test": true});
 
         let (tx, mut rx) = mpsc::channel(32);
-        handle_save_workspace(client_id, &workspace, &tx).await.unwrap();
+        handle_save_workspace(client_id, &workspace, &tx)
+            .await
+            .unwrap();
         let _ = rx.recv().await;
 
         let expected_path = get_workspaces_dir().join("test-path-client.json");
-        assert!(expected_path.exists(), "File should be at {:?}", expected_path);
+        assert!(
+            expected_path.exists(),
+            "File should be at {:?}",
+            expected_path
+        );
         teardown_test_dir(&original_home);
     }
 
     #[test]
     fn test_sanitize_client_id() {
         assert_eq!(sanitize_client_id("simple-id"), "simple-id");
-        assert_eq!(sanitize_client_id("id_with_underscores"), "id_with_underscores");
+        assert_eq!(
+            sanitize_client_id("id_with_underscores"),
+            "id_with_underscores"
+        );
         assert_eq!(sanitize_client_id("abc123"), "abc123");
         // ../../../etc/passwd -> each . and / becomes _
         // . . / . . / . . / e t c / p a s s w d
         // _ _ _ _ _ _ _ _ _ e t c _ p a s s w d
-        assert_eq!(sanitize_client_id("../../../etc/passwd"), "_________etc_passwd");
+        assert_eq!(
+            sanitize_client_id("../../../etc/passwd"),
+            "_________etc_passwd"
+        );
         assert_eq!(sanitize_client_id("id with spaces"), "id_with_spaces");
         assert_eq!(sanitize_client_id("id/with/slashes"), "id_with_slashes");
     }
@@ -424,7 +486,9 @@ mod tests {
         assert!(!dir.exists());
 
         let (tx, mut rx) = mpsc::channel(32);
-        handle_save_workspace(client_id, &workspace, &tx).await.unwrap();
+        handle_save_workspace(client_id, &workspace, &tx)
+            .await
+            .unwrap();
         let _ = rx.recv().await;
 
         // Directory should now exist
@@ -443,7 +507,10 @@ mod tests {
 
         // Verify no .tmp file exists (rename should have cleaned it up)
         let tmp_path = get_workspace_path(client_id).with_extension("json.tmp");
-        assert!(!tmp_path.exists(), "Temp file should not remain after atomic write");
+        assert!(
+            !tmp_path.exists(),
+            "Temp file should not remain after atomic write"
+        );
 
         // Verify the final file has complete content
         let content = fs::read_to_string(get_workspace_path(client_id)).unwrap();

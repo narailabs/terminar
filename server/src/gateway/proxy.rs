@@ -220,10 +220,7 @@ mod tests {
 
         // Send a length prefix indicating a message larger than MAX_SERVER_MESSAGE_SIZE
         let fake_len: u32 = (MAX_SERVER_MESSAGE_SIZE + 1) as u32;
-        stream_b
-            .write_all(&fake_len.to_be_bytes())
-            .await
-            .unwrap();
+        stream_b.write_all(&fake_len.to_be_bytes()).await.unwrap();
         drop(stream_b);
 
         // Read the length prefix using server_to_client logic

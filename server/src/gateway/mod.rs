@@ -18,13 +18,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{
+    Json, Router,
     extract::{
-        ws::{Message, WebSocket, WebSocketUpgrade},
         ConnectInfo, State,
+        ws::{Message, WebSocket, WebSocketUpgrade},
     },
     response::IntoResponse,
     routing::get,
-    Json, Router,
 };
 use tokio::sync::broadcast;
 use tracing::{error, info, warn};
@@ -71,9 +71,8 @@ pub async fn run_gateway(config: GatewayConfig) -> Result<(), Box<dyn std::error
     let (shutdown_tx, _) = broadcast::channel::<()>(1);
 
     // Load or create JWT signing key
-    let home_dir = std::path::PathBuf::from(
-        std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()),
-    );
+    let home_dir =
+        std::path::PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()));
     let key_path = home_dir.join(".terminar").join("gateway.key");
     let signing_key = jwt::load_or_create_signing_key(&key_path).unwrap_or_else(|e| {
         warn!(
@@ -260,7 +259,10 @@ async fn handle_gateway_websocket(mut socket: WebSocket, state: GatewayState) {
 
         auth_attempts += 1;
         if auth_attempts > state.max_auth_attempts {
-            warn!("Gateway auth rate limit exceeded ({} attempts)", auth_attempts);
+            warn!(
+                "Gateway auth rate limit exceeded ({} attempts)",
+                auth_attempts
+            );
             let _ = send_error(&mut socket, "Too many authentication attempts").await;
             return;
         }
@@ -273,14 +275,10 @@ async fn handle_gateway_websocket(mut socket: WebSocket, state: GatewayState) {
                         // TODO: Add SSH public key auth support. Currently only password auth (PAM) is
                         // supported through the gateway. The design doc specifies PAM + SSH key auth.
                         "AuthPassword" => {
-                            let username = msg
-                                .get("username")
-                                .and_then(|u| u.as_str())
-                                .unwrap_or("");
-                            let password = msg
-                                .get("password")
-                                .and_then(|p| p.as_str())
-                                .unwrap_or("");
+                            let username =
+                                msg.get("username").and_then(|u| u.as_str()).unwrap_or("");
+                            let password =
+                                msg.get("password").and_then(|p| p.as_str()).unwrap_or("");
 
                             if let Some(ref verifier) = state.password_verifier {
                                 if verifier.verify(username, password).is_ok() {
@@ -348,25 +346,17 @@ async fn handle_gateway_websocket(mut socket: WebSocket, state: GatewayState) {
         username, socket_path
     );
     if let Err(e) = proxy::proxy_websocket(socket, &socket_path).await {
-        error!(
-            "Proxy error for user {}: {}",
-            username, e
-        );
+        error!("Proxy error for user {}: {}", username, e);
     }
 }
 
 /// Send an error message over the WebSocket.
-async fn send_error(
-    socket: &mut WebSocket,
-    message: &str,
-) -> Result<(), axum::Error> {
+async fn send_error(socket: &mut WebSocket, message: &str) -> Result<(), axum::Error> {
     let error_msg = ServerMessage::Error {
         message: message.to_string(),
         error_code: None,
     };
     socket
-        .send(Message::Text(
-            serde_json::to_string(&error_msg).unwrap(),
-        ))
+        .send(Message::Text(serde_json::to_string(&error_msg).unwrap()))
         .await
 }

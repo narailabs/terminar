@@ -7,6 +7,9 @@ export default defineConfig({
   plugins: [svelte()],
   server: {
     port: 3001,
+    headers: {
+      'Cache-Control': 'no-store, must-revalidate',
+    },
   },
   resolve: {
     conditions: ['browser', ...defaultClientConditions],

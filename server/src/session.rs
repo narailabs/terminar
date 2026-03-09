@@ -1,9 +1,9 @@
+use parking_lot::Mutex; // Non-poisoning mutex - matches lib.rs
+use std::collections::HashMap;
+use std::io::Write;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
-use std::io::Write;
 use std::time::Instant;
-use parking_lot::Mutex;  // Non-poisoning mutex - matches lib.rs
-use std::collections::HashMap;
 use tokio::sync::broadcast;
 use tracing::debug;
 
@@ -227,7 +227,8 @@ impl Session {
         // Capture the raw fd before wrapping - used for tcgetpgrp() calls
         let pty_fd = master.as_raw_fd();
         // Take the writer before wrapping master to cache it for the session lifetime
-        let writer = master.take_writer()
+        let writer = master
+            .take_writer()
             .map_err(|e| format!("Failed to take writer from PTY master: {}", e))?;
         Ok(Self {
             id,
@@ -320,17 +321,19 @@ impl Drop for Session {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::Ordering;
     use crate::pty::MockPtyProvider;
     use crate::pty::PtyProvider;
     use portable_pty::PtySize;
+    use std::sync::atomic::Ordering;
     use std::thread;
 
     fn create_test_session() -> Session {
         let mock_provider = MockPtyProvider;
         let master = mock_provider.create_pty(80, 24).unwrap();
         let (tx, _rx) = broadcast::channel(100);
-        let history = Arc::new(Mutex::new(crate::history::CircularBuffer::with_default_capacity()));
+        let history = Arc::new(Mutex::new(
+            crate::history::CircularBuffer::with_default_capacity(),
+        ));
 
         Session::new(
             "test-id".to_string(),
@@ -340,7 +343,8 @@ mod tests {
             master,
             tx,
             history,
-        ).unwrap()
+        )
+        .unwrap()
     }
 
     /// Test that Session.master is wrapped in Arc<Mutex<>> for synchronized access.
@@ -353,7 +357,10 @@ mod tests {
 
         // Verify we can call try_clone_reader through the lock
         let reader_result = guard.try_clone_reader();
-        assert!(reader_result.is_ok(), "try_clone_reader should succeed through mutex lock");
+        assert!(
+            reader_result.is_ok(),
+            "try_clone_reader should succeed through mutex lock"
+        );
     }
 
     /// Test that the cached writer can be used for input operations.
@@ -365,7 +372,10 @@ mod tests {
         let mut writer_guard = session.writer.lock();
         use std::io::Write;
         let write_result = writer_guard.write_all(b"test input\n");
-        assert!(write_result.is_ok(), "write_all should succeed through cached writer");
+        assert!(
+            write_result.is_ok(),
+            "write_all should succeed through cached writer"
+        );
     }
 
     /// Test that resize operations work through the mutex.
@@ -381,7 +391,10 @@ mod tests {
             pixel_width: 0,
             pixel_height: 0,
         });
-        assert!(resize_result.is_ok(), "resize should succeed through mutex lock");
+        assert!(
+            resize_result.is_ok(),
+            "resize should succeed through mutex lock"
+        );
     }
 
     /// Test that concurrent input and resize operations don't race.
@@ -391,26 +404,28 @@ mod tests {
         let session = Arc::new(create_test_session());
 
         // Spawn threads that perform input and resize operations
-        let handles: Vec<_> = (0..10).map(|i| {
-            let s = session.clone();
-            thread::spawn(move || {
-                if i % 2 == 0 {
-                    // Resize operation - uses master lock
-                    let master_guard = s.master.lock();
-                    let _ = master_guard.resize(PtySize {
-                        rows: 24 + (i as u16),
-                        cols: 80,
-                        pixel_width: 0,
-                        pixel_height: 0,
-                    });
-                } else {
-                    // Input operation - uses cached writer lock
-                    let mut writer_guard = s.writer.lock();
-                    use std::io::Write;
-                    let _ = write!(writer_guard, "test{}", i);
-                }
+        let handles: Vec<_> = (0..10)
+            .map(|i| {
+                let s = session.clone();
+                thread::spawn(move || {
+                    if i % 2 == 0 {
+                        // Resize operation - uses master lock
+                        let master_guard = s.master.lock();
+                        let _ = master_guard.resize(PtySize {
+                            rows: 24 + (i as u16),
+                            cols: 80,
+                            pixel_width: 0,
+                            pixel_height: 0,
+                        });
+                    } else {
+                        // Input operation - uses cached writer lock
+                        let mut writer_guard = s.writer.lock();
+                        use std::io::Write;
+                        let _ = write!(writer_guard, "test{}", i);
+                    }
+                })
             })
-        }).collect();
+            .collect();
 
         // All threads should complete without deadlock or data race
         for handle in handles {
@@ -439,7 +454,7 @@ mod tests {
     #[test]
     fn test_arc_allows_sharing_across_threads() {
         let session = create_test_session();
-        let master = session.master.clone();  // Clone the Arc
+        let master = session.master.clone(); // Clone the Arc
 
         // First, use the master in the main thread
         {
@@ -649,15 +664,20 @@ mod tests {
     #[test]
     fn test_session_state_is_running_after_creation() {
         let session = create_test_session();
-        assert_eq!(session.state, SessionState::Running,
-            "Session state should be Running after successful creation");
+        assert_eq!(
+            session.state,
+            SessionState::Running,
+            "Session state should be Running after successful creation"
+        );
     }
 
     #[test]
     fn test_session_transition_to_closing() {
         let mut session = create_test_session();
-        assert!(session.transition_to(SessionState::Closing).is_ok(),
-            "Transition from Running to Closing should succeed");
+        assert!(
+            session.transition_to(SessionState::Closing).is_ok(),
+            "Transition from Running to Closing should succeed"
+        );
         assert_eq!(session.state, SessionState::Closing);
     }
 
@@ -665,8 +685,10 @@ mod tests {
     fn test_session_transition_to_closed() {
         let mut session = create_test_session();
         session.transition_to(SessionState::Closing).unwrap();
-        assert!(session.transition_to(SessionState::Closed).is_ok(),
-            "Transition from Closing to Closed should succeed");
+        assert!(
+            session.transition_to(SessionState::Closed).is_ok(),
+            "Transition from Closing to Closed should succeed"
+        );
         assert_eq!(session.state, SessionState::Closed);
     }
 
@@ -677,7 +699,10 @@ mod tests {
         session.transition_to(SessionState::Closed).unwrap();
 
         let result = session.transition_to(SessionState::Running);
-        assert!(result.is_err(), "Transition from Closed to Running should fail");
+        assert!(
+            result.is_err(),
+            "Transition from Closed to Running should fail"
+        );
     }
 
     #[test]
@@ -686,32 +711,55 @@ mod tests {
         assert!(session.allows_input(), "Running session should allow input");
 
         session.transition_to(SessionState::Closing).unwrap();
-        assert!(!session.allows_input(), "Closing session should not allow input");
+        assert!(
+            !session.allows_input(),
+            "Closing session should not allow input"
+        );
 
         session.transition_to(SessionState::Closed).unwrap();
-        assert!(!session.allows_input(), "Closed session should not allow input");
+        assert!(
+            !session.allows_input(),
+            "Closed session should not allow input"
+        );
     }
 
     #[test]
     fn test_session_allows_resize_delegates_to_state() {
         let mut session = create_test_session();
-        assert!(session.allows_resize(), "Running session should allow resize");
+        assert!(
+            session.allows_resize(),
+            "Running session should allow resize"
+        );
 
         session.transition_to(SessionState::Closing).unwrap();
-        assert!(!session.allows_resize(), "Closing session should not allow resize");
+        assert!(
+            !session.allows_resize(),
+            "Closing session should not allow resize"
+        );
 
         session.transition_to(SessionState::Closed).unwrap();
-        assert!(!session.allows_resize(), "Closed session should not allow resize");
+        assert!(
+            !session.allows_resize(),
+            "Closed session should not allow resize"
+        );
     }
 
     #[test]
     fn test_session_transition_to_error_from_running() {
         let mut session = create_test_session();
-        assert!(session.transition_to(SessionState::Error).is_ok(),
-            "Transition from Running to Error should succeed");
+        assert!(
+            session.transition_to(SessionState::Error).is_ok(),
+            "Transition from Running to Error should succeed"
+        );
         assert_eq!(session.state, SessionState::Error);
-        assert!(!session.allows_input(), "Error session should not allow input");
-        assert!(!session.allows_resize(), "Error session should not allow resize");
+        assert!(
+            !session.allows_input(),
+            "Error session should not allow input"
+        );
+        assert!(
+            !session.allows_resize(),
+            "Error session should not allow resize"
+        );
     }
 
     // ==================== SessionState Exited State Tests ====================
@@ -725,13 +773,19 @@ mod tests {
     #[test]
     fn test_valid_transition_running_to_exited() {
         let result = SessionState::Running.can_transition_to(&SessionState::Exited);
-        assert!(result, "Running -> Exited should be valid (shell process exits)");
+        assert!(
+            result,
+            "Running -> Exited should be valid (shell process exits)"
+        );
     }
 
     #[test]
     fn test_valid_transition_exited_to_closed() {
         let result = SessionState::Exited.can_transition_to(&SessionState::Closed);
-        assert!(result, "Exited -> Closed should be valid (user manually closes)");
+        assert!(
+            result,
+            "Exited -> Closed should be valid (user manually closes)"
+        );
     }
 
     #[test]
@@ -743,23 +797,35 @@ mod tests {
     #[test]
     fn test_invalid_transition_exited_to_running() {
         let result = SessionState::Exited.can_transition_to(&SessionState::Running);
-        assert!(!result, "Exited -> Running should be invalid (cannot restart exited shell)");
+        assert!(
+            !result,
+            "Exited -> Running should be invalid (cannot restart exited shell)"
+        );
     }
 
     #[test]
     fn test_invalid_transition_closed_to_exited() {
         let result = SessionState::Closed.can_transition_to(&SessionState::Exited);
-        assert!(!result, "Closed -> Exited should be invalid (terminal state)");
+        assert!(
+            !result,
+            "Closed -> Exited should be invalid (terminal state)"
+        );
     }
 
     #[test]
     fn test_exited_state_does_not_allow_input() {
-        assert!(!SessionState::Exited.allows_input(), "Exited state should not allow input");
+        assert!(
+            !SessionState::Exited.allows_input(),
+            "Exited state should not allow input"
+        );
     }
 
     #[test]
     fn test_exited_state_does_not_allow_resize() {
-        assert!(!SessionState::Exited.allows_resize(), "Exited state should not allow resize");
+        assert!(
+            !SessionState::Exited.allows_resize(),
+            "Exited state should not allow resize"
+        );
     }
 
     #[test]
@@ -797,7 +863,10 @@ mod tests {
     #[test]
     fn test_session_has_exit_code_field() {
         let session = create_test_session();
-        assert_eq!(session.exit_code, None, "Exit code should be None initially");
+        assert_eq!(
+            session.exit_code, None,
+            "Exit code should be None initially"
+        );
     }
 
     #[test]
@@ -811,29 +880,43 @@ mod tests {
 
     #[test]
     fn test_exited_state_allows_attach() {
-        assert!(SessionState::Exited.allows_attach(), "Exited state should allow attach for read-only viewing");
+        assert!(
+            SessionState::Exited.allows_attach(),
+            "Exited state should allow attach for read-only viewing"
+        );
     }
 
     #[test]
     fn test_running_state_allows_attach() {
-        assert!(SessionState::Running.allows_attach(), "Running state should allow attach");
+        assert!(
+            SessionState::Running.allows_attach(),
+            "Running state should allow attach"
+        );
     }
 
     #[test]
     fn test_closed_state_does_not_allow_attach() {
-        assert!(!SessionState::Closed.allows_attach(), "Closed state should not allow attach");
+        assert!(
+            !SessionState::Closed.allows_attach(),
+            "Closed state should not allow attach"
+        );
     }
 
     #[test]
     fn test_error_state_does_not_allow_attach() {
-        assert!(!SessionState::Error.allows_attach(), "Error state should not allow attach");
+        assert!(
+            !SessionState::Error.allows_attach(),
+            "Error state should not allow attach"
+        );
     }
 
     #[test]
     fn test_session_transition_running_to_exited() {
         let mut session = create_test_session();
-        assert!(session.transition_to(SessionState::Exited).is_ok(),
-            "Transition from Running to Exited should succeed");
+        assert!(
+            session.transition_to(SessionState::Exited).is_ok(),
+            "Transition from Running to Exited should succeed"
+        );
         assert_eq!(session.state, SessionState::Exited);
     }
 
@@ -841,8 +924,10 @@ mod tests {
     fn test_session_transition_exited_to_closed() {
         let mut session = create_test_session();
         session.transition_to(SessionState::Exited).unwrap();
-        assert!(session.transition_to(SessionState::Closed).is_ok(),
-            "Transition from Exited to Closed should succeed");
+        assert!(
+            session.transition_to(SessionState::Closed).is_ok(),
+            "Transition from Exited to Closed should succeed"
+        );
         assert_eq!(session.state, SessionState::Closed);
     }
 
@@ -850,14 +935,20 @@ mod tests {
     fn test_exited_session_rejects_input() {
         let mut session = create_test_session();
         session.transition_to(SessionState::Exited).unwrap();
-        assert!(!session.allows_input(), "Exited session should not allow input");
+        assert!(
+            !session.allows_input(),
+            "Exited session should not allow input"
+        );
     }
 
     #[test]
     fn test_exited_session_allows_attach_via_session() {
         let mut session = create_test_session();
         session.transition_to(SessionState::Exited).unwrap();
-        assert!(session.state.allows_attach(), "Exited session should allow attach");
+        assert!(
+            session.state.allows_attach(),
+            "Exited session should allow attach"
+        );
     }
 
     #[test]
@@ -883,32 +974,44 @@ mod tests {
     #[test]
     fn test_session_has_silence_notified_field() {
         let session = create_test_session();
-        assert!(!session.silence_notified.load(Ordering::Relaxed), "silence_notified should be false initially");
+        assert!(
+            !session.silence_notified.load(Ordering::Relaxed),
+            "silence_notified should be false initially"
+        );
     }
 
     #[test]
     fn test_session_has_silence_threshold_field() {
         let session = create_test_session();
-        assert_eq!(session.silence_threshold_secs, 30, "Default silence threshold should be 30 seconds");
+        assert_eq!(
+            session.silence_threshold_secs, 30,
+            "Default silence threshold should be 30 seconds"
+        );
     }
 
     #[test]
     fn test_session_last_output_at_initially_none() {
         let session = create_test_session();
-        assert!(session.last_output_at.lock().is_none(), "last_output_at should be None initially");
+        assert!(
+            session.last_output_at.lock().is_none(),
+            "last_output_at should be None initially"
+        );
     }
 
     #[test]
     fn test_session_last_bell_at_initially_none() {
         let session = create_test_session();
-        assert!(session.last_bell_at.lock().is_none(), "last_bell_at should be None initially");
+        assert!(
+            session.last_bell_at.lock().is_none(),
+            "last_bell_at should be None initially"
+        );
     }
 
     #[test]
     fn test_session_event_bell_variant() {
         let event = SessionEvent::Bell;
         match event {
-            SessionEvent::Bell => {},
+            SessionEvent::Bell => {}
             _ => panic!("Expected Bell event"),
         }
     }
@@ -917,7 +1020,7 @@ mod tests {
     fn test_session_event_activity_variant() {
         let event = SessionEvent::Activity;
         match event {
-            SessionEvent::Activity => {},
+            SessionEvent::Activity => {}
             _ => panic!("Expected Activity event"),
         }
     }
@@ -926,7 +1029,7 @@ mod tests {
     fn test_session_event_silence_variant() {
         let event = SessionEvent::Silence;
         match event {
-            SessionEvent::Silence => {},
+            SessionEvent::Silence => {}
             _ => panic!("Expected Silence event"),
         }
     }
@@ -937,20 +1040,29 @@ mod tests {
     fn test_session_subscriber_count_starts_at_zero() {
         let session = create_test_session();
         // No receivers have subscribed yet (the _rx from create_test_session was dropped)
-        assert_eq!(session.subscriber_count(), 0,
-            "New session should have 0 subscribers");
+        assert_eq!(
+            session.subscriber_count(),
+            0,
+            "New session should have 0 subscribers"
+        );
     }
 
     #[test]
     fn test_session_subscriber_count_tracks_subscriptions() {
         let session = create_test_session();
         let _rx1 = session.output_tx.subscribe();
-        assert_eq!(session.subscriber_count(), 1,
-            "Should have 1 subscriber after first subscribe");
+        assert_eq!(
+            session.subscriber_count(),
+            1,
+            "Should have 1 subscriber after first subscribe"
+        );
 
         let _rx2 = session.output_tx.subscribe();
-        assert_eq!(session.subscriber_count(), 2,
-            "Should have 2 subscribers after second subscribe");
+        assert_eq!(
+            session.subscriber_count(),
+            2,
+            "Should have 2 subscribers after second subscribe"
+        );
     }
 
     #[test]
@@ -961,8 +1073,11 @@ mod tests {
         assert_eq!(session.subscriber_count(), 2);
 
         drop(rx1);
-        assert_eq!(session.subscriber_count(), 1,
-            "Should have 1 subscriber after dropping one");
+        assert_eq!(
+            session.subscriber_count(),
+            1,
+            "Should have 1 subscriber after dropping one"
+        );
     }
 
     #[test]

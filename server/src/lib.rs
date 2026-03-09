@@ -29,45 +29,47 @@ pub mod settings;
 pub mod tls;
 pub mod workspace;
 
-use messages::{ClientMessage, ServerMessage};
-use session::SessionMap;
 use config::Cli;
+use messages::{ClientMessage, ServerMessage};
 use pty::MockPtyProvider;
+use session::SessionMap;
 
+use parking_lot::Mutex; // Non-poisoning mutex - doesn't require unwrap()
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use parking_lot::Mutex;  // Non-poisoning mutex - doesn't require unwrap()
-use tokio::io::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt};
+use std::time::{Duration, Instant};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{broadcast, mpsc};
+use tracing::{Instrument, error, info, info_span, trace, warn};
 use uuid::Uuid;
-use tracing::{info, error, warn, trace, info_span, Instrument};
-use std::time::{Instant, Duration};
 
 use constants::{
-    RATE_LIMIT_WINDOW_SECS, MAX_WS_AUTH_ATTEMPTS,
-    DEFAULT_CORS_ORIGINS, SHUTDOWN_TIMEOUT_SECS,
+    DEFAULT_CORS_ORIGINS, MAX_WS_AUTH_ATTEMPTS, RATE_LIMIT_WINDOW_SECS, SHUTDOWN_TIMEOUT_SECS,
 };
 
 // Re-export handler functions used by tests in this module
 #[cfg(test)]
-use handlers::session::{filter_env, clamp_dimension};
+use handlers::session::{clamp_dimension, filter_env};
 #[cfg(test)]
 use session::SessionState;
 
+use axum::http::{Method, header};
 use axum::{
-    extract::{ws::{Message, WebSocket, WebSocketUpgrade}, State, Request, Json, ConnectInfo},
+    Router,
+    extract::{
+        ConnectInfo, Json, Request, State,
+        ws::{Message, WebSocket, WebSocketUpgrade},
+    },
     http::StatusCode,
+    middleware::{self, Next},
     response::{IntoResponse, Redirect},
     routing::{get, post, put},
-    middleware::{self, Next},
-    Router,
 };
-use std::net::SocketAddr;
-use tower_http::cors::CorsLayer;
-use axum::http::{header, Method};
 use futures::{sink::SinkExt, stream::StreamExt};
 use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
+use tower_http::cors::CorsLayer;
 
 // Re-export PTY_READ_BUFFER_SIZE for backward compatibility
 pub use constants::PTY_READ_BUFFER_SIZE;
@@ -110,23 +112,30 @@ fn poll_foreground_processes(sessions: &SessionMap) {
             // Broadcast ForegroundChanged to attached clients
             // Use the output_tx broadcast channel - clients listening for session
             // events will receive this notification
-            let _ = session.output_tx.send(session::SessionEvent::ForegroundChanged(new_process.clone()));
+            let _ = session
+                .output_tx
+                .send(session::SessionEvent::ForegroundChanged(
+                    new_process.clone(),
+                ));
         }
 
         // Poll CWD of the foreground process
         let new_cwd = process::get_process_cwd(pty_fd);
         if let Some(ref cwd) = new_cwd
-            && *cwd != session.cwd {
-                let old = session.cwd.clone();
-                session.cwd = cwd.clone();
-                tracing::debug!(
-                    session_id = %session.id,
-                    old_cwd = %old,
-                    new_cwd = %cwd,
-                    "CWD changed"
-                );
-                let _ = session.output_tx.send(session::SessionEvent::CwdChanged(cwd.clone()));
-            }
+            && *cwd != session.cwd
+        {
+            let old = session.cwd.clone();
+            session.cwd = cwd.clone();
+            tracing::debug!(
+                session_id = %session.id,
+                old_cwd = %old,
+                new_cwd = %cwd,
+                "CWD changed"
+            );
+            let _ = session
+                .output_tx
+                .send(session::SessionEvent::CwdChanged(cwd.clone()));
+        }
     }
 }
 
@@ -143,7 +152,10 @@ fn check_silence(sessions: &SessionMap) {
         }
 
         // Skip if already notified about silence
-        if session.silence_notified.load(std::sync::atomic::Ordering::Relaxed) {
+        if session
+            .silence_notified
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
             continue;
         }
 
@@ -156,7 +168,9 @@ fn check_silence(sessions: &SessionMap) {
         // Check if silence threshold has been exceeded
         let elapsed = last_output.elapsed();
         if elapsed >= Duration::from_secs(session.silence_threshold_secs) {
-            session.silence_notified.store(true, std::sync::atomic::Ordering::Relaxed);
+            session
+                .silence_notified
+                .store(true, std::sync::atomic::Ordering::Relaxed);
             tracing::debug!(
                 session_id = %session.id,
                 elapsed_secs = elapsed.as_secs(),
@@ -177,11 +191,13 @@ fn check_silence(sessions: &SessionMap) {
 /// All other requests get a 301 Permanent Redirect to the HTTPS equivalent.
 fn build_http_redirect_router(tls_port: u16) -> Router {
     Router::new()
-        .route("/health", get(|| async {
-            Json(serde_json::json!({"status": "ok"}))
-        }))
+        .route(
+            "/health",
+            get(|| async { Json(serde_json::json!({"status": "ok"})) }),
+        )
         .fallback(move |req: Request| async move {
-            let host = req.headers()
+            let host = req
+                .headers()
                 .get("host")
                 .and_then(|h| h.to_str().ok())
                 .unwrap_or("localhost");
@@ -203,15 +219,24 @@ fn create_cors_layer(origins: &[String]) -> CorsLayer {
         // Use default localhost origins for development
         info!("Using default CORS origins for localhost");
         CorsLayer::new()
-            .allow_origin(DEFAULT_CORS_ORIGINS.iter().map(|s| s.parse().unwrap()).collect::<Vec<_>>())
-            .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
+            .allow_origin(
+                DEFAULT_CORS_ORIGINS
+                    .iter()
+                    .map(|s| s.parse().unwrap())
+                    .collect::<Vec<_>>(),
+            )
+            .allow_methods([
+                Method::GET,
+                Method::POST,
+                Method::PUT,
+                Method::DELETE,
+                Method::OPTIONS,
+            ])
             .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
     } else {
         // Use provided origins
         info!("Using custom CORS origins: {:?}", origins);
-        let parsed_origins: Vec<_> = origins.iter()
-            .filter_map(|o| o.parse().ok())
-            .collect();
+        let parsed_origins: Vec<_> = origins.iter().filter_map(|o| o.parse().ok()).collect();
 
         if parsed_origins.is_empty() {
             warn!("No valid CORS origins parsed, falling back to permissive");
@@ -220,7 +245,13 @@ fn create_cors_layer(origins: &[String]) -> CorsLayer {
 
         CorsLayer::new()
             .allow_origin(parsed_origins)
-            .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
+            .allow_methods([
+                Method::GET,
+                Method::POST,
+                Method::PUT,
+                Method::DELETE,
+                Method::OPTIONS,
+            ])
             .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
     }
 }
@@ -360,7 +391,7 @@ pub struct SessionAuthRequest {
 /// Returns true if the origin is allowed, false otherwise.
 pub fn validate_websocket_origin(origin: Option<&str>, custom_origins: &[String]) -> bool {
     match origin {
-        None => true, // No origin header = likely not a browser request, allow
+        None => true,      // No origin header = likely not a browser request, allow
         Some("") => false, // Empty origin is suspicious, reject
         Some(origin) => {
             // Check default origins
@@ -371,7 +402,10 @@ pub fn validate_websocket_origin(origin: Option<&str>, custom_origins: &[String]
             if custom_origins.iter().any(|o| o == origin) {
                 return true;
             }
-            warn!("Rejected WebSocket connection from unknown origin: {}", origin);
+            warn!(
+                "Rejected WebSocket connection from unknown origin: {}",
+                origin
+            );
             false
         }
     }
@@ -400,24 +434,26 @@ pub async fn handle_pair_command(socket_path: &str) -> Result<(), Box<dyn std::e
     let msg = ClientMessage::PairRequest;
     let json = serde_json::to_string(&msg)? + "\n";
     stream.write_all(json.as_bytes()).await?;
-    
+
     let mut buf = [0u8; 1024];
     let n = stream.read(&mut buf).await?;
     let resp: ServerMessage = serde_json::from_slice(&buf[0..n])?;
-    
+
     if let ServerMessage::PairResponse { code, expiry_secs } = resp {
         println!("Pairing Code: {} (Valid for {} seconds)", code, expiry_secs);
     } else {
         error!("Unexpected response from server: {:?}", resp);
     }
-    
+
     Ok(())
 }
 
 /// Returns the path to the token file (~/.terminar/token)
 pub fn get_token_file_path() -> std::path::PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    std::path::PathBuf::from(home).join(".terminar").join("token")
+    std::path::PathBuf::from(home)
+        .join(".terminar")
+        .join("token")
 }
 
 /// Writes the API token to ~/.terminar/token with secure permissions (0600)
@@ -484,23 +520,34 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
     let history_dir_str = history_dir.to_string_lossy().to_string();
     match persistence::load_sessions(&session_file.to_string_lossy()) {
         Ok(data) => {
-            let running_sessions: Vec<_> = data.sessions.iter()
+            let running_sessions: Vec<_> = data
+                .sessions
+                .iter()
                 .filter(|s| s.state == "Running")
                 .collect();
             if !running_sessions.is_empty() {
-                info!("Restoring {} persisted session(s)...", running_sessions.len());
+                info!(
+                    "Restoring {} persisted session(s)...",
+                    running_sessions.len()
+                );
                 for s in &running_sessions {
                     // Track "Terminal N" counter
                     if let Some(n) = s.name.strip_prefix("Terminal ")
                         && let Ok(num) = n.parse::<u64>()
-                        && num >= initial_name_counter {
-                            initial_name_counter = num + 1;
-                        }
+                        && num >= initial_name_counter
+                    {
+                        initial_name_counter = num + 1;
+                    }
 
                     // Load history for this session
-                    let history_data = match persistence::load_history_auto(&history_dir_str, &s.id) {
+                    let history_data = match persistence::load_history_auto(&history_dir_str, &s.id)
+                    {
                         Ok(Some(data)) => {
-                            info!("Loaded {} bytes of history for session {}", data.len(), s.id);
+                            info!(
+                                "Loaded {} bytes of history for session {}",
+                                data.len(),
+                                s.id
+                            );
                             Some(data)
                         }
                         Ok(None) => {
@@ -517,11 +564,17 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
                     let shell = handlers::session::resolve_shell(&s.shell_cmd);
                     let cwd_candidate = handlers::session::resolve_cwd(&s.cwd);
                     if handlers::session::validate_shell(&shell).is_some() {
-                        warn!("Skipping restore of session {} with invalid shell: {}", s.id, shell);
+                        warn!(
+                            "Skipping restore of session {} with invalid shell: {}",
+                            s.id, shell
+                        );
                         continue;
                     }
                     if handlers::session::validate_cwd(&cwd_candidate).is_some() {
-                        warn!("Skipping restore of session {} with invalid cwd: {} (using home dir)", s.id, s.cwd);
+                        warn!(
+                            "Skipping restore of session {} with invalid cwd: {} (using home dir)",
+                            s.id, s.cwd
+                        );
                         // Fall through with home dir
                     }
 
@@ -530,7 +583,8 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
                         &s.name,
                         &shell,
                         &cwd_candidate,
-                        80, 24,
+                        80,
+                        24,
                         &HashMap::new(),
                         &sessions,
                         cli.mock_pty.then(|| Arc::new(MockPtyProvider)).as_ref(),
@@ -552,7 +606,10 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
     if !cli.user_mode {
         match write_token_file(&api_key) {
             Ok(()) => info!("Token written to {:?}", get_token_file_path()),
-            Err(e) => warn!("Failed to write token file: {} (clients will need manual auth)", e),
+            Err(e) => warn!(
+                "Failed to write token file: {} (clients will need manual auth)",
+                e
+            ),
         }
     }
 
@@ -567,14 +624,17 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
     let (shutdown_tx, _) = broadcast::channel::<()>(1);
 
     // Load or create JWT signing key
-    let key_path = std::path::PathBuf::from(
-        std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string())
-    ).join(".terminar").join("server.key");
-    let signing_key = jwt::load_or_create_signing_key(&key_path)
-        .unwrap_or_else(|e| {
-            warn!("Failed to load/create signing key: {}, generating ephemeral key", e);
-            jwt::generate_signing_key()
-        });
+    let key_path =
+        std::path::PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()))
+            .join(".terminar")
+            .join("server.key");
+    let signing_key = jwt::load_or_create_signing_key(&key_path).unwrap_or_else(|e| {
+        warn!(
+            "Failed to load/create signing key: {}, generating ephemeral key",
+            e
+        );
+        jwt::generate_signing_key()
+    });
     let server_id = uuid::Uuid::new_v4().to_string();
 
     // In user-mode, auth is delegated to the gateway — skip password verifier
@@ -584,7 +644,8 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
     let password_verifier: Option<Arc<dyn auth::PasswordVerifier>> = if skip_auth {
         None
     } else {
-        auth::create_platform_verifier("login").map(|v| Arc::from(v) as Arc<dyn auth::PasswordVerifier>)
+        auth::create_platform_verifier("login")
+            .map(|v| Arc::from(v) as Arc<dyn auth::PasswordVerifier>)
     };
 
     let mut state = AppState {
@@ -608,16 +669,21 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
         audit_logger: None, // Will be replaced after async init
         require_auth: cli.require_auth,
         revocation_store: None, // Will be replaced after async init
-        tls_enabled: false, // Will be updated after TLS config resolution
+        tls_enabled: false,     // Will be updated after TLS config resolution
     };
 
     // Initialize revocation store
-    let revocation_path = std::path::PathBuf::from(
-        std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string())
-    ).join(".terminar").join("revoked-tokens.jsonl");
+    let revocation_path =
+        std::path::PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()))
+            .join(".terminar")
+            .join("revoked-tokens.jsonl");
     match revocation::RevocationStore::new(revocation_path.clone()).await {
         Ok(store) => {
-            info!("Revocation store loaded from {:?} ({} revoked tokens)", revocation_path, store.len());
+            info!(
+                "Revocation store loaded from {:?} ({} revoked tokens)",
+                revocation_path,
+                store.len()
+            );
             state.revocation_store = Some(Arc::new(store));
         }
         Err(e) => {
@@ -626,18 +692,25 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
     }
 
     // Initialize audit logger
-    let audit_level: audit::AuditLevel = cli.audit_level.parse().unwrap_or(audit::AuditLevel::Standard);
+    let audit_level: audit::AuditLevel = cli
+        .audit_level
+        .parse()
+        .unwrap_or(audit::AuditLevel::Standard);
     if audit_level != audit::AuditLevel::Off {
-        let audit_path = std::path::PathBuf::from(
-            std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string())
-        ).join(".terminar").join("audit.log");
+        let audit_path =
+            std::path::PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()))
+                .join(".terminar")
+                .join("audit.log");
         match audit::AuditLogger::new(audit_path.clone(), audit_level).await {
             Ok(logger) => {
                 info!("Audit logging enabled, writing to {:?}", audit_path);
                 state.audit_logger = Some(Arc::new(logger));
             }
             Err(e) => {
-                warn!("Failed to initialize audit logger: {} (audit logging disabled)", e);
+                warn!(
+                    "Failed to initialize audit logger: {} (audit logging disabled)",
+                    e
+                );
             }
         }
     } else {
@@ -645,9 +718,8 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
     }
 
     // Resolve TLS configuration: explicit cert/key > auto-TLS > none
-    let home_dir = std::path::PathBuf::from(
-        std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string())
-    );
+    let home_dir =
+        std::path::PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()));
     let tls_dir = home_dir.join(".terminar").join("tls");
     let tls_config = tls::resolve_tls_config(
         cli.tls_cert.as_deref(),
@@ -689,7 +761,10 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
         .route("/settings", put(put_settings_handler))
         .route("/workspace", get(get_workspace_handler))
         .route("/workspace", put(put_workspace_handler))
-        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
         .layer(cors_layer)
         .layer(middleware::from_fn_with_state(
             security_headers_state,
@@ -714,12 +789,15 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
 
         // Serve redirect router on the HTTP port
         let redirect_app = build_http_redirect_router(tls_port);
-        info!("HTTP listener on http://{} (redirecting to HTTPS port {})", addr, tls_port);
+        info!(
+            "HTTP listener on http://{} (redirecting to HTTPS port {})",
+            addr, tls_port
+        );
 
         let server_task = tokio::spawn(async move {
             let server = axum::serve(
                 listener_http,
-                redirect_app.into_make_service_with_connect_info::<SocketAddr>()
+                redirect_app.into_make_service_with_connect_info::<SocketAddr>(),
             );
             tokio::select! {
                 result = server => {
@@ -741,7 +819,7 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
         let server_task = tokio::spawn(async move {
             let server = axum::serve(
                 listener_http,
-                app.into_make_service_with_connect_info::<SocketAddr>()
+                app.into_make_service_with_connect_info::<SocketAddr>(),
             );
             tokio::select! {
                 result = server => {
@@ -854,9 +932,11 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
     let shutdown_signal = async {
         #[cfg(unix)]
         {
-            use tokio::signal::unix::{signal, SignalKind};
-            let mut sigterm = signal(SignalKind::terminate()).expect("Failed to install SIGTERM handler");
-            let mut sigint = signal(SignalKind::interrupt()).expect("Failed to install SIGINT handler");
+            use tokio::signal::unix::{SignalKind, signal};
+            let mut sigterm =
+                signal(SignalKind::terminate()).expect("Failed to install SIGTERM handler");
+            let mut sigint =
+                signal(SignalKind::interrupt()).expect("Failed to install SIGINT handler");
 
             tokio::select! {
                 _ = sigterm.recv() => {
@@ -869,7 +949,9 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
         }
         #[cfg(not(unix))]
         {
-            tokio::signal::ctrl_c().await.expect("Failed to install Ctrl+C handler");
+            tokio::signal::ctrl_c()
+                .await
+                .expect("Failed to install Ctrl+C handler");
             info!("Received Ctrl+C signal");
         }
     };
@@ -890,20 +972,18 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
 
     // Wait for tasks with timeout
     let shutdown_timeout = Duration::from_secs(SHUTDOWN_TIMEOUT_SECS);
-    let shutdown_result = tokio::time::timeout(
-        shutdown_timeout,
-        async {
-            // Abort tasks (they should have received shutdown signal)
-            server_task.abort();
-            if let Some(ref tls_handle) = tls_task {
-                tls_handle.abort();
-            }
-            unix_task.abort();
-
-            // Wait a moment for in-flight messages
-            tokio::time::sleep(Duration::from_millis(100)).await;
+    let shutdown_result = tokio::time::timeout(shutdown_timeout, async {
+        // Abort tasks (they should have received shutdown signal)
+        server_task.abort();
+        if let Some(ref tls_handle) = tls_task {
+            tls_handle.abort();
         }
-    ).await;
+        unix_task.abort();
+
+        // Wait a moment for in-flight messages
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    })
+    .await;
 
     if shutdown_result.is_err() {
         warn!("Shutdown timeout reached, forcing cleanup");
@@ -975,20 +1055,22 @@ async fn auth_middleware(
         || req.uri().path() == "/health"
         || req.uri().path() == "/settings"
         || req.uri().path() == "/workspace"
-        || req.uri().path() == "/auth/session" {
+        || req.uri().path() == "/auth/session"
+    {
         return next.run(req).await;
     }
 
-    let auth_header = req.headers().get("Authorization")
+    let auth_header = req
+        .headers()
+        .get("Authorization")
         .and_then(|h| h.to_str().ok())
         .and_then(|val| val.strip_prefix("Bearer "));
 
-    let query_token = req.uri().query()
-        .and_then(|q| {
-            form_urlencoded::parse(q.as_bytes())
-                .find(|(k, _)| k == "token")
-                .map(|(_, v)| v.to_string())
-        });
+    let query_token = req.uri().query().and_then(|q| {
+        form_urlencoded::parse(q.as_bytes())
+            .find(|(k, _)| k == "token")
+            .map(|(_, v)| v.to_string())
+    });
 
     let token = auth_header.map(|s| s.to_string()).or(query_token);
 
@@ -1006,17 +1088,18 @@ async fn auth_middleware(
 
     // Try cookie-based JWT auth (terminar_access cookie)
     if let Some(access_token) = cookies::extract_cookie(req.headers(), "terminar_access")
-        && let Ok(claims) = jwt::validate_access_token(&state.signing_key, &access_token) {
-            // Check revocation via persistent store (by jti) or ephemeral set
-            let revoked = if let Some(ref store) = state.revocation_store {
-                store.is_revoked(&claims.jti)
-            } else {
-                state.revoked_tokens.lock().contains(&access_token)
-            };
-            if !revoked {
-                return next.run(req).await;
-            }
+        && let Ok(claims) = jwt::validate_access_token(&state.signing_key, &access_token)
+    {
+        // Check revocation via persistent store (by jti) or ephemeral set
+        let revoked = if let Some(ref store) = state.revocation_store {
+            store.is_revoked(&claims.jti)
+        } else {
+            state.revoked_tokens.lock().contains(&access_token)
+        };
+        if !revoked {
+            return next.run(req).await;
         }
+    }
 
     (StatusCode::UNAUTHORIZED, "Unauthorized").into_response()
 }
@@ -1033,16 +1116,20 @@ fn extract_client_ip(
     // Helper to extract the first (leftmost) IP from an XFF header
     let xff_first_ip = || -> Option<String> {
         xff_header.and_then(|xff| {
-            xff.split(',').next().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+            xff.split(',')
+                .next()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
         })
     };
 
     if let Some(proxy_ip) = trusted_proxy {
         // Strict mode: only trust XFF if request came from the trusted proxy
         if peer_ip == Some(proxy_ip)
-            && let Some(ip) = xff_first_ip() {
-                return ip;
-            }
+            && let Some(ip) = xff_first_ip()
+        {
+            return ip;
+        }
         // Request not from trusted proxy — use peer IP, ignore XFF
         return peer_ip.unwrap_or("unknown").to_string();
     }
@@ -1060,14 +1147,11 @@ async fn exchange_handler(
     req: Request,
 ) -> impl IntoResponse {
     let peer_ip = connect_info.map(|ci| ci.0.ip().to_string());
-    let xff = req.headers()
+    let xff = req
+        .headers()
         .get("x-forwarded-for")
         .and_then(|h| h.to_str().ok());
-    let client_ip = extract_client_ip(
-        xff,
-        state.trusted_proxy.as_deref(),
-        peer_ip.as_deref(),
-    );
+    let client_ip = extract_client_ip(xff, state.trusted_proxy.as_deref(), peer_ip.as_deref());
 
     let now = Instant::now();
 
@@ -1085,24 +1169,39 @@ async fn exchange_handler(
             // Hard lockout after max attempts (configurable via --max-auth-attempts)
             if attempt_count >= state.max_auth_attempts {
                 warn!("Rate limit exceeded for IP: {}", client_ip);
-                return (StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded. Try again later.").into_response();
+                return (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "Rate limit exceeded. Try again later.",
+                )
+                    .into_response();
             }
 
             // Exponential backoff: must wait 2^(N-1) seconds after N attempts
             if attempt_count > 0
-                && let Some(last_attempt) = timestamps.last() {
-                    let backoff_secs = 1u64 << (attempt_count - 1); // 1, 2, 4, 8, ...
-                    let elapsed = now.duration_since(*last_attempt);
-                    if elapsed < Duration::from_secs(backoff_secs) {
-                        warn!("Exponential backoff for IP: {} (attempt {}, need {}s wait, only {}s elapsed)",
-                            client_ip, attempt_count + 1, backoff_secs, elapsed.as_secs());
-                        return (StatusCode::TOO_MANY_REQUESTS, "Too many attempts. Please wait before trying again.").into_response();
-                    }
+                && let Some(last_attempt) = timestamps.last()
+            {
+                let backoff_secs = 1u64 << (attempt_count - 1); // 1, 2, 4, 8, ...
+                let elapsed = now.duration_since(*last_attempt);
+                if elapsed < Duration::from_secs(backoff_secs) {
+                    warn!(
+                        "Exponential backoff for IP: {} (attempt {}, need {}s wait, only {}s elapsed)",
+                        client_ip,
+                        attempt_count + 1,
+                        backoff_secs,
+                        elapsed.as_secs()
+                    );
+                    return (
+                        StatusCode::TOO_MANY_REQUESTS,
+                        "Too many attempts. Please wait before trying again.",
+                    )
+                        .into_response();
                 }
+            }
         }
 
         // Record this attempt
-        attempts.entry(client_ip.clone())
+        attempts
+            .entry(client_ip.clone())
             .or_insert_with(Vec::new)
             .push(now);
     }
@@ -1136,7 +1235,10 @@ async fn revoke_handler(
     State(state): State<AppState>,
     Json(payload): Json<RevokeRequest>,
 ) -> impl IntoResponse {
-    info!("Revoking token: {}...", &payload.token[..std::cmp::min(8, payload.token.len())]);
+    info!(
+        "Revoking token: {}...",
+        &payload.token[..std::cmp::min(8, payload.token.len())]
+    );
 
     // Try to decode the token as a JWT to extract jti for persistent revocation
     if let Some(ref store) = state.revocation_store {
@@ -1154,7 +1256,12 @@ async fn revoke_handler(
         state.revoked_tokens.lock().insert(payload.token);
     }
 
-    (StatusCode::OK, Json(RevokeResponse { status: "revoked".to_string() }))
+    (
+        StatusCode::OK,
+        Json(RevokeResponse {
+            status: "revoked".to_string(),
+        }),
+    )
 }
 
 async fn refresh_handler(
@@ -1167,20 +1274,35 @@ async fn refresh_handler(
             // falling back to ephemeral set for legacy tokens without jti)
             if let Some(ref store) = state.revocation_store {
                 if store.is_revoked(&claims.jti) {
-                    warn!("Attempted reuse of revoked refresh token jti={}", claims.jti);
-                    return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "Token revoked"}))).into_response();
+                    warn!(
+                        "Attempted reuse of revoked refresh token jti={}",
+                        claims.jti
+                    );
+                    return (
+                        StatusCode::UNAUTHORIZED,
+                        Json(serde_json::json!({"error": "Token revoked"})),
+                    )
+                        .into_response();
                 }
             } else if state.revoked_tokens.lock().contains(&payload.refresh_token) {
-                return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "Token revoked"}))).into_response();
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    Json(serde_json::json!({"error": "Token revoked"})),
+                )
+                    .into_response();
             }
 
             // Issue new access token and rotate refresh token
             let access = jwt::issue_access_token(
-                &state.signing_key, &claims.sub, &state.server_id,
+                &state.signing_key,
+                &claims.sub,
+                &state.server_id,
                 Duration::from_secs(constants::ACCESS_TOKEN_EXPIRY_SECS),
             );
             let refresh = jwt::issue_refresh_token(
-                &state.signing_key, &claims.sub, &state.server_id,
+                &state.signing_key,
+                &claims.sub,
+                &state.server_id,
                 Duration::from_secs(constants::REFRESH_TOKEN_EXPIRY_SECS),
             );
 
@@ -1190,29 +1312,37 @@ async fn refresh_handler(
                     if let Some(ref store) = state.revocation_store {
                         store.revoke(&claims.jti, "rotation", Some(claims.exp));
                         if let Some(ref logger) = state.audit_logger {
-                            logger.log(audit::AuditEvent::token_revoked(
-                                &claims.jti, "rotation",
-                            ));
+                            logger.log(audit::AuditEvent::token_revoked(&claims.jti, "rotation"));
                         }
                     } else {
                         state.revoked_tokens.lock().insert(payload.refresh_token);
                     }
 
                     info!("Refreshed tokens for user: {}", claims.sub);
-                    (StatusCode::OK, Json(serde_json::json!({
-                        "access_token": access_token,
-                        "refresh_token": refresh_token,
-                        "expires_in": "15m",
-                    }))).into_response()
+                    (
+                        StatusCode::OK,
+                        Json(serde_json::json!({
+                            "access_token": access_token,
+                            "refresh_token": refresh_token,
+                            "expires_in": "15m",
+                        })),
+                    )
+                        .into_response()
                 }
-                _ => {
-                    (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "Token generation failed"}))).into_response()
-                }
+                _ => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": "Token generation failed"})),
+                )
+                    .into_response(),
             }
         }
         Err(_) => {
             warn!("Refresh token validation failed");
-            (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "Invalid or expired refresh token"}))).into_response()
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({"error": "Invalid or expired refresh token"})),
+            )
+                .into_response()
         }
     }
 }
@@ -1232,44 +1362,55 @@ async fn session_handler(
         Ok(claims) => {
             // Check revocation
             if state.revoked_tokens.lock().contains(&payload.token) {
-                return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "Token revoked"}))).into_response();
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    Json(serde_json::json!({"error": "Token revoked"})),
+                )
+                    .into_response();
             }
 
             // Issue fresh access + refresh tokens for the cookie
             let access = jwt::issue_access_token(
-                &state.signing_key, &claims.sub, &state.server_id,
+                &state.signing_key,
+                &claims.sub,
+                &state.server_id,
                 Duration::from_secs(constants::ACCESS_TOKEN_EXPIRY_SECS),
             );
             let refresh = jwt::issue_refresh_token(
-                &state.signing_key, &claims.sub, &state.server_id,
+                &state.signing_key,
+                &claims.sub,
+                &state.server_id,
                 Duration::from_secs(constants::REFRESH_TOKEN_EXPIRY_SECS),
             );
 
             match (access, refresh) {
                 (Ok(access_token), Ok(refresh_token)) => {
-                    let cookie_headers = cookies::set_auth_cookies(
-                        &access_token, &refresh_token, state.tls_enabled,
-                    );
-                    let mut response = (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response();
+                    let cookie_headers =
+                        cookies::set_auth_cookies(&access_token, &refresh_token, state.tls_enabled);
+                    let mut response =
+                        (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response();
                     for (_name, value) in cookie_headers {
                         if let Ok(hv) = axum::http::HeaderValue::from_str(&value) {
-                            response.headers_mut().append(
-                                axum::http::header::SET_COOKIE,
-                                hv,
-                            );
+                            response
+                                .headers_mut()
+                                .append(axum::http::header::SET_COOKIE, hv);
                         }
                     }
                     info!("Session cookies set for user: {}", claims.sub);
                     response
                 }
-                _ => {
-                    (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "Token generation failed"}))).into_response()
-                }
+                _ => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": "Token generation failed"})),
+                )
+                    .into_response(),
             }
         }
-        Err(_) => {
-            (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "Invalid or expired token"}))).into_response()
-        }
+        Err(_) => (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "Invalid or expired token"})),
+        )
+            .into_response(),
     }
 }
 
@@ -1280,41 +1421,43 @@ async fn logout_handler(
 ) -> impl IntoResponse {
     // Extract and revoke the refresh token from the cookie
     if let Some(refresh_token) = cookies::extract_cookie(&headers, "terminar_refresh")
-        && !refresh_token.is_empty() {
-            if let Some(ref store) = state.revocation_store {
-                // Decode the refresh token to extract jti for persistent revocation
-                if let Ok(claims) = jwt::validate_refresh_token(&state.signing_key, &refresh_token) {
-                    store.revoke(&claims.jti, "logout", Some(claims.exp));
-                    if let Some(ref logger) = state.audit_logger {
-                        logger.log(audit::AuditEvent::token_revoked(&claims.jti, "logout"));
-                    }
-                } else {
-                    // Token is invalid/expired — fall back to ephemeral revocation
-                    state.revoked_tokens.lock().insert(refresh_token);
+        && !refresh_token.is_empty()
+    {
+        if let Some(ref store) = state.revocation_store {
+            // Decode the refresh token to extract jti for persistent revocation
+            if let Ok(claims) = jwt::validate_refresh_token(&state.signing_key, &refresh_token) {
+                store.revoke(&claims.jti, "logout", Some(claims.exp));
+                if let Some(ref logger) = state.audit_logger {
+                    logger.log(audit::AuditEvent::token_revoked(&claims.jti, "logout"));
                 }
             } else {
-                // No revocation store — fall back to ephemeral in-memory set
+                // Token is invalid/expired — fall back to ephemeral revocation
                 state.revoked_tokens.lock().insert(refresh_token);
             }
+        } else {
+            // No revocation store — fall back to ephemeral in-memory set
+            state.revoked_tokens.lock().insert(refresh_token);
         }
+    }
 
     let cookie_headers = cookies::clear_auth_cookies();
-    let mut response = (StatusCode::OK, Json(serde_json::json!({"status": "logged_out"}))).into_response();
+    let mut response = (
+        StatusCode::OK,
+        Json(serde_json::json!({"status": "logged_out"})),
+    )
+        .into_response();
     for (_, value) in cookie_headers {
         if let Ok(hv) = axum::http::HeaderValue::from_str(&value) {
-            response.headers_mut().append(
-                axum::http::header::SET_COOKIE,
-                hv,
-            );
+            response
+                .headers_mut()
+                .append(axum::http::header::SET_COOKIE, hv);
         }
     }
     info!("User logged out, cookies cleared");
     response
 }
 
-async fn health_handler(
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+async fn health_handler(State(state): State<AppState>) -> impl IntoResponse {
     let session_count = state.sessions.lock().len();
     Json(HealthResponse {
         status: "ok".to_string(),
@@ -1324,21 +1467,26 @@ async fn health_handler(
 }
 
 /// Prometheus-style metrics endpoint
-async fn metrics_handler(
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+async fn metrics_handler(State(state): State<AppState>) -> impl IntoResponse {
     let (sessions_active, broadcast_subscribers, history_bytes_per_session) = {
         let guard = state.sessions.lock();
         let active = guard.len();
         let subscribers: usize = guard.values().map(|s| s.subscriber_count()).sum();
-        let history_bytes: Vec<(String, usize)> = guard.values().map(|s| {
-            let h = s.history.lock();
-            (s.id.clone(), h.len())
-        }).collect();
+        let history_bytes: Vec<(String, usize)> = guard
+            .values()
+            .map(|s| {
+                let h = s.history.lock();
+                (s.id.clone(), h.len())
+            })
+            .collect();
         (active, subscribers, history_bytes)
     };
-    let sessions_total = state.sessions_total.load(std::sync::atomic::Ordering::Relaxed);
-    let messages_processed = state.messages_processed_total.load(std::sync::atomic::Ordering::Relaxed);
+    let sessions_total = state
+        .sessions_total
+        .load(std::sync::atomic::Ordering::Relaxed);
+    let messages_processed = state
+        .messages_processed_total
+        .load(std::sync::atomic::Ordering::Relaxed);
     let uptime_seconds = state.start_time.elapsed().as_secs();
 
     // Return in Prometheus exposition format
@@ -1363,7 +1511,8 @@ async fn metrics_handler(
 
     // Per-session history bytes
     if !history_bytes_per_session.is_empty() {
-        metrics.push_str("# HELP history_bytes Current history buffer usage in bytes per session\n");
+        metrics
+            .push_str("# HELP history_bytes Current history buffer usage in bytes per session\n");
         metrics.push_str("# TYPE history_bytes gauge\n");
         for (session_id, bytes) in &history_bytes_per_session {
             metrics.push_str(&format!(
@@ -1414,9 +1563,7 @@ async fn get_workspace_handler() -> impl IntoResponse {
 }
 
 /// PUT /workspace - Update workspace state
-async fn put_workspace_handler(
-    Json(state): Json<workspace::WorkspaceState>,
-) -> impl IntoResponse {
+async fn put_workspace_handler(Json(state): Json<workspace::WorkspaceState>) -> impl IntoResponse {
     // Save to disk
     match workspace::save_workspace(&state) {
         Ok(()) => (StatusCode::OK, Json(state)).into_response(),
@@ -1454,10 +1601,17 @@ async fn ws_handler(
 
     let connection_id = Uuid::new_v4().to_string();
     let span = info_span!("websocket", connection_id = %connection_id, is_local = is_local);
-    ws.on_upgrade(move |socket| handle_websocket(socket, state, is_local, cookie_token).instrument(span))
+    ws.on_upgrade(move |socket| {
+        handle_websocket(socket, state, is_local, cookie_token).instrument(span)
+    })
 }
 
-async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool, cookie_token: Option<String>) {
+async fn handle_websocket(
+    socket: WebSocket,
+    state: AppState,
+    is_local: bool,
+    cookie_token: Option<String>,
+) {
     let (mut sender, mut receiver) = socket.split();
 
     // Phase 1: Authentication
@@ -1489,9 +1643,9 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool, co
             protocol_version: Some(constants::PROTOCOL_VERSION.to_string()),
             refresh_token: None,
         };
-        let _ = sender.send(Message::Text(
-            serde_json::to_string(&ok_msg).unwrap()
-        )).await;
+        let _ = sender
+            .send(Message::Text(serde_json::to_string(&ok_msg).unwrap()))
+            .await;
     }
     if skip_auth && is_local {
         info!("Local connection - skipping authentication");
@@ -1829,7 +1983,12 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool, co
             Ok(Some(false)) => {
                 warn!("WebSocket authentication failed");
                 if let Some(ref logger) = state.audit_logger {
-                    logger.log(audit::AuditEvent::auth_failure(None, "websocket", "unknown", "authentication failed"));
+                    logger.log(audit::AuditEvent::auth_failure(
+                        None,
+                        "websocket",
+                        "unknown",
+                        "authentication failed",
+                    ));
                 }
                 let _ = sender.close().await;
                 return;
@@ -1845,7 +2004,12 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool, co
         }
         info!("WebSocket client authenticated successfully");
         if let Some(ref logger) = state.audit_logger {
-            logger.log(audit::AuditEvent::auth_success("unknown", "websocket", "unknown", "websocket"));
+            logger.log(audit::AuditEvent::auth_success(
+                "unknown",
+                "websocket",
+                "unknown",
+                "websocket",
+            ));
         }
     }
 
@@ -1924,17 +2088,27 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool, co
                     match serde_json::from_str::<ClientMessage>(&text) {
                         Ok(client_msg) => {
                             // Skip auth messages after initial auth (already authenticated)
-                            if matches!(client_msg,
-                                ClientMessage::Auth { .. } |
-                                ClientMessage::AuthPassword { .. } |
-                                ClientMessage::AuthToken { .. } |
-                                ClientMessage::RefreshToken { .. } |
-                                ClientMessage::AuthPubkeyInit { .. } |
-                                ClientMessage::AuthPubkeyVerify { .. }
+                            if matches!(
+                                client_msg,
+                                ClientMessage::Auth { .. }
+                                    | ClientMessage::AuthPassword { .. }
+                                    | ClientMessage::AuthToken { .. }
+                                    | ClientMessage::RefreshToken { .. }
+                                    | ClientMessage::AuthPubkeyInit { .. }
+                                    | ClientMessage::AuthPubkeyVerify { .. }
                             ) {
                                 continue;
                             }
-                            if let Err(e) = process_message(&client_msg, &tx_out, &sessions, &state, &mut attach_tasks, &client_id).await {
+                            if let Err(e) = process_message(
+                                &client_msg,
+                                &tx_out,
+                                &sessions,
+                                &state,
+                                &mut attach_tasks,
+                                &client_id,
+                            )
+                            .await
+                            {
                                 error!("Process error: {}", e);
                             }
                         }
@@ -1967,9 +2141,11 @@ async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool, co
 async fn handle_connection<S>(
     socket: S,
     sessions: SessionMap,
-    state: AppState
+    state: AppState,
 ) -> Result<(), Box<dyn std::error::Error>>
-where S: AsyncRead + AsyncWrite + Unpin + Send + 'static {
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     let (mut reader, mut writer) = tokio::io::split(socket);
     let (tx_out, mut rx_out) = mpsc::channel::<ServerMessage>(32);
 
@@ -2023,7 +2199,16 @@ where S: AsyncRead + AsyncWrite + Unpin + Send + 'static {
             Ok(json) if !json.trim().is_empty() => {
                 match serde_json::from_str::<ClientMessage>(&json) {
                     Ok(msg) => {
-                        if let Err(e) = process_message(&msg, &tx_out, &sessions, &state, &mut attach_tasks, client_id).await {
+                        if let Err(e) = process_message(
+                            &msg,
+                            &tx_out,
+                            &sessions,
+                            &state,
+                            &mut attach_tasks,
+                            client_id,
+                        )
+                        .await
+                        {
                             error!("Process error: {}", e);
                         }
                     }
@@ -2049,7 +2234,9 @@ async fn process_message(
     client_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let process_start = Instant::now();
-    state.messages_processed_total.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    state
+        .messages_processed_total
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     match msg {
         ClientMessage::Input { .. } | ClientMessage::Resize { .. } => {
             trace!("Received message: {:?}", msg);
@@ -2083,24 +2270,42 @@ async fn process_message_inner(
         ClientMessage::ListSessions => {
             handlers::session::handle_list_sessions(tx_out, sessions).await?;
         }
-        ClientMessage::CreateSession { cwd, shell, env, cols, rows } => {
+        ClientMessage::CreateSession {
+            cwd,
+            shell,
+            env,
+            cols,
+            rows,
+        } => {
             handlers::session::handle_create_session(
                 cwd, shell, env, *cols, *rows, tx_out, sessions, state,
-            ).await?;
+            )
+            .await?;
         }
-        ClientMessage::RenameSession { session_id, new_name } => {
-            handlers::session::handle_rename_session(session_id, new_name, tx_out, sessions).await?;
+        ClientMessage::RenameSession {
+            session_id,
+            new_name,
+        } => {
+            handlers::session::handle_rename_session(session_id, new_name, tx_out, sessions)
+                .await?;
         }
         ClientMessage::KillSession { session_id } => {
             handlers::session::handle_kill_session(session_id, tx_out, sessions, state).await?;
         }
-        ClientMessage::Attach { session_id, mode: _ } => {
+        ClientMessage::Attach {
+            session_id,
+            mode: _,
+        } => {
             handlers::io::handle_attach(session_id, tx_out, sessions, attach_tasks).await?;
         }
         ClientMessage::Input { session_id, data } => {
             handlers::io::handle_input(session_id, data, tx_out, sessions).await?;
         }
-        ClientMessage::Resize { session_id, cols, rows } => {
+        ClientMessage::Resize {
+            session_id,
+            cols,
+            rows,
+        } => {
             handlers::io::handle_resize(session_id, *cols, *rows, tx_out, sessions).await?;
         }
         ClientMessage::SaveWorkspace { workspace } => {
@@ -2117,9 +2322,9 @@ async fn process_message_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
-    use parking_lot::Mutex;  // Use parking_lot to match production code
+    use parking_lot::Mutex; // Use parking_lot to match production code
     use std::collections::HashMap;
+    use std::sync::Arc;
     use tokio::sync::mpsc;
 
     fn create_test_state() -> (AppState, mpsc::Receiver<ServerMessage>) {
@@ -2168,7 +2373,16 @@ mod tests {
         let mut attach_tasks = handlers::io::AttachTasks::new();
 
         let msg = ClientMessage::PairRequest;
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
 
         if let Some(ServerMessage::PairResponse { code, expiry_secs }) = rx.recv().await {
             assert_eq!(code.len(), 8);
@@ -2197,7 +2411,16 @@ mod tests {
             rows: 24,
         };
 
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
 
         if let Some(ServerMessage::SessionList { sessions }) = rx.recv().await {
             assert_eq!(sessions.len(), 1);
@@ -2226,7 +2449,16 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &create_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         let sessions = match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => sessions,
             _ => panic!("Expected SessionList"),
@@ -2238,12 +2470,21 @@ mod tests {
             session_id: id.clone(),
             new_name: "Production".to_string(),
         };
-        process_message(&rename_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &rename_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
 
         match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => {
                 assert_eq!(sessions[0].name, "Production");
-            },
+            }
             _ => panic!("Expected SessionList update"),
         }
     }
@@ -2263,7 +2504,16 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &create_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         let sessions = match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => sessions,
             _ => panic!("Expected SessionList"),
@@ -2271,8 +2521,19 @@ mod tests {
         let id = sessions[0].id.clone();
 
         // Kill
-        let kill_msg = ClientMessage::KillSession { session_id: id.clone() };
-        process_message(&kill_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        let kill_msg = ClientMessage::KillSession {
+            session_id: id.clone(),
+        };
+        process_message(
+            &kill_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
 
         // Should receive SessionClosed
         match rx.recv().await.unwrap() {
@@ -2294,8 +2555,17 @@ mod tests {
 
         let mut attach_tasks = handlers::io::AttachTasks::new();
 
-        process_message(&ClientMessage::ListSessions, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
-        
+        process_message(
+            &ClientMessage::ListSessions,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
+
         match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => assert_eq!(sessions.len(), 0),
             _ => panic!("Expected empty SessionList"),
@@ -2317,7 +2587,16 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &create_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         let sessions = match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => sessions,
             _ => panic!("Expected SessionList"),
@@ -2329,14 +2608,23 @@ mod tests {
             session_id: id.clone(),
             mode: "mirror".to_string(),
         };
-        process_message(&attach_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
-        
+        process_message(
+            &attach_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
+
         // Initial Output (history - empty)
         match rx.recv().await.unwrap() {
             ServerMessage::Output { session_id, data } => {
                 assert_eq!(session_id, id);
                 assert_eq!(data, "");
-            },
+            }
             _ => panic!("Expected initial Output"),
         }
 
@@ -2345,14 +2633,23 @@ mod tests {
             session_id: id.clone(),
             data: "hello".to_string(),
         };
-        process_message(&input_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &input_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
 
         // Should receive echo
         match rx.recv().await.unwrap() {
             ServerMessage::Output { session_id, data } => {
                 assert_eq!(session_id, id);
                 assert_eq!(data, "hello");
-            },
+            }
             _ => panic!("Expected echo Output"),
         }
     }
@@ -2372,7 +2669,16 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &create_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         let sessions = match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => sessions,
             _ => panic!("Expected SessionList"),
@@ -2384,7 +2690,16 @@ mod tests {
             session_id: id.clone(),
             data: "HistoryTest".to_string(),
         };
-        process_message(&input_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &input_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
 
         // Give thread time to read and update history
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -2394,13 +2709,22 @@ mod tests {
             session_id: id.clone(),
             mode: "mirror".to_string(),
         };
-        process_message(&attach_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &attach_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
 
         match rx.recv().await.unwrap() {
             ServerMessage::Output { session_id, data } => {
                 assert_eq!(session_id, id);
                 assert!(data.contains("HistoryTest"));
-            },
+            }
             _ => panic!("Expected history Output"),
         }
     }
@@ -2419,7 +2743,16 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &create_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         let sessions = match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => sessions,
             _ => panic!("Expected SessionList"),
@@ -2431,12 +2764,30 @@ mod tests {
             session_id: id.clone(),
             mode: "mirror".to_string(),
         };
-        process_message(&attach_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &attach_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         // Drain history output
         rx.recv().await.unwrap();
 
         // Second attach (should cancel the first forwarder)
-        process_message(&attach_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &attach_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         // Drain history output
         rx.recv().await.unwrap();
 
@@ -2445,7 +2796,16 @@ mod tests {
             session_id: id.clone(),
             data: "test".to_string(),
         };
-        process_message(&input_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &input_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
 
         // Should receive exactly one output
         match rx.recv().await.unwrap() {
@@ -2457,26 +2817,32 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         // Channel should be empty (no duplicate)
-        assert!(rx.try_recv().is_err(), "Received duplicate output - old forwarder was not cancelled");
+        assert!(
+            rx.try_recv().is_err(),
+            "Received duplicate output - old forwarder was not cancelled"
+        );
     }
 
     use axum::{
+        Router,
         body::Body,
         http::{Request, StatusCode},
         routing::get,
-        Router,
     };
     use tower::ServiceExt; // for oneshot/ready
 
     #[tokio::test]
     async fn test_auth_middleware_no_auth() {
         // State with no_auth = true
-        let (state, _) = create_test_state(); 
+        let (state, _) = create_test_state();
         // create_test_state sets no_auth = true by default.
-        
+
         let app = Router::new()
             .route("/", get(|| async { "OK" }))
-            .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            ))
             .with_state(state);
 
         let req = Request::builder().uri("/").body(Body::empty()).unwrap();
@@ -2493,11 +2859,17 @@ mod tests {
 
         let app = Router::new()
             .route("/", get(|| async { "OK" }))
-            .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            ))
             .with_state(state);
 
         // 1. Query Param
-        let req = Request::builder().uri("/?token=secret").body(Body::empty()).unwrap();
+        let req = Request::builder()
+            .uri("/?token=secret")
+            .body(Body::empty())
+            .unwrap();
         let response = app.clone().oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
@@ -2505,7 +2877,8 @@ mod tests {
         let req = Request::builder()
             .uri("/")
             .header("Authorization", "Bearer secret")
-            .body(Body::empty()).unwrap();
+            .body(Body::empty())
+            .unwrap();
         let response = app.clone().oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
     }
@@ -2518,11 +2891,17 @@ mod tests {
 
         let app = Router::new()
             .route("/", get(|| async { "OK" }))
-            .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            ))
             .with_state(state);
 
         // Wrong token
-        let req = Request::builder().uri("/?token=wrong").body(Body::empty()).unwrap();
+        let req = Request::builder()
+            .uri("/?token=wrong")
+            .body(Body::empty())
+            .unwrap();
         let response = app.clone().oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
@@ -2540,7 +2919,9 @@ mod tests {
         let (mut client_io, server_io) = tokio::io::duplex(1024);
 
         tokio::spawn(async move {
-            handle_connection(server_io, state.sessions.clone(), state.clone()).await.unwrap();
+            handle_connection(server_io, state.sessions.clone(), state.clone())
+                .await
+                .unwrap();
         });
 
         // Send a length-prefixed frame
@@ -2575,33 +2956,75 @@ mod tests {
 
         // Input to unknown - should get error
         process_message(
-            &ClientMessage::Input { session_id: "bad".into(), data: "x".into() },
-            &tx, &state.sessions, &state, &mut attach_tasks, "test"
-        ).await.unwrap();
+            &ClientMessage::Input {
+                session_id: "bad".into(),
+                data: "x".into(),
+            },
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         match rx.recv().await.unwrap() {
             ServerMessage::Error { message, .. } => {
-                assert!(message.contains("not found"), "Expected 'not found', got: {}", message);
-            },
-            other => panic!("Expected Error for input to unknown session, got {:?}", other),
+                assert!(
+                    message.contains("not found"),
+                    "Expected 'not found', got: {}",
+                    message
+                );
+            }
+            other => panic!(
+                "Expected Error for input to unknown session, got {:?}",
+                other
+            ),
         }
 
         // Resize unknown - should get error
         process_message(
-            &ClientMessage::Resize { session_id: "bad".into(), cols: 10, rows: 10 },
-            &tx, &state.sessions, &state, &mut attach_tasks, "test"
-        ).await.unwrap();
+            &ClientMessage::Resize {
+                session_id: "bad".into(),
+                cols: 10,
+                rows: 10,
+            },
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         match rx.recv().await.unwrap() {
             ServerMessage::Error { message, .. } => {
-                assert!(message.contains("not found"), "Expected 'not found', got: {}", message);
-            },
-            other => panic!("Expected Error for resize of unknown session, got {:?}", other),
+                assert!(
+                    message.contains("not found"),
+                    "Expected 'not found', got: {}",
+                    message
+                );
+            }
+            other => panic!(
+                "Expected Error for resize of unknown session, got {:?}",
+                other
+            ),
         }
 
         // Attach unknown - silent (no data to send)
         process_message(
-            &ClientMessage::Attach { session_id: "bad".into(), mode: "rw".into() },
-            &tx, &state.sessions, &state, &mut attach_tasks, "test"
-        ).await.unwrap();
+            &ClientMessage::Attach {
+                session_id: "bad".into(),
+                mode: "rw".into(),
+            },
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         assert!(rx.try_recv().is_err());
     }
 
@@ -2616,16 +3039,28 @@ mod tests {
 
         // Input to a session that doesn't exist
         process_message(
-            &ClientMessage::Input { session_id: "nonexistent".into(), data: "hello".into() },
-            &tx, &state.sessions, &state, &mut attach_tasks, "test"
-        ).await.unwrap();
+            &ClientMessage::Input {
+                session_id: "nonexistent".into(),
+                data: "hello".into(),
+            },
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
 
         // Should receive an Error message about session not found
         match rx.recv().await.unwrap() {
             ServerMessage::Error { message, .. } => {
-                assert!(message.contains("not found") || message.contains("nonexistent"),
-                    "Error should indicate session not found, got: {}", message);
-            },
+                assert!(
+                    message.contains("not found") || message.contains("nonexistent"),
+                    "Error should indicate session not found, got: {}",
+                    message
+                );
+            }
             other => panic!("Expected Error message, got {:?}", other),
         }
     }
@@ -2645,7 +3080,16 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &create_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         let sessions_list = match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => sessions,
             _ => panic!("Expected SessionList"),
@@ -2662,17 +3106,32 @@ mod tests {
 
         // Try to send input to errored session
         process_message(
-            &ClientMessage::Input { session_id: id.clone(), data: "hello".into() },
-            &tx, &state.sessions, &state, &mut attach_tasks, "test"
-        ).await.unwrap();
+            &ClientMessage::Input {
+                session_id: id.clone(),
+                data: "hello".into(),
+            },
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
 
         // Should receive an Error message about session state
         match rx.recv().await.unwrap() {
             ServerMessage::Error { message, .. } => {
-                assert!(message.contains("error") || message.contains("not accepting"),
-                    "Error should indicate session not accepting input, got: {}", message);
-            },
-            other => panic!("Expected Error message for errored session, got {:?}", other),
+                assert!(
+                    message.contains("error") || message.contains("not accepting"),
+                    "Error should indicate session not accepting input, got: {}",
+                    message
+                );
+            }
+            other => panic!(
+                "Expected Error message for errored session, got {:?}",
+                other
+            ),
         }
     }
 
@@ -2685,16 +3144,29 @@ mod tests {
 
         // Resize a session that doesn't exist
         process_message(
-            &ClientMessage::Resize { session_id: "nonexistent".into(), cols: 80, rows: 24 },
-            &tx, &state.sessions, &state, &mut attach_tasks, "test"
-        ).await.unwrap();
+            &ClientMessage::Resize {
+                session_id: "nonexistent".into(),
+                cols: 80,
+                rows: 24,
+            },
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
 
         // Should receive an Error message
         match rx.recv().await.unwrap() {
             ServerMessage::Error { message, .. } => {
-                assert!(message.contains("not found") || message.contains("nonexistent"),
-                    "Error should indicate session not found, got: {}", message);
-            },
+                assert!(
+                    message.contains("not found") || message.contains("nonexistent"),
+                    "Error should indicate session not found, got: {}",
+                    message
+                );
+            }
             other => panic!("Expected Error message, got {:?}", other),
         }
     }
@@ -2716,15 +3188,26 @@ mod tests {
             rows: 24,
         };
 
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
 
         // Should receive SessionList (success), not Error
         match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => {
                 assert_eq!(sessions.len(), 1);
                 assert_eq!(sessions[0].shell, "/bin/bash");
-            },
-            ServerMessage::Error { message, .. } => panic!("Expected SessionList but got Error: {}", message),
+            }
+            ServerMessage::Error { message, .. } => {
+                panic!("Expected SessionList but got Error: {}", message)
+            }
             other => panic!("Expected SessionList but got {:?}", other),
         }
     }
@@ -2744,15 +3227,26 @@ mod tests {
             rows: 24,
         };
 
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
 
         // Should receive SessionList (success), not Error
         match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => {
                 assert_eq!(sessions.len(), 1);
                 assert_eq!(sessions[0].shell, "/bin/sh");
-            },
-            ServerMessage::Error { message, .. } => panic!("Expected SessionList but got Error: {}", message),
+            }
+            ServerMessage::Error { message, .. } => {
+                panic!("Expected SessionList but got Error: {}", message)
+            }
             other => panic!("Expected SessionList but got {:?}", other),
         }
     }
@@ -2772,15 +3266,31 @@ mod tests {
             rows: 24,
         };
 
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
 
         // Should receive Error, not SessionList
         match rx.recv().await.unwrap() {
             ServerMessage::Error { message, .. } => {
-                assert!(message.contains("not allowed") || message.contains("whitelist") || message.contains("invalid"),
-                    "Error message should indicate shell is not allowed: {}", message);
-            },
-            ServerMessage::SessionList { .. } => panic!("Expected Error but got SessionList - non-whitelisted shell was allowed!"),
+                assert!(
+                    message.contains("not allowed")
+                        || message.contains("whitelist")
+                        || message.contains("invalid"),
+                    "Error message should indicate shell is not allowed: {}",
+                    message
+                );
+            }
+            ServerMessage::SessionList { .. } => {
+                panic!("Expected Error but got SessionList - non-whitelisted shell was allowed!")
+            }
             other => panic!("Expected Error but got {:?}", other),
         }
     }
@@ -2800,15 +3310,31 @@ mod tests {
             rows: 24,
         };
 
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
 
         // Should receive Error - path traversal attempts must be rejected
         match rx.recv().await.unwrap() {
             ServerMessage::Error { message, .. } => {
-                assert!(message.contains("not allowed") || message.contains("traversal") || message.contains("invalid"),
-                    "Error message should indicate path traversal is not allowed: {}", message);
-            },
-            ServerMessage::SessionList { .. } => panic!("Expected Error but got SessionList - path traversal was allowed!"),
+                assert!(
+                    message.contains("not allowed")
+                        || message.contains("traversal")
+                        || message.contains("invalid"),
+                    "Error message should indicate path traversal is not allowed: {}",
+                    message
+                );
+            }
+            ServerMessage::SessionList { .. } => {
+                panic!("Expected Error but got SessionList - path traversal was allowed!")
+            }
             other => panic!("Expected Error but got {:?}", other),
         }
     }
@@ -2822,21 +3348,37 @@ mod tests {
 
         let msg = ClientMessage::CreateSession {
             cwd: "/".to_string(),
-            shell: "bash".to_string(),  // Relative path - should be rejected
+            shell: "bash".to_string(), // Relative path - should be rejected
             env: HashMap::new(),
             cols: 80,
             rows: 24,
         };
 
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
 
         // Should receive Error - relative paths without full path are not allowed
         match rx.recv().await.unwrap() {
             ServerMessage::Error { message, .. } => {
-                assert!(message.contains("not allowed") || message.contains("whitelist") || message.contains("absolute"),
-                    "Error message should indicate relative path is not allowed: {}", message);
-            },
-            ServerMessage::SessionList { .. } => panic!("Expected Error but got SessionList - relative path was allowed!"),
+                assert!(
+                    message.contains("not allowed")
+                        || message.contains("whitelist")
+                        || message.contains("absolute"),
+                    "Error message should indicate relative path is not allowed: {}",
+                    message
+                );
+            }
+            ServerMessage::SessionList { .. } => {
+                panic!("Expected Error but got SessionList - relative path was allowed!")
+            }
             other => panic!("Expected Error but got {:?}", other),
         }
     }
@@ -2852,7 +3394,10 @@ mod tests {
 
         let filtered = filter_env(&env);
 
-        assert!(!filtered.contains_key("LD_PRELOAD"), "LD_PRELOAD should be filtered out");
+        assert!(
+            !filtered.contains_key("LD_PRELOAD"),
+            "LD_PRELOAD should be filtered out"
+        );
         assert!(filtered.contains_key("PATH"), "PATH should be allowed");
         assert!(filtered.contains_key("HOME"), "HOME should be allowed");
     }
@@ -2860,7 +3405,10 @@ mod tests {
     #[test]
     fn test_filter_env_blocks_dyld_vars() {
         let mut env = HashMap::new();
-        env.insert("DYLD_INSERT_LIBRARIES".to_string(), "/evil.dylib".to_string());
+        env.insert(
+            "DYLD_INSERT_LIBRARIES".to_string(),
+            "/evil.dylib".to_string(),
+        );
         env.insert("DYLD_FORCE_FLAT_NAMESPACE".to_string(), "1".to_string());
         env.insert("DYLD_LIBRARY_PATH".to_string(), "/evil".to_string());
         env.insert("DYLD_FRAMEWORK_PATH".to_string(), "/evil".to_string());
@@ -2901,8 +3449,14 @@ mod tests {
         let filtered = filter_env(&env);
 
         // Only the exact case LD_PRELOAD should be blocked
-        assert!(filtered.contains_key("ld_preload"), "lowercase should be allowed (case-sensitive)");
-        assert!(!filtered.contains_key("LD_PRELOAD"), "uppercase should be blocked");
+        assert!(
+            filtered.contains_key("ld_preload"),
+            "lowercase should be allowed (case-sensitive)"
+        );
+        assert!(
+            !filtered.contains_key("LD_PRELOAD"),
+            "uppercase should be blocked"
+        );
     }
 
     // Dimension validation tests
@@ -2923,8 +3477,16 @@ mod tests {
     #[test]
     fn test_clamp_dimension_above_maximum() {
         assert_eq!(clamp_dimension(501, "cols"), 500, "501 should clamp to 500");
-        assert_eq!(clamp_dimension(1000, "rows"), 500, "1000 should clamp to 500");
-        assert_eq!(clamp_dimension(u16::MAX, "cols"), 500, "max u16 should clamp to 500");
+        assert_eq!(
+            clamp_dimension(1000, "rows"),
+            500,
+            "1000 should clamp to 500"
+        );
+        assert_eq!(
+            clamp_dimension(u16::MAX, "cols"),
+            500,
+            "max u16 should clamp to 500"
+        );
     }
 
     // Rate limiting tests
@@ -2949,8 +3511,11 @@ mod tests {
             .unwrap();
 
         let response = app.clone().oneshot(req).await.unwrap();
-        assert_ne!(response.status(), StatusCode::TOO_MANY_REQUESTS,
-            "First attempt should not be rate limited");
+        assert_ne!(
+            response.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "First attempt should not be rate limited"
+        );
     }
 
     #[tokio::test]
@@ -2983,8 +3548,11 @@ mod tests {
             .body(Body::from("{\"code\":\"wrong1\"}"))
             .unwrap();
         let response = app.clone().oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS,
-            "Rapid second attempt should be blocked by exponential backoff");
+        assert_eq!(
+            response.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "Rapid second attempt should be blocked by exponential backoff"
+        );
     }
 
     #[tokio::test]
@@ -2996,13 +3564,16 @@ mod tests {
         {
             let mut attempts = state.pairing_attempts.lock();
             let base = Instant::now() - Duration::from_secs(60);
-            attempts.insert("192.168.1.101".to_string(), vec![
-                base,
-                base + Duration::from_secs(2),
-                base + Duration::from_secs(6),
-                base + Duration::from_secs(14),
-                base + Duration::from_secs(30),
-            ]);
+            attempts.insert(
+                "192.168.1.101".to_string(),
+                vec![
+                    base,
+                    base + Duration::from_secs(2),
+                    base + Duration::from_secs(6),
+                    base + Duration::from_secs(14),
+                    base + Duration::from_secs(30),
+                ],
+            );
         }
 
         let app = Router::new()
@@ -3020,8 +3591,11 @@ mod tests {
             .unwrap();
 
         let response = app.clone().oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS,
-            "6th attempt should be hard-locked out after 5 failures");
+        assert_eq!(
+            response.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "6th attempt should be hard-locked out after 5 failures"
+        );
     }
 
     #[tokio::test]
@@ -3033,13 +3607,16 @@ mod tests {
         {
             let mut attempts = state.pairing_attempts.lock();
             let base = Instant::now() - Duration::from_secs(60);
-            attempts.insert("10.0.0.1".to_string(), vec![
-                base,
-                base + Duration::from_secs(2),
-                base + Duration::from_secs(6),
-                base + Duration::from_secs(14),
-                base + Duration::from_secs(30),
-            ]);
+            attempts.insert(
+                "10.0.0.1".to_string(),
+                vec![
+                    base,
+                    base + Duration::from_secs(2),
+                    base + Duration::from_secs(6),
+                    base + Duration::from_secs(14),
+                    base + Duration::from_secs(30),
+                ],
+            );
         }
 
         let app = Router::new()
@@ -3056,8 +3633,11 @@ mod tests {
             .body(Body::from("{\"code\":\"wrong\"}"))
             .unwrap();
         let response = app.clone().oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS,
-            "IP A should be locked out");
+        assert_eq!(
+            response.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "IP A should be locked out"
+        );
 
         // IP B should still be allowed (first attempt)
         let req = Request::builder()
@@ -3069,8 +3649,11 @@ mod tests {
             .unwrap();
 
         let response = app.clone().oneshot(req).await.unwrap();
-        assert_ne!(response.status(), StatusCode::TOO_MANY_REQUESTS,
-            "Different IP should not be rate limited");
+        assert_ne!(
+            response.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "Different IP should not be rate limited"
+        );
     }
 
     // PTY buffer size constant tests
@@ -3078,8 +3661,10 @@ mod tests {
     #[test]
     fn test_pty_read_buffer_size_constant_is_16384() {
         // Verify the constant is public and has the correct value
-        assert_eq!(PTY_READ_BUFFER_SIZE, 16384,
-            "PTY_READ_BUFFER_SIZE should be 16384 bytes (16KB)");
+        assert_eq!(
+            PTY_READ_BUFFER_SIZE, 16384,
+            "PTY_READ_BUFFER_SIZE should be 16384 bytes (16KB)"
+        );
     }
 
     // Panic handling tests
@@ -3149,8 +3734,14 @@ mod tests {
         let _ = state.shutdown_tx.send(());
 
         // Both receivers should get the signal
-        assert!(rx1.recv().await.is_ok(), "First subscriber should receive shutdown");
-        assert!(rx2.recv().await.is_ok(), "Second subscriber should receive shutdown");
+        assert!(
+            rx1.recv().await.is_ok(),
+            "First subscriber should receive shutdown"
+        );
+        assert!(
+            rx2.recv().await.is_ok(),
+            "Second subscriber should receive shutdown"
+        );
     }
 
     #[tokio::test]
@@ -3159,9 +3750,7 @@ mod tests {
         let mut rx = state.shutdown_tx.subscribe();
 
         // Create a task that waits for shutdown
-        let task = tokio::spawn(async move {
-            rx.recv().await.is_ok()
-        });
+        let task = tokio::spawn(async move { rx.recv().await.is_ok() });
 
         // Small delay to ensure task is waiting
         tokio::time::sleep(Duration::from_millis(10)).await;
@@ -3172,13 +3761,18 @@ mod tests {
         // Task should complete
         let result = tokio::time::timeout(Duration::from_secs(1), task).await;
         assert!(result.is_ok(), "Task should complete after shutdown signal");
-        assert!(result.unwrap().unwrap(), "Task should have received shutdown signal");
+        assert!(
+            result.unwrap().unwrap(),
+            "Task should have received shutdown signal"
+        );
     }
 
     #[test]
     fn test_shutdown_message_type_exists() {
         // Verify the Shutdown message variant exists and can be created
-        let msg = ServerMessage::Shutdown { reason: "Test shutdown".to_string() };
+        let msg = ServerMessage::Shutdown {
+            reason: "Test shutdown".to_string(),
+        };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("Shutdown"));
         assert!(json.contains("Test shutdown"));
@@ -3199,7 +3793,16 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
 
         // Get session ID
         let session_id = match rx.recv().await.unwrap() {
@@ -3224,7 +3827,10 @@ mod tests {
     #[test]
     fn test_shutdown_timeout_constant_is_defined() {
         // Verify the shutdown timeout constant exists
-        assert_eq!(SHUTDOWN_TIMEOUT_SECS, 5, "Shutdown timeout should be 5 seconds");
+        assert_eq!(
+            SHUTDOWN_TIMEOUT_SECS, 5,
+            "Shutdown timeout should be 5 seconds"
+        );
     }
 
     // === Task 2.1.3: Pairing Code Hardening ===
@@ -3236,14 +3842,31 @@ mod tests {
         let mut attach_tasks = handlers::io::AttachTasks::new();
 
         let msg = ClientMessage::PairRequest;
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
 
         if let Some(ServerMessage::PairResponse { code, expiry_secs }) = rx.recv().await {
-            assert_eq!(code.len(), 8, "Pairing code should be 8 digits, got: {}", code);
+            assert_eq!(
+                code.len(),
+                8,
+                "Pairing code should be 8 digits, got: {}",
+                code
+            );
             assert_eq!(expiry_secs, 300);
             // Verify all characters are digits
-            assert!(code.chars().all(|c| c.is_ascii_digit()),
-                "Pairing code should be all digits, got: {}", code);
+            assert!(
+                code.chars().all(|c| c.is_ascii_digit()),
+                "Pairing code should be all digits, got: {}",
+                code
+            );
         } else {
             panic!("Expected PairResponse");
         }
@@ -3265,7 +3888,7 @@ mod tests {
 
         let app = Router::new()
             .route("/pair/exchange", post(exchange_handler))
-        .route("/auth/revoke", post(revoke_handler))
+            .route("/auth/revoke", post(revoke_handler))
             .with_state(state.clone());
 
         // 3rd attempt immediately after 2 rapid failures should be blocked by backoff
@@ -3278,8 +3901,11 @@ mod tests {
             .unwrap();
 
         let response = app.clone().oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS,
-            "3rd rapid attempt should be blocked by exponential backoff");
+        assert_eq!(
+            response.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "3rd rapid attempt should be blocked by exponential backoff"
+        );
     }
 
     #[tokio::test]
@@ -3297,7 +3923,7 @@ mod tests {
 
         let app = Router::new()
             .route("/pair/exchange", post(exchange_handler))
-        .route("/auth/revoke", post(revoke_handler))
+            .route("/auth/revoke", post(revoke_handler))
             .with_state(state.clone());
 
         // 2nd attempt after sufficient wait should be allowed
@@ -3310,8 +3936,11 @@ mod tests {
             .unwrap();
 
         let response = app.clone().oneshot(req).await.unwrap();
-        assert_ne!(response.status(), StatusCode::TOO_MANY_REQUESTS,
-            "Attempt after sufficient backoff wait should be allowed");
+        assert_ne!(
+            response.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "Attempt after sufficient backoff wait should be allowed"
+        );
     }
 
     // === Task 2.1.4: Token Revocation ===
@@ -3323,20 +3952,30 @@ mod tests {
         state.api_key = "valid-token".to_string();
 
         // Revoke the token
-        state.revoked_tokens.lock().insert("valid-token".to_string());
+        state
+            .revoked_tokens
+            .lock()
+            .insert("valid-token".to_string());
 
         let app = Router::new()
             .route("/", get(|| async { "OK" }))
-            .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            ))
             .with_state(state);
 
         let req = Request::builder()
             .uri("/")
             .header("Authorization", "Bearer valid-token")
-            .body(Body::empty()).unwrap();
+            .body(Body::empty())
+            .unwrap();
         let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED,
-            "Revoked token should be rejected");
+        assert_eq!(
+            response.status(),
+            StatusCode::UNAUTHORIZED,
+            "Revoked token should be rejected"
+        );
     }
 
     #[tokio::test]
@@ -3347,7 +3986,10 @@ mod tests {
 
         let app = Router::new()
             .route("/auth/revoke", post(revoke_handler))
-            .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            ))
             .with_state(state.clone());
 
         // Revoke a token
@@ -3373,20 +4015,30 @@ mod tests {
         state.api_key = "good-token".to_string();
 
         // Revoke a DIFFERENT token
-        state.revoked_tokens.lock().insert("other-token".to_string());
+        state
+            .revoked_tokens
+            .lock()
+            .insert("other-token".to_string());
 
         let app = Router::new()
             .route("/", get(|| async { "OK" }))
-            .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            ))
             .with_state(state);
 
         let req = Request::builder()
             .uri("/")
             .header("Authorization", "Bearer good-token")
-            .body(Body::empty()).unwrap();
+            .body(Body::empty())
+            .unwrap();
         let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK,
-            "Non-revoked token should still work");
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "Non-revoked token should still work"
+        );
     }
 
     // === Task 2.3.3: Working Directory Validation ===
@@ -3406,13 +4058,25 @@ mod tests {
             rows: 24,
         };
 
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
 
         match rx.recv().await.unwrap() {
             ServerMessage::Error { message, .. } => {
-                assert!(message.contains("traversal") || message.contains(".."),
-                    "Error should mention path traversal, got: {}", message);
-            },
+                assert!(
+                    message.contains("traversal") || message.contains(".."),
+                    "Error should mention path traversal, got: {}",
+                    message
+                );
+            }
             other => panic!("Expected Error for path traversal in cwd, got {:?}", other),
         }
     }
@@ -3432,13 +4096,27 @@ mod tests {
             rows: 24,
         };
 
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
 
         match rx.recv().await.unwrap() {
             ServerMessage::Error { message, .. } => {
-                assert!(message.contains("does not exist") || message.contains("not found") || message.contains("invalid"),
-                    "Error should indicate path doesn't exist, got: {}", message);
-            },
+                assert!(
+                    message.contains("does not exist")
+                        || message.contains("not found")
+                        || message.contains("invalid"),
+                    "Error should indicate path doesn't exist, got: {}",
+                    message
+                );
+            }
             other => panic!("Expected Error for nonexistent cwd, got {:?}", other),
         }
     }
@@ -3458,14 +4136,25 @@ mod tests {
             rows: 24,
         };
 
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
 
         match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => {
                 assert_eq!(sessions.len(), 1);
                 assert_eq!(sessions[0].cwd, "/tmp");
-            },
-            ServerMessage::Error { message, .. } => panic!("Expected SessionList but got Error: {}", message),
+            }
+            ServerMessage::Error { message, .. } => {
+                panic!("Expected SessionList but got Error: {}", message)
+            }
             other => panic!("Expected SessionList, got {:?}", other),
         }
     }
@@ -3474,18 +4163,27 @@ mod tests {
 
     #[test]
     fn test_validate_origin_accepts_whitelisted() {
-        assert!(validate_websocket_origin(Some("http://localhost:6749"), &[]));
+        assert!(validate_websocket_origin(
+            Some("http://localhost:6749"),
+            &[]
+        ));
     }
 
     #[test]
     fn test_validate_origin_rejects_unknown() {
-        assert!(!validate_websocket_origin(Some("http://evil.example.com"), &[]));
+        assert!(!validate_websocket_origin(
+            Some("http://evil.example.com"),
+            &[]
+        ));
     }
 
     #[test]
     fn test_validate_origin_accepts_custom_whitelist() {
         let custom = vec!["http://myapp.example.com".to_string()];
-        assert!(validate_websocket_origin(Some("http://myapp.example.com"), &custom));
+        assert!(validate_websocket_origin(
+            Some("http://myapp.example.com"),
+            &custom
+        ));
     }
 
     #[test]
@@ -3510,27 +4208,51 @@ mod tests {
 
         // Initially zero
         assert_eq!(
-            state.messages_processed_total.load(std::sync::atomic::Ordering::Relaxed),
+            state
+                .messages_processed_total
+                .load(std::sync::atomic::Ordering::Relaxed),
             0,
             "messages_processed_total should start at 0"
         );
 
         // Process a message
-        process_message(&ClientMessage::ListSessions, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &ClientMessage::ListSessions,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         let _ = rx.recv().await; // consume response
 
         assert_eq!(
-            state.messages_processed_total.load(std::sync::atomic::Ordering::Relaxed),
+            state
+                .messages_processed_total
+                .load(std::sync::atomic::Ordering::Relaxed),
             1,
             "messages_processed_total should be 1 after one message"
         );
 
         // Process another message
-        process_message(&ClientMessage::ListSessions, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &ClientMessage::ListSessions,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         let _ = rx.recv().await;
 
         assert_eq!(
-            state.messages_processed_total.load(std::sync::atomic::Ordering::Relaxed),
+            state
+                .messages_processed_total
+                .load(std::sync::atomic::Ordering::Relaxed),
             2,
             "messages_processed_total should be 2 after two messages"
         );
@@ -3544,7 +4266,9 @@ mod tests {
         let mut attach_tasks = handlers::io::AttachTasks::new();
 
         assert_eq!(
-            state.sessions_total.load(std::sync::atomic::Ordering::Relaxed),
+            state
+                .sessions_total
+                .load(std::sync::atomic::Ordering::Relaxed),
             0,
             "sessions_total should start at 0"
         );
@@ -3556,11 +4280,22 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         let _ = rx.recv().await;
 
         assert_eq!(
-            state.sessions_total.load(std::sync::atomic::Ordering::Relaxed),
+            state
+                .sessions_total
+                .load(std::sync::atomic::Ordering::Relaxed),
             1,
             "sessions_total should be 1 after creating one session"
         );
@@ -3574,7 +4309,11 @@ mod tests {
         let mut attach_tasks = handlers::io::AttachTasks::new();
 
         // No sessions yet
-        assert_eq!(state.sessions.lock().len(), 0, "sessions_active should be 0 initially");
+        assert_eq!(
+            state.sessions.lock().len(),
+            0,
+            "sessions_active should be 0 initially"
+        );
 
         // Create a session
         let msg = ClientMessage::CreateSession {
@@ -3584,22 +4323,48 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         let sessions = match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => sessions,
             _ => panic!("Expected SessionList"),
         };
         let id = sessions[0].id.clone();
 
-        assert_eq!(state.sessions.lock().len(), 1, "sessions_active should be 1 after create");
+        assert_eq!(
+            state.sessions.lock().len(),
+            1,
+            "sessions_active should be 1 after create"
+        );
 
         // Kill the session
         let kill_msg = ClientMessage::KillSession { session_id: id };
-        process_message(&kill_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &kill_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         let _ = rx.recv().await; // SessionClosed
         let _ = rx.recv().await; // SessionList
 
-        assert_eq!(state.sessions.lock().len(), 0, "sessions_active should be 0 after kill");
+        assert_eq!(
+            state.sessions.lock().len(),
+            0,
+            "sessions_active should be 0 after kill"
+        );
     }
 
     #[tokio::test]
@@ -3617,7 +4382,16 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         let sessions = match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => sessions,
             _ => panic!("Expected SessionList"),
@@ -3637,7 +4411,16 @@ mod tests {
             session_id: id.clone(),
             data: "test data".to_string(),
         };
-        process_message(&input_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &input_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
 
         // Give time for echo to be processed by reader thread
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -3658,7 +4441,16 @@ mod tests {
         // Process a message to increment counter
         let (tx, mut rx) = mpsc::channel(32);
         let mut attach_tasks = handlers::io::AttachTasks::new();
-        process_message(&ClientMessage::ListSessions, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &ClientMessage::ListSessions,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         let _ = rx.recv().await;
 
         // Call metrics handler
@@ -3666,18 +4458,35 @@ mod tests {
             .route("/metrics", get(metrics_handler))
             .with_state(state);
 
-        let req = Request::builder().uri("/metrics").body(Body::empty()).unwrap();
+        let req = Request::builder()
+            .uri("/metrics")
+            .body(Body::empty())
+            .unwrap();
         let response = app.oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
-        let body = axum::body::to_bytes(response.into_body(), 10_000).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), 10_000)
+            .await
+            .unwrap();
         let body_str = String::from_utf8_lossy(&body);
 
-        assert!(body_str.contains("messages_processed_total 1"),
-            "Metrics should include messages_processed_total, got: {}", body_str);
-        assert!(body_str.contains("sessions_active"), "Metrics should include sessions_active");
-        assert!(body_str.contains("sessions_total_created"), "Metrics should include sessions_total_created");
-        assert!(body_str.contains("session_broadcast_subscribers"), "Metrics should include broadcast subscribers");
+        assert!(
+            body_str.contains("messages_processed_total 1"),
+            "Metrics should include messages_processed_total, got: {}",
+            body_str
+        );
+        assert!(
+            body_str.contains("sessions_active"),
+            "Metrics should include sessions_active"
+        );
+        assert!(
+            body_str.contains("sessions_total_created"),
+            "Metrics should include sessions_total_created"
+        );
+        assert!(
+            body_str.contains("session_broadcast_subscribers"),
+            "Metrics should include broadcast subscribers"
+        );
     }
 
     #[tokio::test]
@@ -3695,7 +4504,16 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         let _ = rx.recv().await;
 
         // Call metrics handler
@@ -3703,13 +4521,21 @@ mod tests {
             .route("/metrics", get(metrics_handler))
             .with_state(state);
 
-        let req = Request::builder().uri("/metrics").body(Body::empty()).unwrap();
+        let req = Request::builder()
+            .uri("/metrics")
+            .body(Body::empty())
+            .unwrap();
         let response = app.oneshot(req).await.unwrap();
-        let body = axum::body::to_bytes(response.into_body(), 10_000).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), 10_000)
+            .await
+            .unwrap();
         let body_str = String::from_utf8_lossy(&body);
 
-        assert!(body_str.contains("history_bytes"),
-            "Metrics should include history_bytes when sessions exist, got: {}", body_str);
+        assert!(
+            body_str.contains("history_bytes"),
+            "Metrics should include history_bytes when sessions exist, got: {}",
+            body_str
+        );
     }
 
     #[tokio::test]
@@ -3718,9 +4544,12 @@ mod tests {
 
         // Issue a refresh token
         let refresh = jwt::issue_refresh_token(
-            &state.signing_key, "testuser", &state.server_id,
+            &state.signing_key,
+            "testuser",
+            &state.server_id,
             Duration::from_secs(604800),
-        ).unwrap();
+        )
+        .unwrap();
 
         let app = Router::new()
             .route("/auth/refresh", post(refresh_handler))
@@ -3730,13 +4559,17 @@ mod tests {
             .method("POST")
             .uri("/auth/refresh")
             .header("Content-Type", "application/json")
-            .body(Body::from(serde_json::to_string(&serde_json::json!({"refresh_token": refresh})).unwrap()))
+            .body(Body::from(
+                serde_json::to_string(&serde_json::json!({"refresh_token": refresh})).unwrap(),
+            ))
             .unwrap();
 
         let response = app.oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
-        let body = axum::body::to_bytes(response.into_body(), 10_000).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), 10_000)
+            .await
+            .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert!(json["access_token"].is_string());
         assert!(json["refresh_token"].is_string());
@@ -3748,9 +4581,12 @@ mod tests {
 
         // Issue an access token (not refresh)
         let access = jwt::issue_access_token(
-            &state.signing_key, "testuser", &state.server_id,
+            &state.signing_key,
+            "testuser",
+            &state.server_id,
             Duration::from_secs(900),
-        ).unwrap();
+        )
+        .unwrap();
 
         let app = Router::new()
             .route("/auth/refresh", post(refresh_handler))
@@ -3760,7 +4596,9 @@ mod tests {
             .method("POST")
             .uri("/auth/refresh")
             .header("Content-Type", "application/json")
-            .body(Body::from(serde_json::to_string(&serde_json::json!({"refresh_token": access})).unwrap()))
+            .body(Body::from(
+                serde_json::to_string(&serde_json::json!({"refresh_token": access})).unwrap(),
+            ))
             .unwrap();
 
         let response = app.oneshot(req).await.unwrap();
@@ -3775,11 +4613,16 @@ mod tests {
         let past = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
-            .as_secs() - 7200;
+            .as_secs()
+            - 7200;
         let expired = jwt::issue_token_for_test(
-            &state.signing_key, "testuser", &state.server_id,
-            past, Duration::from_secs(3600),
-        ).unwrap();
+            &state.signing_key,
+            "testuser",
+            &state.server_id,
+            past,
+            Duration::from_secs(3600),
+        )
+        .unwrap();
 
         let app = Router::new()
             .route("/auth/refresh", post(refresh_handler))
@@ -3789,7 +4632,9 @@ mod tests {
             .method("POST")
             .uri("/auth/refresh")
             .header("Content-Type", "application/json")
-            .body(Body::from(serde_json::to_string(&serde_json::json!({"refresh_token": expired})).unwrap()))
+            .body(Body::from(
+                serde_json::to_string(&serde_json::json!({"refresh_token": expired})).unwrap(),
+            ))
             .unwrap();
 
         let response = app.oneshot(req).await.unwrap();
@@ -3812,7 +4657,16 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &create_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         let sessions_list = match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => sessions,
             _ => panic!("Expected SessionList"),
@@ -3829,16 +4683,28 @@ mod tests {
 
         // Try to send input to exited session
         process_message(
-            &ClientMessage::Input { session_id: id.clone(), data: "hello".into() },
-            &tx, &state.sessions, &state, &mut attach_tasks, "test"
-        ).await.unwrap();
+            &ClientMessage::Input {
+                session_id: id.clone(),
+                data: "hello".into(),
+            },
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
 
         // Should receive an Error message
         match rx.recv().await.unwrap() {
             ServerMessage::Error { message, .. } => {
-                assert!(message.contains("not accepting"),
-                    "Error should indicate session not accepting input, got: {}", message);
-            },
+                assert!(
+                    message.contains("not accepting"),
+                    "Error should indicate session not accepting input, got: {}",
+                    message
+                );
+            }
             other => panic!("Expected Error message for exited session, got {:?}", other),
         }
     }
@@ -3857,7 +4723,16 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &create_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         let sessions_list = match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => sessions,
             _ => panic!("Expected SessionList"),
@@ -3869,7 +4744,16 @@ mod tests {
             session_id: id.clone(),
             data: "test_data".to_string(),
         };
-        process_message(&input_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &input_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Transition session to Exited state
@@ -3885,15 +4769,27 @@ mod tests {
             session_id: id.clone(),
             mode: "mirror".to_string(),
         };
-        process_message(&attach_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &attach_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
 
         // Should receive Output with history (not an error)
         match rx.recv().await.unwrap() {
             ServerMessage::Output { session_id, data } => {
                 assert_eq!(session_id, id);
                 assert!(data.contains("test_data"), "Should contain history data");
-            },
-            other => panic!("Expected Output with history for exited session, got {:?}", other),
+            }
+            other => panic!(
+                "Expected Output with history for exited session, got {:?}",
+                other
+            ),
         }
     }
 
@@ -3911,7 +4807,16 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &create_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         let sessions_list = match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => sessions,
             _ => panic!("Expected SessionList"),
@@ -3927,8 +4832,19 @@ mod tests {
         }
 
         // Kill the exited session
-        let kill_msg = ClientMessage::KillSession { session_id: id.clone() };
-        process_message(&kill_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        let kill_msg = ClientMessage::KillSession {
+            session_id: id.clone(),
+        };
+        process_message(
+            &kill_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
 
         // Should receive SessionClosed
         match rx.recv().await.unwrap() {
@@ -3938,7 +4854,10 @@ mod tests {
 
         // Session should be removed
         let guard = state.sessions.lock();
-        assert!(!guard.contains_key(&id), "Exited session should be removed after kill");
+        assert!(
+            !guard.contains_key(&id),
+            "Exited session should be removed after kill"
+        );
     }
 
     #[tokio::test]
@@ -3955,7 +4874,16 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &create_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         let sessions_list = match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => sessions,
             _ => panic!("Expected SessionList"),
@@ -3972,13 +4900,22 @@ mod tests {
         }
 
         // List sessions - should show exited state
-        process_message(&ClientMessage::ListSessions, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &ClientMessage::ListSessions,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => {
                 assert_eq!(sessions.len(), 1);
                 assert_eq!(sessions[0].state, Some("exited".to_string()));
                 assert_eq!(sessions[0].exit_code, Some(0));
-            },
+            }
             other => panic!("Expected SessionList, got {:?}", other),
         }
     }
@@ -3999,7 +4936,16 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &create_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         let sessions_list = match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => sessions,
             _ => panic!("Expected SessionList"),
@@ -4010,7 +4956,10 @@ mod tests {
         {
             let guard = state.sessions.lock();
             let session = guard.get(&id).unwrap();
-            assert!(session.last_output_at.lock().is_none(), "last_output_at should be None before any output");
+            assert!(
+                session.last_output_at.lock().is_none(),
+                "last_output_at should be None before any output"
+            );
         }
 
         // Send input (MockPty echoes, which triggers output and activity tracking)
@@ -4018,7 +4967,16 @@ mod tests {
             session_id: id.clone(),
             data: "hello".to_string(),
         };
-        process_message(&input_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &input_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
 
         // Wait for echo to be processed by the reader task
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -4027,7 +4985,10 @@ mod tests {
         {
             let guard = state.sessions.lock();
             let session = guard.get(&id).unwrap();
-            assert!(session.last_output_at.lock().is_some(), "last_output_at should be set after output");
+            assert!(
+                session.last_output_at.lock().is_some(),
+                "last_output_at should be set after output"
+            );
         }
     }
 
@@ -4045,7 +5006,16 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &create_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         let sessions_list = match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => sessions,
             _ => panic!("Expected SessionList"),
@@ -4057,7 +5027,16 @@ mod tests {
             session_id: id.clone(),
             data: "hello\x07world".to_string(),
         };
-        process_message(&input_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &input_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
 
         // Wait for echo to be processed
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -4066,7 +5045,10 @@ mod tests {
         {
             let guard = state.sessions.lock();
             let session = guard.get(&id).unwrap();
-            assert!(session.last_bell_at.lock().is_some(), "last_bell_at should be set after bell character");
+            assert!(
+                session.last_bell_at.lock().is_some(),
+                "last_bell_at should be set after bell character"
+            );
         }
     }
 
@@ -4084,7 +5066,16 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &create_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         let sessions_list = match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => sessions,
             _ => panic!("Expected SessionList"),
@@ -4096,7 +5087,16 @@ mod tests {
             session_id: id.clone(),
             mode: "mirror".to_string(),
         };
-        process_message(&attach_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &attach_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         // Drain history
         rx.recv().await.unwrap();
 
@@ -4105,19 +5105,30 @@ mod tests {
             session_id: id.clone(),
             data: "\x07".to_string(),
         };
-        process_message(&input_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &input_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
 
         // Should receive bell notification and output
         let mut saw_bell = false;
         let mut saw_output = false;
         for _ in 0..5 {
             match tokio::time::timeout(Duration::from_millis(500), rx.recv()).await {
-                Ok(Some(ServerMessage::SessionActivity { activity_type, .. })) if activity_type == "bell" => {
+                Ok(Some(ServerMessage::SessionActivity { activity_type, .. }))
+                    if activity_type == "bell" =>
+                {
                     saw_bell = true;
-                },
+                }
                 Ok(Some(ServerMessage::Output { .. })) => {
                     saw_output = true;
-                },
+                }
                 _ => break,
             }
             if saw_bell && saw_output {
@@ -4141,7 +5152,16 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &create_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         let sessions_list = match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => sessions,
             _ => panic!("Expected SessionList"),
@@ -4152,7 +5172,9 @@ mod tests {
         {
             let mut guard = state.sessions.lock();
             if let Some(session) = guard.get_mut(&id) {
-                session.silence_notified.store(true, std::sync::atomic::Ordering::Relaxed);
+                session
+                    .silence_notified
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
             }
         }
 
@@ -4161,7 +5183,16 @@ mod tests {
             session_id: id.clone(),
             data: "test".to_string(),
         };
-        process_message(&input_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &input_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
 
         // Wait for output processing
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -4170,7 +5201,12 @@ mod tests {
         {
             let guard = state.sessions.lock();
             let session = guard.get(&id).unwrap();
-            assert!(!session.silence_notified.load(std::sync::atomic::Ordering::Relaxed), "silence_notified should be reset after output");
+            assert!(
+                !session
+                    .silence_notified
+                    .load(std::sync::atomic::Ordering::Relaxed),
+                "silence_notified should be reset after output"
+            );
         }
     }
 
@@ -4188,7 +5224,16 @@ mod tests {
             cols: 80,
             rows: 24,
         };
-        process_message(&create_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &create_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         let sessions_list = match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => sessions,
             _ => panic!("Expected SessionList"),
@@ -4200,17 +5245,37 @@ mod tests {
             session_id: id.clone(),
             data: "test".to_string(),
         };
-        process_message(&input_msg, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &input_msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
 
         // List sessions - should include last_activity_at
-        process_message(&ClientMessage::ListSessions, &tx, &state.sessions, &state, &mut attach_tasks, "test").await.unwrap();
+        process_message(
+            &ClientMessage::ListSessions,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
         match rx.recv().await.unwrap() {
             ServerMessage::SessionList { sessions } => {
                 assert_eq!(sessions.len(), 1);
-                assert!(sessions[0].last_activity_at.is_some(),
-                    "last_activity_at should be present after output");
-            },
+                assert!(
+                    sessions[0].last_activity_at.is_some(),
+                    "last_activity_at should be present after output"
+                );
+            }
             other => panic!("Expected SessionList, got {:?}", other),
         }
     }
@@ -4221,7 +5286,10 @@ mod tests {
         assert_eq!(MAX_WS_AUTH_ATTEMPTS, 5);
         // The constant should match what's expected by the protocol
         assert!(MAX_WS_AUTH_ATTEMPTS > 0, "Must allow at least one attempt");
-        assert!(MAX_WS_AUTH_ATTEMPTS <= 10, "Should not allow too many attempts");
+        assert!(
+            MAX_WS_AUTH_ATTEMPTS <= 10,
+            "Should not allow too many attempts"
+        );
     }
 
     #[test]
@@ -4247,32 +5315,20 @@ mod tests {
     #[test]
     fn test_extract_client_ip_no_trusted_proxy() {
         // Without trusted proxy, XFF is used as fallback (backward compat)
-        let ip = extract_client_ip(
-            Some("203.0.113.50"),
-            None,
-            Some("192.168.1.100"),
-        );
+        let ip = extract_client_ip(Some("203.0.113.50"), None, Some("192.168.1.100"));
         assert_eq!(ip, "203.0.113.50");
     }
 
     #[test]
     fn test_extract_client_ip_no_trusted_proxy_no_xff() {
         // Without trusted proxy and no XFF, fall back to peer IP
-        let ip = extract_client_ip(
-            None,
-            None,
-            Some("192.168.1.100"),
-        );
+        let ip = extract_client_ip(None, None, Some("192.168.1.100"));
         assert_eq!(ip, "192.168.1.100");
     }
 
     #[test]
     fn test_extract_client_ip_no_xff_header() {
-        let ip = extract_client_ip(
-            None,
-            Some("10.0.0.1"),
-            Some("10.0.0.1"),
-        );
+        let ip = extract_client_ip(None, Some("10.0.0.1"), Some("10.0.0.1"));
         assert_eq!(ip, "10.0.0.1");
     }
 
@@ -4284,11 +5340,7 @@ mod tests {
 
     #[test]
     fn test_extract_client_ip_single_xff() {
-        let ip = extract_client_ip(
-            Some("203.0.113.50"),
-            Some("10.0.0.1"),
-            Some("10.0.0.1"),
-        );
+        let ip = extract_client_ip(Some("203.0.113.50"), Some("10.0.0.1"), Some("10.0.0.1"));
         assert_eq!(ip, "203.0.113.50");
     }
 
@@ -4298,12 +5350,24 @@ mod tests {
         use axum::http::Request as HttpRequest;
         use tower::ServiceExt;
         let app = build_http_redirect_router(8444);
-        let response = app.clone().oneshot(
-            HttpRequest::builder().uri("/ws").header("host", "example.com:3000")
-                .body(Body::empty()).unwrap(),
-        ).await.unwrap();
+        let response = app
+            .clone()
+            .oneshot(
+                HttpRequest::builder()
+                    .uri("/ws")
+                    .header("host", "example.com:3000")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
-        let location = response.headers().get("location").unwrap().to_str().unwrap();
+        let location = response
+            .headers()
+            .get("location")
+            .unwrap()
+            .to_str()
+            .unwrap();
         assert_eq!(location, "https://example.com:8444/ws");
     }
 
@@ -4313,12 +5377,24 @@ mod tests {
         use axum::http::Request as HttpRequest;
         use tower::ServiceExt;
         let app = build_http_redirect_router(443);
-        let response = app.clone().oneshot(
-            HttpRequest::builder().uri("/test").header("host", "example.com")
-                .body(Body::empty()).unwrap(),
-        ).await.unwrap();
+        let response = app
+            .clone()
+            .oneshot(
+                HttpRequest::builder()
+                    .uri("/test")
+                    .header("host", "example.com")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
-        let location = response.headers().get("location").unwrap().to_str().unwrap();
+        let location = response
+            .headers()
+            .get("location")
+            .unwrap()
+            .to_str()
+            .unwrap();
         assert_eq!(location, "https://example.com/test");
     }
 
@@ -4328,9 +5404,16 @@ mod tests {
         use axum::http::Request as HttpRequest;
         use tower::ServiceExt;
         let app = build_http_redirect_router(8444);
-        let response = app.clone().oneshot(
-            HttpRequest::builder().uri("/health").body(Body::empty()).unwrap(),
-        ).await.unwrap();
+        let response = app
+            .clone()
+            .oneshot(
+                HttpRequest::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
     }
 
@@ -4373,22 +5456,31 @@ mod tests {
     fn test_require_auth_in_app_state() {
         let (state, _) = create_test_state();
         // Default test state has require_auth = false
-        assert!(!state.require_auth, "Default test state should have require_auth=false");
+        assert!(
+            !state.require_auth,
+            "Default test state should have require_auth=false"
+        );
     }
 
     #[test]
     fn test_tls_enabled_default_false_in_test_state() {
         let (state, _) = create_test_state();
-        assert!(!state.tls_enabled, "Default test state should have tls_enabled=false");
+        assert!(
+            !state.tls_enabled,
+            "Default test state should have tls_enabled=false"
+        );
     }
 
     #[tokio::test]
     async fn test_session_handler_valid_token() {
         let (state, _rx) = create_test_state();
         let token = jwt::issue_access_token(
-            &state.signing_key, "testuser", &state.server_id,
+            &state.signing_key,
+            "testuser",
+            &state.server_id,
             Duration::from_secs(900),
-        ).unwrap();
+        )
+        .unwrap();
 
         let app = Router::new()
             .route("/auth/session", post(session_handler))
@@ -4399,7 +5491,9 @@ mod tests {
             .method("POST")
             .uri("/auth/session")
             .header("content-type", "application/json")
-            .body(axum::body::Body::from(serde_json::to_string(&body).unwrap()))
+            .body(axum::body::Body::from(
+                serde_json::to_string(&body).unwrap(),
+            ))
             .unwrap();
 
         let response = app.oneshot(request).await.unwrap();
@@ -4407,12 +5501,29 @@ mod tests {
 
         // Should have Set-Cookie headers
         let set_cookies: Vec<_> = response.headers().get_all("set-cookie").iter().collect();
-        assert_eq!(set_cookies.len(), 2, "Should set both access and refresh cookies");
+        assert_eq!(
+            set_cookies.len(),
+            2,
+            "Should set both access and refresh cookies"
+        );
 
-        let cookie_str: String = set_cookies.iter().map(|v| v.to_str().unwrap()).collect::<Vec<_>>().join("; ");
-        assert!(cookie_str.contains("terminar_token="), "Should set access token cookie");
-        assert!(cookie_str.contains("terminar_refresh="), "Should set refresh token cookie");
-        assert!(cookie_str.contains("HttpOnly"), "Cookies should be HttpOnly");
+        let cookie_str: String = set_cookies
+            .iter()
+            .map(|v| v.to_str().unwrap())
+            .collect::<Vec<_>>()
+            .join("; ");
+        assert!(
+            cookie_str.contains("terminar_token="),
+            "Should set access token cookie"
+        );
+        assert!(
+            cookie_str.contains("terminar_refresh="),
+            "Should set refresh token cookie"
+        );
+        assert!(
+            cookie_str.contains("HttpOnly"),
+            "Cookies should be HttpOnly"
+        );
     }
 
     #[tokio::test]
@@ -4428,7 +5539,9 @@ mod tests {
             .method("POST")
             .uri("/auth/session")
             .header("content-type", "application/json")
-            .body(axum::body::Body::from(serde_json::to_string(&body).unwrap()))
+            .body(axum::body::Body::from(
+                serde_json::to_string(&body).unwrap(),
+            ))
             .unwrap();
 
         let response = app.oneshot(request).await.unwrap();
@@ -4457,8 +5570,15 @@ mod tests {
         let set_cookies: Vec<_> = response.headers().get_all("set-cookie").iter().collect();
         assert_eq!(set_cookies.len(), 2, "Should clear both cookies");
 
-        let cookie_str: String = set_cookies.iter().map(|v| v.to_str().unwrap()).collect::<Vec<_>>().join("; ");
-        assert!(cookie_str.contains("Max-Age=0"), "Cookies should be cleared with Max-Age=0");
+        let cookie_str: String = set_cookies
+            .iter()
+            .map(|v| v.to_str().unwrap())
+            .collect::<Vec<_>>()
+            .join("; ");
+        assert!(
+            cookie_str.contains("Max-Age=0"),
+            "Cookies should be cleared with Max-Age=0"
+        );
     }
 
     #[tokio::test]
@@ -4480,16 +5600,22 @@ mod tests {
         let _response = app.oneshot(request).await.unwrap();
 
         // The refresh token should be added to the revoked set
-        assert!(revoked.lock().contains("my_refresh_jwt"), "Refresh token should be revoked on logout");
+        assert!(
+            revoked.lock().contains("my_refresh_jwt"),
+            "Refresh token should be revoked on logout"
+        );
     }
 
     #[tokio::test]
     async fn test_session_handler_revoked_token_rejected() {
         let (state, _rx) = create_test_state();
         let token = jwt::issue_access_token(
-            &state.signing_key, "testuser", &state.server_id,
+            &state.signing_key,
+            "testuser",
+            &state.server_id,
             Duration::from_secs(900),
-        ).unwrap();
+        )
+        .unwrap();
 
         // Revoke the token
         state.revoked_tokens.lock().insert(token.clone());
@@ -4503,7 +5629,9 @@ mod tests {
             .method("POST")
             .uri("/auth/session")
             .header("content-type", "application/json")
-            .body(axum::body::Body::from(serde_json::to_string(&body).unwrap()))
+            .body(axum::body::Body::from(
+                serde_json::to_string(&body).unwrap(),
+            ))
             .unwrap();
 
         let response = app.oneshot(request).await.unwrap();

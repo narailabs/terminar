@@ -254,12 +254,18 @@ mod tests {
     #[test]
     fn test_should_compress_below_threshold() {
         assert!(!should_compress(100), "Small data should not be compressed");
-        assert!(!should_compress(COMPRESSION_THRESHOLD), "Exactly threshold should not compress");
+        assert!(
+            !should_compress(COMPRESSION_THRESHOLD),
+            "Exactly threshold should not compress"
+        );
     }
 
     #[test]
     fn test_should_compress_above_threshold() {
-        assert!(should_compress(COMPRESSION_THRESHOLD + 1), "Above threshold should compress");
+        assert!(
+            should_compress(COMPRESSION_THRESHOLD + 1),
+            "Above threshold should compress"
+        );
     }
 
     #[test]
@@ -267,14 +273,18 @@ mod tests {
         let original = b"Hello, World! This is test data for compression.";
         let compressed = compress_history(original).expect("Compression should succeed");
         let decompressed = decompress_history(&compressed).expect("Decompression should succeed");
-        assert_eq!(decompressed, original.to_vec(),
-            "Decompressed data should match original");
+        assert_eq!(
+            decompressed,
+            original.to_vec(),
+            "Decompressed data should match original"
+        );
     }
 
     #[test]
     fn test_compress_empty_data() {
         let original = b"";
-        let compressed = compress_history(original).expect("Compression of empty data should succeed");
+        let compressed =
+            compress_history(original).expect("Compression of empty data should succeed");
         let decompressed = decompress_history(&compressed).expect("Decompression should succeed");
         assert_eq!(decompressed, original.to_vec());
     }
@@ -284,9 +294,12 @@ mod tests {
         // Repetitive data should compress well
         let original: Vec<u8> = "AAAA".repeat(100_000).into_bytes();
         let compressed = compress_history(&original).expect("Compression should succeed");
-        assert!(compressed.len() < original.len(),
+        assert!(
+            compressed.len() < original.len(),
             "Compressed size ({}) should be less than original ({})",
-            compressed.len(), original.len());
+            compressed.len(),
+            original.len()
+        );
 
         // Verify roundtrip
         let decompressed = decompress_history(&compressed).expect("Decompression should succeed");
@@ -297,7 +310,10 @@ mod tests {
     fn test_decompress_invalid_data_returns_error() {
         let garbage = b"this is not valid zstd data";
         let result = decompress_history(garbage);
-        assert!(result.is_err(), "Decompressing invalid data should return an error");
+        assert!(
+            result.is_err(),
+            "Decompressing invalid data should return an error"
+        );
     }
 
     #[test]
@@ -309,7 +325,9 @@ mod tests {
         let history_data = buf.to_vec();
         let compressed = compress_history(&history_data).expect("Should compress buffer data");
         let decompressed = decompress_history(&compressed).expect("Should decompress");
-        assert_eq!(decompressed, history_data,
-            "Roundtrip through compress/decompress should preserve buffer content");
+        assert_eq!(
+            decompressed, history_data,
+            "Roundtrip through compress/decompress should preserve buffer content"
+        );
     }
 }

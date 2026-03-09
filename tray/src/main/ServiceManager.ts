@@ -9,6 +9,7 @@ import { execFileSync } from 'child_process';
 import { existsSync } from 'fs';
 import { join, dirname } from 'path';
 import type { TrayConfig, ServiceStatus } from './types.js';
+import { getAppRoot } from './paths.js';
 
 export class ServiceManager {
   // ------------------------------------------------------------------
@@ -97,7 +98,9 @@ export class ServiceManager {
     }
 
     // 2. Workspace dev paths — relative to cwd (repo root) or electron app path
-    for (const base of [process.cwd()]) {
+    //    getAppRoot() returns the tray/ dir; its parent is the repo root.
+    const bases = new Set([process.cwd(), dirname(getAppRoot())]);
+    for (const base of bases) {
       for (const profile of ['release', 'debug']) {
         const candidate = join(base, 'server', 'target', profile, name);
         if (existsSync(candidate)) {
