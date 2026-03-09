@@ -3,16 +3,16 @@
 //! These tests verify the server's behavior under high load conditions.
 //! Run with: cargo test --test test_stress -- --ignored
 
+use futures::{SinkExt, StreamExt};
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 use terminar_server::config::Cli;
-use terminar_server::run_server;
 use terminar_server::messages::{ClientMessage, ServerMessage};
+use terminar_server::run_server;
 use tokio::net::TcpListener;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
-use futures::{SinkExt, StreamExt};
-use std::time::{Duration, Instant};
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
 
 async fn spawn_stress_server(name: &str) -> (String, tokio::task::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -64,9 +64,7 @@ async fn test_100_concurrent_sessions() {
         let created_count = created.clone();
 
         handles.push(tokio::spawn(async move {
-            let (mut socket, _) = connect_async(&url)
-                .await
-                .expect("Failed to connect");
+            let (mut socket, _) = connect_async(&url).await.expect("Failed to connect");
 
             // Create Session
             let create_msg = ClientMessage::CreateSession {
@@ -76,13 +74,18 @@ async fn test_100_concurrent_sessions() {
                 cols: 80,
                 rows: 24,
             };
-            socket.send(Message::Text(serde_json::to_string(&create_msg).unwrap())).await.unwrap();
+            socket
+                .send(Message::Text(serde_json::to_string(&create_msg).unwrap()))
+                .await
+                .unwrap();
 
             // Wait for session list confirmation
             let start = Instant::now();
             while start.elapsed() < Duration::from_secs(10) {
                 if let Some(Ok(Message::Text(text))) = socket.next().await {
-                    if let Ok(ServerMessage::SessionList { sessions }) = serde_json::from_str::<ServerMessage>(&text) {
+                    if let Ok(ServerMessage::SessionList { sessions }) =
+                        serde_json::from_str::<ServerMessage>(&text)
+                    {
                         if !sessions.is_empty() {
                             created_count.fetch_add(1, Ordering::SeqCst);
 
@@ -90,7 +93,10 @@ async fn test_100_concurrent_sessions() {
                             let kill_msg = ClientMessage::KillSession {
                                 session_id: sessions[0].id.clone(),
                             };
-                            socket.send(Message::Text(serde_json::to_string(&kill_msg).unwrap())).await.unwrap();
+                            socket
+                                .send(Message::Text(serde_json::to_string(&kill_msg).unwrap()))
+                                .await
+                                .unwrap();
                             break;
                         }
                     }
@@ -119,9 +125,7 @@ async fn test_100_concurrent_sessions() {
 async fn test_large_output_streaming() {
     let (ws_url, _server) = spawn_stress_server("largeoutput").await;
 
-    let (mut socket, _) = connect_async(&ws_url)
-        .await
-        .expect("Failed to connect");
+    let (mut socket, _) = connect_async(&ws_url).await.expect("Failed to connect");
 
     // Create a session
     let create_msg = ClientMessage::CreateSession {
@@ -131,14 +135,19 @@ async fn test_large_output_streaming() {
         cols: 80,
         rows: 24,
     };
-    socket.send(Message::Text(serde_json::to_string(&create_msg).unwrap())).await.unwrap();
+    socket
+        .send(Message::Text(serde_json::to_string(&create_msg).unwrap()))
+        .await
+        .unwrap();
 
     // Get session ID
     let mut session_id = String::new();
     let start = Instant::now();
     while start.elapsed() < Duration::from_secs(5) {
         if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::SessionList { sessions }) = serde_json::from_str::<ServerMessage>(&text) {
+            if let Ok(ServerMessage::SessionList { sessions }) =
+                serde_json::from_str::<ServerMessage>(&text)
+            {
                 if !sessions.is_empty() {
                     session_id = sessions[0].id.clone();
                     break;
@@ -153,7 +162,10 @@ async fn test_large_output_streaming() {
         session_id: session_id.clone(),
         mode: "mirror".to_string(),
     };
-    socket.send(Message::Text(serde_json::to_string(&attach_msg).unwrap())).await.unwrap();
+    socket
+        .send(Message::Text(serde_json::to_string(&attach_msg).unwrap()))
+        .await
+        .unwrap();
 
     // Send many large inputs to generate output
     let large_input = "X".repeat(10_000); // 10KB input
@@ -164,13 +176,18 @@ async fn test_large_output_streaming() {
             session_id: session_id.clone(),
             data: large_input.clone(),
         };
-        socket.send(Message::Text(serde_json::to_string(&input_msg).unwrap())).await.unwrap();
+        socket
+            .send(Message::Text(serde_json::to_string(&input_msg).unwrap()))
+            .await
+            .unwrap();
     }
 
     // Count received output
     let mut total_received = 0usize;
     let start = Instant::now();
-    while start.elapsed() < Duration::from_secs(10) && total_received < large_input.len() * iterations {
+    while start.elapsed() < Duration::from_secs(10)
+        && total_received < large_input.len() * iterations
+    {
         tokio::select! {
             msg = socket.next() => {
                 if let Some(Ok(Message::Text(text))) = msg {
@@ -219,13 +236,18 @@ async fn test_50_concurrent_clients() {
                         cols: 80,
                         rows: 24,
                     };
-                    socket.send(Message::Text(serde_json::to_string(&create_msg).unwrap())).await.unwrap();
+                    socket
+                        .send(Message::Text(serde_json::to_string(&create_msg).unwrap()))
+                        .await
+                        .unwrap();
 
                     // Wait for session list
                     let start = Instant::now();
                     while start.elapsed() < Duration::from_secs(5) {
                         if let Some(Ok(Message::Text(text))) = socket.next().await {
-                            if let Ok(ServerMessage::SessionList { .. }) = serde_json::from_str::<ServerMessage>(&text) {
+                            if let Ok(ServerMessage::SessionList { .. }) =
+                                serde_json::from_str::<ServerMessage>(&text)
+                            {
                                 break;
                             }
                         }
@@ -261,9 +283,7 @@ async fn test_50_concurrent_clients() {
 async fn test_rapid_input_throughput() {
     let (ws_url, _server) = spawn_stress_server("rapidinput").await;
 
-    let (mut socket, _) = connect_async(&ws_url)
-        .await
-        .expect("Failed to connect");
+    let (mut socket, _) = connect_async(&ws_url).await.expect("Failed to connect");
 
     // Create a session
     let create_msg = ClientMessage::CreateSession {
@@ -273,14 +293,19 @@ async fn test_rapid_input_throughput() {
         cols: 80,
         rows: 24,
     };
-    socket.send(Message::Text(serde_json::to_string(&create_msg).unwrap())).await.unwrap();
+    socket
+        .send(Message::Text(serde_json::to_string(&create_msg).unwrap()))
+        .await
+        .unwrap();
 
     // Get session ID
     let mut session_id = String::new();
     let start = Instant::now();
     while start.elapsed() < Duration::from_secs(5) {
         if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::SessionList { sessions }) = serde_json::from_str::<ServerMessage>(&text) {
+            if let Ok(ServerMessage::SessionList { sessions }) =
+                serde_json::from_str::<ServerMessage>(&text)
+            {
                 if !sessions.is_empty() {
                     session_id = sessions[0].id.clone();
                     break;
@@ -295,7 +320,10 @@ async fn test_rapid_input_throughput() {
         session_id: session_id.clone(),
         mode: "mirror".to_string(),
     };
-    socket.send(Message::Text(serde_json::to_string(&attach_msg).unwrap())).await.unwrap();
+    socket
+        .send(Message::Text(serde_json::to_string(&attach_msg).unwrap()))
+        .await
+        .unwrap();
 
     // Small delay for attach to complete
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -309,7 +337,10 @@ async fn test_rapid_input_throughput() {
             session_id: session_id.clone(),
             data: format!("msg-{}\n", i),
         };
-        socket.send(Message::Text(serde_json::to_string(&input_msg).unwrap())).await.unwrap();
+        socket
+            .send(Message::Text(serde_json::to_string(&input_msg).unwrap()))
+            .await
+            .unwrap();
     }
 
     let elapsed = start.elapsed();
@@ -334,9 +365,7 @@ async fn test_rapid_input_throughput() {
 async fn test_rapid_session_lifecycle() {
     let (ws_url, _server) = spawn_stress_server("lifecycle").await;
 
-    let (mut socket, _) = connect_async(&ws_url)
-        .await
-        .expect("Failed to connect");
+    let (mut socket, _) = connect_async(&ws_url).await.expect("Failed to connect");
 
     let cycles = 20;
     let mut successful_cycles = 0;
@@ -350,14 +379,19 @@ async fn test_rapid_session_lifecycle() {
             cols: 80,
             rows: 24,
         };
-        socket.send(Message::Text(serde_json::to_string(&create_msg).unwrap())).await.unwrap();
+        socket
+            .send(Message::Text(serde_json::to_string(&create_msg).unwrap()))
+            .await
+            .unwrap();
 
         // Wait for session list
         let mut session_id = String::new();
         let start = Instant::now();
         while start.elapsed() < Duration::from_secs(2) {
             if let Some(Ok(Message::Text(text))) = socket.next().await {
-                if let Ok(ServerMessage::SessionList { sessions }) = serde_json::from_str::<ServerMessage>(&text) {
+                if let Ok(ServerMessage::SessionList { sessions }) =
+                    serde_json::from_str::<ServerMessage>(&text)
+                {
                     // Find our session
                     for s in &sessions {
                         if s.shell == format!("cycle-{}", i) {
@@ -380,13 +414,19 @@ async fn test_rapid_session_lifecycle() {
         let kill_msg = ClientMessage::KillSession {
             session_id: session_id.clone(),
         };
-        socket.send(Message::Text(serde_json::to_string(&kill_msg).unwrap())).await.unwrap();
+        socket
+            .send(Message::Text(serde_json::to_string(&kill_msg).unwrap()))
+            .await
+            .unwrap();
 
         // Wait for session closed confirmation
         let start = Instant::now();
         while start.elapsed() < Duration::from_secs(2) {
             if let Some(Ok(Message::Text(text))) = socket.next().await {
-                if let Ok(ServerMessage::SessionClosed { session_id: closed_id }) = serde_json::from_str::<ServerMessage>(&text) {
+                if let Ok(ServerMessage::SessionClosed {
+                    session_id: closed_id,
+                }) = serde_json::from_str::<ServerMessage>(&text)
+                {
                     if closed_id == session_id {
                         successful_cycles += 1;
                         break;

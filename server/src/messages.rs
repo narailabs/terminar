@@ -74,32 +74,20 @@ pub enum ClientMessage {
     /// Request a pairing code for remote client authentication.
     PairRequest,
     /// Authenticate with OS username and password (PAM).
-    AuthPassword {
-        username: String,
-        password: String,
-    },
+    AuthPassword { username: String, password: String },
     /// Initiate SSH public key authentication (step 1: send pubkey).
-    AuthPubkeyInit {
-        username: String,
-        pubkey: String,
-    },
+    AuthPubkeyInit { username: String, pubkey: String },
     /// Complete SSH public key authentication (step 2: verify signature).
     AuthPubkeyVerify {
         signature: String,
         algorithm: String,
     },
     /// Authenticate with a previously issued JWT token (reconnection).
-    AuthToken {
-        token: String,
-    },
+    AuthToken { token: String },
     /// Exchange a refresh token for a new access token + refresh token pair.
-    RefreshToken {
-        refresh_token: String,
-    },
+    RefreshToken { refresh_token: String },
     /// Save workspace data (session layout, splits, tabs, etc.).
-    SaveWorkspace {
-        workspace: serde_json::Value,
-    },
+    SaveWorkspace { workspace: serde_json::Value },
     /// Load previously saved workspace data.
     LoadWorkspace,
 }
@@ -139,9 +127,7 @@ pub enum ServerMessage {
         refresh_token: Option<String>,
     },
     /// SSH public key challenge. Client must sign this nonce with their private key.
-    AuthChallenge {
-        nonce: String,
-    },
+    AuthChallenge { nonce: String },
     /// Notification that the foreground process in a session has changed.
     ForegroundChanged {
         session_id: String,
@@ -158,10 +144,7 @@ pub enum ServerMessage {
         exit_code: Option<i32>,
     },
     /// Notification that the current working directory in a session has changed.
-    CwdChanged {
-        session_id: String,
-        cwd: String,
-    },
+    CwdChanged { session_id: String, cwd: String },
     /// Response to LoadWorkspace with saved workspace data.
     WorkspaceData {
         workspace: Option<serde_json::Value>,
@@ -200,70 +183,53 @@ mod tests {
 
     use super::*;
 
-
-
     #[test]
 
     fn test_client_message_auth() {
-
-        let msg = ClientMessage::Auth { token: "abc".into(), protocol_version: None };
+        let msg = ClientMessage::Auth {
+            token: "abc".into(),
+            protocol_version: None,
+        };
 
         let json = serde_json::to_string(&msg).unwrap();
 
         assert_eq!(json, r#"{"type":"auth","token":"abc"}"#);
 
-
-
         let deserialized: ClientMessage = serde_json::from_str(&json).unwrap();
 
         match deserialized {
-
             ClientMessage::Auth { token, .. } => assert_eq!(token, "abc"),
 
             _ => panic!("Wrong type"),
-
         }
-
     }
-
-
 
     #[test]
 
     fn test_client_message_list_sessions() {
-
         let msg = ClientMessage::ListSessions;
 
         let json = serde_json::to_string(&msg).unwrap();
 
         assert_eq!(json, r#"{"type":"list_sessions"}"#);
 
-        
-
         let deserialized: ClientMessage = serde_json::from_str(&json).unwrap();
 
         match deserialized {
-
-            ClientMessage::ListSessions => {},
+            ClientMessage::ListSessions => {}
 
             _ => panic!("Wrong type"),
-
         }
-
     }
-
-
 
     #[test]
 
     fn test_client_message_create_session() {
-
         let mut env = HashMap::new();
 
         env.insert("FOO".into(), "BAR".into());
 
         let msg = ClientMessage::CreateSession {
-
             cwd: "/tmp".into(),
 
             shell: "sh".into(),
@@ -273,7 +239,6 @@ mod tests {
             cols: 100,
 
             rows: 50,
-
         };
 
         let json = serde_json::to_string(&msg).unwrap();
@@ -286,118 +251,107 @@ mod tests {
 
         assert!(json.contains(r#""cols":100"#));
 
-
-
         let deserialized: ClientMessage = serde_json::from_str(&json).unwrap();
 
         match deserialized {
-
-            ClientMessage::CreateSession { cwd, shell, cols, .. } => {
-
+            ClientMessage::CreateSession {
+                cwd, shell, cols, ..
+            } => {
                 assert_eq!(cwd, "/tmp");
 
                 assert_eq!(shell, "sh");
 
                 assert_eq!(cols, 100);
-
-            },
+            }
 
             _ => panic!("Wrong type"),
-
         }
-
     }
-
-
 
     #[test]
 
     fn test_client_message_attach() {
-
-        let msg = ClientMessage::Attach { session_id: "id".into(), mode: "rw".into() };
+        let msg = ClientMessage::Attach {
+            session_id: "id".into(),
+            mode: "rw".into(),
+        };
 
         let json = serde_json::to_string(&msg).unwrap();
 
         assert_eq!(json, r#"{"type":"attach","session_id":"id","mode":"rw"}"#);
-
     }
-
-
 
     #[test]
 
     fn test_client_message_input() {
-
-        let msg = ClientMessage::Input { session_id: "id".into(), data: "ls\n".into() };
+        let msg = ClientMessage::Input {
+            session_id: "id".into(),
+            data: "ls\n".into(),
+        };
 
         let json = serde_json::to_string(&msg).unwrap();
 
         assert_eq!(json, r#"{"type":"input","session_id":"id","data":"ls\n"}"#);
-
     }
-
-
 
     #[test]
 
     fn test_client_message_resize() {
-
-        let msg = ClientMessage::Resize { session_id: "id".into(), cols: 10, rows: 10 };
+        let msg = ClientMessage::Resize {
+            session_id: "id".into(),
+            cols: 10,
+            rows: 10,
+        };
 
         let json = serde_json::to_string(&msg).unwrap();
 
-        assert_eq!(json, r#"{"type":"resize","session_id":"id","cols":10,"rows":10}"#);
-
+        assert_eq!(
+            json,
+            r#"{"type":"resize","session_id":"id","cols":10,"rows":10}"#
+        );
     }
-
-
 
     #[test]
 
     fn test_client_message_rename() {
-
-        let msg = ClientMessage::RenameSession { session_id: "id".into(), new_name: "prod".into() };
+        let msg = ClientMessage::RenameSession {
+            session_id: "id".into(),
+            new_name: "prod".into(),
+        };
 
         let json = serde_json::to_string(&msg).unwrap();
 
-        assert_eq!(json, r#"{"type":"rename_session","session_id":"id","new_name":"prod"}"#);
-
+        assert_eq!(
+            json,
+            r#"{"type":"rename_session","session_id":"id","new_name":"prod"}"#
+        );
     }
-
-
 
     #[test]
 
     fn test_client_message_kill() {
-
-        let msg = ClientMessage::KillSession { session_id: "id".into() };
+        let msg = ClientMessage::KillSession {
+            session_id: "id".into(),
+        };
 
         let json = serde_json::to_string(&msg).unwrap();
 
         assert_eq!(json, r#"{"type":"kill_session","session_id":"id"}"#);
-
     }
-
-
 
     #[test]
 
     fn test_client_message_pair_request() {
-
         let msg = ClientMessage::PairRequest;
 
         let json = serde_json::to_string(&msg).unwrap();
 
         assert_eq!(json, r#"{"type":"pair_request"}"#);
-
     }
-
-
 
     #[test]
 
     fn test_server_message_session_list() {
-
         let info = SessionInfo {
             id: "1".into(),
             name: "n".into(),
@@ -410,70 +364,69 @@ mod tests {
             exit_code: None,
         };
 
-        let msg = ServerMessage::SessionList { sessions: vec![info] };
+        let msg = ServerMessage::SessionList {
+            sessions: vec![info],
+        };
 
         let json = serde_json::to_string(&msg).unwrap();
 
         assert!(json.contains("SessionList"));
 
         assert!(json.contains("sessions"));
-
     }
-
-
 
     #[test]
 
     fn test_server_message_output() {
-
-        let msg = ServerMessage::Output { session_id: "1".into(), data: "d".into() };
+        let msg = ServerMessage::Output {
+            session_id: "1".into(),
+            data: "d".into(),
+        };
 
         let json = serde_json::to_string(&msg).unwrap();
 
         assert_eq!(json, r#"{"type":"Output","session_id":"1","data":"d"}"#);
-
     }
-
-
 
     #[test]
 
     fn test_server_message_session_closed() {
-
-        let msg = ServerMessage::SessionClosed { session_id: "1".into() };
+        let msg = ServerMessage::SessionClosed {
+            session_id: "1".into(),
+        };
 
         let json = serde_json::to_string(&msg).unwrap();
 
         assert_eq!(json, r#"{"type":"SessionClosed","session_id":"1"}"#);
-
     }
-
-
 
     #[test]
 
     fn test_server_message_error() {
-
-        let msg = ServerMessage::Error { message: "err".into(), error_code: None };
+        let msg = ServerMessage::Error {
+            message: "err".into(),
+            error_code: None,
+        };
 
         let json = serde_json::to_string(&msg).unwrap();
 
         assert_eq!(json, r#"{"type":"Error","message":"err"}"#);
-
     }
-
-
 
     #[test]
 
     fn test_server_message_pair_response() {
-
-        let msg = ServerMessage::PairResponse { code: "123".into(), expiry_secs: 60 };
+        let msg = ServerMessage::PairResponse {
+            code: "123".into(),
+            expiry_secs: 60,
+        };
 
         let json = serde_json::to_string(&msg).unwrap();
 
-        assert_eq!(json, r#"{"type":"PairResponse","code":"123","expiry_secs":60}"#);
-
+        assert_eq!(
+            json,
+            r#"{"type":"PairResponse","code":"123","expiry_secs":60}"#
+        );
     }
 
     #[test]
@@ -492,7 +445,7 @@ mod tests {
             ClientMessage::AuthPassword { username, password } => {
                 assert_eq!(username, "narayan");
                 assert_eq!(password, "secret");
-            },
+            }
             _ => panic!("Wrong type"),
         }
     }
@@ -511,7 +464,7 @@ mod tests {
             ClientMessage::AuthPubkeyInit { username, pubkey } => {
                 assert_eq!(username, "narayan");
                 assert_eq!(pubkey, "c3NoLWVkMjU1MTk=");
-            },
+            }
             _ => panic!("Wrong type"),
         }
     }
@@ -527,10 +480,13 @@ mod tests {
 
         let deserialized: ClientMessage = serde_json::from_str(&json).unwrap();
         match deserialized {
-            ClientMessage::AuthPubkeyVerify { signature, algorithm } => {
+            ClientMessage::AuthPubkeyVerify {
+                signature,
+                algorithm,
+            } => {
                 assert_eq!(signature, "sig-base64");
                 assert_eq!(algorithm, "ssh-ed25519");
-            },
+            }
             _ => panic!("Wrong type"),
         }
     }
@@ -557,7 +513,7 @@ mod tests {
         match deserialized {
             ClientMessage::RefreshToken { refresh_token } => {
                 assert_eq!(refresh_token, "eyJhbGciOiJIUzI1NiJ9.refresh.sig");
-            },
+            }
             _ => panic!("Expected RefreshToken"),
         }
     }
@@ -577,7 +533,7 @@ mod tests {
         match deserialized {
             ServerMessage::AuthOk { refresh_token, .. } => {
                 assert_eq!(refresh_token, Some("refresh.jwt".into()));
-            },
+            }
             _ => panic!("Expected AuthOk"),
         }
     }
@@ -591,7 +547,10 @@ mod tests {
             refresh_token: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
-        assert!(!json.contains("refresh_token"), "None refresh_token should be omitted");
+        assert!(
+            !json.contains("refresh_token"),
+            "None refresh_token should be omitted"
+        );
     }
 
     #[test]
@@ -612,7 +571,7 @@ mod tests {
             ServerMessage::AuthOk { token, expires, .. } => {
                 assert!(token.starts_with("eyJ"));
                 assert!(expires.contains("2026"));
-            },
+            }
             _ => panic!("Expected AuthOk"),
         }
     }
@@ -623,20 +582,25 @@ mod tests {
             nonce: "random-nonce-base64".into(),
         };
         let json = serde_json::to_string(&msg).unwrap();
-        assert_eq!(json, r#"{"type":"AuthChallenge","nonce":"random-nonce-base64"}"#);
+        assert_eq!(
+            json,
+            r#"{"type":"AuthChallenge","nonce":"random-nonce-base64"}"#
+        );
 
         let deserialized: ServerMessage = serde_json::from_str(&json).unwrap();
         match deserialized {
             ServerMessage::AuthChallenge { nonce } => {
                 assert_eq!(nonce, "random-nonce-base64");
-            },
+            }
             _ => panic!("Expected AuthChallenge"),
         }
     }
 
     #[test]
     fn test_server_message_shutdown() {
-        let msg = ServerMessage::Shutdown { reason: "Server restarting".into() };
+        let msg = ServerMessage::Shutdown {
+            reason: "Server restarting".into(),
+        };
         let json = serde_json::to_string(&msg).unwrap();
         assert_eq!(json, r#"{"type":"Shutdown","reason":"Server restarting"}"#);
 
@@ -645,7 +609,7 @@ mod tests {
         match deserialized {
             ServerMessage::Shutdown { reason } => {
                 assert_eq!(reason, "Server restarting");
-            },
+            }
             _ => panic!("Expected Shutdown message"),
         }
     }
@@ -687,7 +651,10 @@ mod tests {
             exit_code: None,
         };
         let json = serde_json::to_string(&info).unwrap();
-        assert!(!json.contains("foreground_process"), "None should be omitted from JSON");
+        assert!(
+            !json.contains("foreground_process"),
+            "None should be omitted from JSON"
+        );
         assert!(!json.contains("state"), "None should be omitted from JSON");
     }
 
@@ -755,10 +722,13 @@ mod tests {
 
         let deserialized: ServerMessage = serde_json::from_str(&json).unwrap();
         match deserialized {
-            ServerMessage::ForegroundChanged { session_id, process_name } => {
+            ServerMessage::ForegroundChanged {
+                session_id,
+                process_name,
+            } => {
                 assert_eq!(session_id, "id1");
                 assert_eq!(process_name, Some("vim".into()));
-            },
+            }
             _ => panic!("Expected ForegroundChanged"),
         }
     }
@@ -770,7 +740,10 @@ mod tests {
             process_name: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
-        assert!(json.contains(r#""process_name":null"#), "None should serialize as null, not skip field");
+        assert!(
+            json.contains(r#""process_name":null"#),
+            "None should serialize as null, not skip field"
+        );
     }
 
     #[test]
@@ -829,16 +802,14 @@ mod tests {
         match deserialized {
             ServerMessage::WorkspaceData { workspace } => {
                 assert!(workspace.is_some());
-            },
+            }
             _ => panic!("Expected WorkspaceData"),
         }
     }
 
     #[test]
     fn test_server_message_workspace_data_with_none() {
-        let msg = ServerMessage::WorkspaceData {
-            workspace: None,
-        };
+        let msg = ServerMessage::WorkspaceData { workspace: None };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains(r#""type":"WorkspaceData""#));
         assert!(json.contains(r#""workspace":null"#));
@@ -860,7 +831,7 @@ mod tests {
             ServerMessage::CwdChanged { session_id, cwd } => {
                 assert_eq!(session_id, "id1");
                 assert_eq!(cwd, "/tmp");
-            },
+            }
             _ => panic!("Expected CwdChanged"),
         }
     }
@@ -881,7 +852,7 @@ mod tests {
         match deserialized {
             ClientMessage::SaveWorkspace { workspace: w } => {
                 assert_eq!(w, workspace);
-            },
+            }
             _ => panic!("Expected SaveWorkspace"),
         }
     }
@@ -894,9 +865,8 @@ mod tests {
 
         let deserialized: ClientMessage = serde_json::from_str(&json).unwrap();
         match deserialized {
-            ClientMessage::LoadWorkspace => {},
+            ClientMessage::LoadWorkspace => {}
             _ => panic!("Expected LoadWorkspace"),
         }
     }
-
 }

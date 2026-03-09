@@ -42,13 +42,27 @@ pub struct TerminalSettings {
 }
 
 // Default value functions for serde
-fn default_font_size() -> u8 { 14 }
-fn default_font_family() -> String { "Menlo".to_string() }
-fn default_font_color() -> String { "#cccccc".to_string() }
-fn default_background_color() -> String { "#1e1e1e".to_string() }
-fn default_cursor_style() -> String { "block".to_string() }
-fn default_cursor_blink() -> bool { true }
-fn default_line_height() -> f32 { 1.0 }
+fn default_font_size() -> u8 {
+    14
+}
+fn default_font_family() -> String {
+    "Menlo".to_string()
+}
+fn default_font_color() -> String {
+    "#cccccc".to_string()
+}
+fn default_background_color() -> String {
+    "#1e1e1e".to_string()
+}
+fn default_cursor_style() -> String {
+    "block".to_string()
+}
+fn default_cursor_blink() -> bool {
+    true
+}
+fn default_line_height() -> f32 {
+    1.0
+}
 
 impl Default for TerminalSettings {
     fn default() -> Self {
@@ -71,7 +85,8 @@ impl TerminalSettings {
         self.font_size = self.font_size.clamp(10, 24);
 
         // Validate font family
-        const VALID_FONTS: &[&str] = &["Menlo", "Monaco", "Consolas", "Fira Code", "JetBrains Mono"];
+        const VALID_FONTS: &[&str] =
+            &["Menlo", "Monaco", "Consolas", "Fira Code", "JetBrains Mono"];
         if !VALID_FONTS.contains(&self.font_family.as_str()) {
             warn!("Invalid font family '{}', using default", self.font_family);
             self.font_family = default_font_family();
@@ -83,14 +98,20 @@ impl TerminalSettings {
             self.font_color = default_font_color();
         }
         if !is_valid_hex_color(&self.background_color) {
-            warn!("Invalid background color '{}', using default", self.background_color);
+            warn!(
+                "Invalid background color '{}', using default",
+                self.background_color
+            );
             self.background_color = default_background_color();
         }
 
         // Validate cursor style
         const VALID_CURSOR_STYLES: &[&str] = &["block", "underline", "bar"];
         if !VALID_CURSOR_STYLES.contains(&self.cursor_style.as_str()) {
-            warn!("Invalid cursor style '{}', using default", self.cursor_style);
+            warn!(
+                "Invalid cursor style '{}', using default",
+                self.cursor_style
+            );
             self.cursor_style = default_cursor_style();
         }
 
@@ -124,19 +145,17 @@ pub fn load_settings() -> TerminalSettings {
     let path = get_settings_path();
 
     match fs::read_to_string(&path) {
-        Ok(content) => {
-            match serde_json::from_str::<TerminalSettings>(&content) {
-                Ok(mut settings) => {
-                    settings.validate();
-                    info!("Loaded settings from {:?}", path);
-                    settings
-                }
-                Err(e) => {
-                    warn!("Failed to parse settings file: {}. Using defaults.", e);
-                    TerminalSettings::default()
-                }
+        Ok(content) => match serde_json::from_str::<TerminalSettings>(&content) {
+            Ok(mut settings) => {
+                settings.validate();
+                info!("Loaded settings from {:?}", path);
+                settings
             }
-        }
+            Err(e) => {
+                warn!("Failed to parse settings file: {}. Using defaults.", e);
+                TerminalSettings::default()
+            }
+        },
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
             info!("No settings file found, using defaults");
             TerminalSettings::default()
@@ -171,8 +190,7 @@ pub fn save_settings(settings: &TerminalSettings) -> Result<(), io::Error> {
     validated_settings.validate();
 
     // Serialize to pretty JSON
-    let json = serde_json::to_string_pretty(&validated_settings)
-        .map_err(io::Error::other)?;
+    let json = serde_json::to_string_pretty(&validated_settings).map_err(io::Error::other)?;
 
     // Write to file
     fs::write(&path, json)?;

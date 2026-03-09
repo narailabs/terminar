@@ -4,11 +4,11 @@
 //! server restarts. On load, expired entries are pruned automatically.
 //! New revocations are appended via a background writer task.
 
+use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
-use parking_lot::Mutex;
-use serde::{Serialize, Deserialize};
 use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
@@ -60,9 +60,10 @@ impl RevocationStore {
                 if let Ok(entry) = serde_json::from_str::<RevocationEntry>(line) {
                     // Prune expired entries
                     if let Some(exp) = entry.exp
-                        && exp < now_secs {
-                            continue; // Skip expired
-                        }
+                        && exp < now_secs
+                    {
+                        continue; // Skip expired
+                    }
                     revoked.insert(entry.token_id);
                 }
             }
@@ -298,8 +299,9 @@ mod tests {
         let key = jwt::generate_signing_key();
 
         // Issue a refresh token
-        let refresh = jwt::issue_refresh_token(&key, "narayan", "srv-1", Duration::from_secs(604800))
-            .expect("Should issue refresh token");
+        let refresh =
+            jwt::issue_refresh_token(&key, "narayan", "srv-1", Duration::from_secs(604800))
+                .expect("Should issue refresh token");
         let claims = jwt::validate_refresh_token(&key, &refresh).unwrap();
         let old_jti = claims.jti.clone();
 
@@ -311,10 +313,12 @@ mod tests {
         assert!(store.is_revoked(&old_jti));
 
         // Issue new tokens (simulating what the handler does)
-        let new_access = jwt::issue_access_token(&key, "narayan", "srv-1", Duration::from_secs(900))
-            .expect("Should issue new access token");
-        let new_refresh = jwt::issue_refresh_token(&key, "narayan", "srv-1", Duration::from_secs(604800))
-            .expect("Should issue new refresh token");
+        let new_access =
+            jwt::issue_access_token(&key, "narayan", "srv-1", Duration::from_secs(900))
+                .expect("Should issue new access token");
+        let new_refresh =
+            jwt::issue_refresh_token(&key, "narayan", "srv-1", Duration::from_secs(604800))
+                .expect("Should issue new refresh token");
 
         // New tokens should be valid
         let new_access_claims = jwt::validate_access_token(&key, &new_access).unwrap();
@@ -342,8 +346,9 @@ mod tests {
         let key = jwt::generate_signing_key();
 
         // Issue and immediately revoke a refresh token
-        let refresh = jwt::issue_refresh_token(&key, "narayan", "srv-1", Duration::from_secs(604800))
-            .expect("Should issue refresh token");
+        let refresh =
+            jwt::issue_refresh_token(&key, "narayan", "srv-1", Duration::from_secs(604800))
+                .expect("Should issue refresh token");
         let claims = jwt::validate_refresh_token(&key, &refresh).unwrap();
         store.revoke(&claims.jti, "rotation", Some(claims.exp));
 

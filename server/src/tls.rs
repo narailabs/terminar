@@ -150,8 +150,9 @@ pub fn generate_self_signed_cert(tls_dir: &Path) -> Result<GeneratedCert, TlsErr
     let key_pair = KeyPair::generate()
         .map_err(|e| TlsError::ConfigError(format!("Failed to generate key pair: {}", e)))?;
 
-    let cert = params.self_signed(&key_pair)
-        .map_err(|e| TlsError::ConfigError(format!("Failed to generate self-signed cert: {}", e)))?;
+    let cert = params.self_signed(&key_pair).map_err(|e| {
+        TlsError::ConfigError(format!("Failed to generate self-signed cert: {}", e))
+    })?;
 
     let cert_pem = cert.pem();
     let key_pem = key_pair.serialize_pem();
@@ -183,7 +184,9 @@ pub fn compute_cert_fingerprint(pem_bytes: &[u8]) -> Result<String, String> {
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("Failed to parse PEM: {}", e))?;
 
-    let cert_der = certs.into_iter().next()
+    let cert_der = certs
+        .into_iter()
+        .next()
         .ok_or_else(|| "No certificate found in PEM data".to_string())?;
 
     let hash = digest::digest(&digest::SHA256, cert_der.as_ref());
@@ -201,10 +204,9 @@ pub fn ensure_tls_cert(tls_dir: &Path) -> Result<GeneratedCert, TlsError> {
 
     if cert_path.exists() && key_path.exists() {
         // Load existing
-        let cert_pem = std::fs::read(&cert_path)
-            .map_err(|e| TlsError::CertReadError(format!("{}", e)))?;
-        let fingerprint = compute_cert_fingerprint(&cert_pem)
-            .map_err(TlsError::ConfigError)?;
+        let cert_pem =
+            std::fs::read(&cert_path).map_err(|e| TlsError::CertReadError(format!("{}", e)))?;
+        let fingerprint = compute_cert_fingerprint(&cert_pem).map_err(TlsError::ConfigError)?;
 
         return Ok(GeneratedCert {
             cert_path: cert_path.to_str().unwrap().to_string(),
@@ -264,9 +266,8 @@ pub fn spawn_tls_server(
 
     info!("TLS/HTTPS listener on https://{}", addr);
 
-    let tls_server_config = axum_server::tls_rustls::RustlsConfig::from_config(
-        std::sync::Arc::new(rustls_config),
-    );
+    let tls_server_config =
+        axum_server::tls_rustls::RustlsConfig::from_config(std::sync::Arc::new(rustls_config));
 
     let handle = axum_server::Handle::new();
     let server_handle = handle.clone();
@@ -304,11 +305,7 @@ mod tests {
 
     #[test]
     fn test_validate_cert_without_key_errors() {
-        let result = validate_tls_config(
-            &Some("/path/to/cert.pem".to_string()),
-            &None,
-            8444,
-        );
+        let result = validate_tls_config(&Some("/path/to/cert.pem".to_string()), &None, 8444);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(matches!(err, TlsError::MissingKey));
@@ -317,11 +314,7 @@ mod tests {
 
     #[test]
     fn test_validate_key_without_cert_errors() {
-        let result = validate_tls_config(
-            &None,
-            &Some("/path/to/key.pem".to_string()),
-            8444,
-        );
+        let result = validate_tls_config(&None, &Some("/path/to/key.pem".to_string()), 8444);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), TlsError::MissingCert));
     }
@@ -396,9 +389,21 @@ mod tests {
         let mut cert_file = NamedTempFile::new().unwrap();
         // Structurally valid PEM block but key file is empty
         writeln!(cert_file, "-----BEGIN CERTIFICATE-----").unwrap();
-        writeln!(cert_file, "MIIBkTCB+wIJALRiMLAh5WNHMA0GCSqGSIb3DQEBCwUAMBExDzANBgNVBAMMBnRl").unwrap();
-        writeln!(cert_file, "c3RDQTAYHBMDAQIBATADBGECAQAWMAEWMB4XDTI0MDEwMTAwMDAwMFoXDTI1MDEw").unwrap();
-        writeln!(cert_file, "MTAwMDAwMFowETEPMA0GA1UEAwwGdGVzdENBMA0GCSqGSIb3DQEBCwUAA0EA").unwrap();
+        writeln!(
+            cert_file,
+            "MIIBkTCB+wIJALRiMLAh5WNHMA0GCSqGSIb3DQEBCwUAMBExDzANBgNVBAMMBnRl"
+        )
+        .unwrap();
+        writeln!(
+            cert_file,
+            "c3RDQTAYHBMDAQIBATADBGECAQAWMAEWMB4XDTI0MDEwMTAwMDAwMFoXDTI1MDEw"
+        )
+        .unwrap();
+        writeln!(
+            cert_file,
+            "MTAwMDAwMFowETEPMA0GA1UEAwwGdGVzdENBMA0GCSqGSIb3DQEBCwUAA0EA"
+        )
+        .unwrap();
         writeln!(cert_file, "-----END CERTIFICATE-----").unwrap();
 
         let key_file = NamedTempFile::new().unwrap();
@@ -417,10 +422,17 @@ mod tests {
         let tls_dir = dir.path().join("tls");
 
         let result = generate_self_signed_cert(&tls_dir);
-        assert!(result.is_ok(), "generate_self_signed_cert failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "generate_self_signed_cert failed: {:?}",
+            result.err()
+        );
 
         let r#gen = result.unwrap();
-        assert!(Path::new(&r#gen.cert_path).exists(), "cert file not created");
+        assert!(
+            Path::new(&r#gen.cert_path).exists(),
+            "cert file not created"
+        );
         assert!(Path::new(&r#gen.key_path).exists(), "key file not created");
     }
 
@@ -448,7 +460,11 @@ mod tests {
             port: 8444,
         };
         let result = load_rustls_config(&config);
-        assert!(result.is_ok(), "Generated cert/key not loadable by rustls: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Generated cert/key not loadable by rustls: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -458,8 +474,14 @@ mod tests {
 
         let r#gen = generate_self_signed_cert(&tls_dir).unwrap();
         // Fingerprint should be a hex-encoded SHA-256 hash (64 hex chars with colons)
-        assert!(!r#gen.fingerprint.is_empty(), "fingerprint should not be empty");
-        assert!(r#gen.fingerprint.contains(':'), "fingerprint should be colon-separated hex");
+        assert!(
+            !r#gen.fingerprint.is_empty(),
+            "fingerprint should not be empty"
+        );
+        assert!(
+            r#gen.fingerprint.contains(':'),
+            "fingerprint should be colon-separated hex"
+        );
     }
 
     #[test]
@@ -551,7 +573,8 @@ mod tests {
             9443,
             true, // auto_tls is true but should be ignored
             &tls_dir,
-        ).unwrap();
+        )
+        .unwrap();
         assert!(result.is_some());
         let config = result.unwrap();
         assert_eq!(config.cert_path, cert_file.path().to_str().unwrap());
@@ -563,13 +586,7 @@ mod tests {
     fn test_resolve_tls_explicit_cert_without_key_errors() {
         let tmp = tempfile::tempdir().unwrap();
         let tls_dir = tmp.path().join("tls");
-        let result = resolve_tls_config(
-            Some("/path/to/cert.pem"),
-            None,
-            8444,
-            true,
-            &tls_dir,
-        );
+        let result = resolve_tls_config(Some("/path/to/cert.pem"), None, 8444, true, &tls_dir);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), TlsError::MissingKey));
     }

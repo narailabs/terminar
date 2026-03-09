@@ -5,13 +5,13 @@
 //!
 //! Run with: cargo test --test test_unix_socket -- --ignored
 
-use terminar_server::config::Cli;
-use terminar_server::run_server;
-use terminar_server::messages::{ClientMessage, ServerMessage};
-use tokio::net::UnixStream;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use std::time::Duration;
 use std::collections::HashMap;
+use std::time::Duration;
+use terminar_server::config::Cli;
+use terminar_server::messages::{ClientMessage, ServerMessage};
+use terminar_server::run_server;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::UnixStream;
 
 /// Helper: spawn a server with a unique Unix socket path and return the path + handle
 async fn spawn_unix_server(name: &str) -> (String, u16, tokio::task::JoinHandle<()>) {
@@ -88,7 +88,8 @@ async fn recv_message(stream: &mut UnixStream) -> Option<ServerMessage> {
 async fn test_unix_socket_session_lifecycle() {
     let (socket_path, _port, _server) = spawn_unix_server("lifecycle").await;
 
-    let mut stream = UnixStream::connect(&socket_path).await
+    let mut stream = UnixStream::connect(&socket_path)
+        .await
         .expect("Failed to connect to Unix socket");
 
     // 1. Create a session
@@ -102,11 +103,15 @@ async fn test_unix_socket_session_lifecycle() {
     send_message(&mut stream, &create_msg).await;
 
     // 2. Should receive SessionList with the new session
-    let response = recv_message(&mut stream).await
+    let response = recv_message(&mut stream)
+        .await
         .expect("Should receive response after create");
     let session_id = match &response {
         ServerMessage::SessionList { sessions } => {
-            assert!(!sessions.is_empty(), "Session list should not be empty after create");
+            assert!(
+                !sessions.is_empty(),
+                "Session list should not be empty after create"
+            );
             sessions[0].id.clone()
         }
         other => panic!("Expected SessionList, got {:?}", other),
@@ -114,7 +119,8 @@ async fn test_unix_socket_session_lifecycle() {
 
     // 3. List sessions
     send_message(&mut stream, &ClientMessage::ListSessions).await;
-    let response = recv_message(&mut stream).await
+    let response = recv_message(&mut stream)
+        .await
         .expect("Should receive session list");
     match &response {
         ServerMessage::SessionList { sessions } => {
@@ -132,10 +138,13 @@ async fn test_unix_socket_session_lifecycle() {
     send_message(&mut stream, &attach_msg).await;
 
     // Should receive history output (empty for new mock session)
-    let response = recv_message(&mut stream).await
+    let response = recv_message(&mut stream)
+        .await
         .expect("Should receive history output after attach");
     match &response {
-        ServerMessage::Output { session_id: sid, .. } => {
+        ServerMessage::Output {
+            session_id: sid, ..
+        } => {
             assert_eq!(sid, &session_id);
         }
         other => panic!("Expected Output (history), got {:?}", other),
@@ -168,7 +177,10 @@ async fn test_unix_socket_session_lifecycle() {
     let mut got_closed = false;
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(3) {
-        if let Some(ServerMessage::SessionClosed { session_id: closed_id }) = recv_message(&mut stream).await {
+        if let Some(ServerMessage::SessionClosed {
+            session_id: closed_id,
+        }) = recv_message(&mut stream).await
+        {
             assert_eq!(closed_id, session_id);
             got_closed = true;
             break;
@@ -178,11 +190,15 @@ async fn test_unix_socket_session_lifecycle() {
 
     // 8. Verify session list is now empty
     send_message(&mut stream, &ClientMessage::ListSessions).await;
-    let response = recv_message(&mut stream).await
+    let response = recv_message(&mut stream)
+        .await
         .expect("Should receive session list");
     match &response {
         ServerMessage::SessionList { sessions } => {
-            assert!(sessions.is_empty(), "Session list should be empty after kill");
+            assert!(
+                sessions.is_empty(),
+                "Session list should be empty after kill"
+            );
         }
         other => panic!("Expected SessionList, got {:?}", other),
     }
@@ -200,7 +216,8 @@ async fn test_unix_socket_concurrent_connections() {
     for i in 0..client_count {
         let sp = socket_path.clone();
         handles.push(tokio::spawn(async move {
-            let mut stream = UnixStream::connect(&sp).await
+            let mut stream = UnixStream::connect(&sp)
+                .await
                 .expect("Failed to connect to Unix socket");
 
             // Each client creates a session
@@ -224,7 +241,11 @@ async fn test_unix_socket_concurrent_connections() {
                 ServerMessage::Error { message, .. } => {
                     // Shell validation will reject non-whitelisted shells
                     // That's acceptable - the server handled it gracefully
-                    assert!(message.contains("whitelist"), "Expected whitelist error for client {}", i);
+                    assert!(
+                        message.contains("whitelist"),
+                        "Expected whitelist error for client {}",
+                        i
+                    );
                 }
                 other => panic!("Client {} unexpected response: {:?}", i, other),
             }
@@ -242,7 +263,8 @@ async fn test_unix_socket_concurrent_connections() {
 async fn test_unix_socket_large_message() {
     let (socket_path, _port, _server) = spawn_unix_server("large-msg").await;
 
-    let mut stream = UnixStream::connect(&socket_path).await
+    let mut stream = UnixStream::connect(&socket_path)
+        .await
         .expect("Failed to connect to Unix socket");
 
     // Create a session first
@@ -255,7 +277,8 @@ async fn test_unix_socket_large_message() {
     };
     send_message(&mut stream, &create_msg).await;
 
-    let response = recv_message(&mut stream).await
+    let response = recv_message(&mut stream)
+        .await
         .expect("Should receive session list");
     let session_id = match response {
         ServerMessage::SessionList { sessions } => sessions[0].id.clone(),
@@ -263,10 +286,14 @@ async fn test_unix_socket_large_message() {
     };
 
     // Attach to session
-    send_message(&mut stream, &ClientMessage::Attach {
-        session_id: session_id.clone(),
-        mode: "mirror".to_string(),
-    }).await;
+    send_message(
+        &mut stream,
+        &ClientMessage::Attach {
+            session_id: session_id.clone(),
+            mode: "mirror".to_string(),
+        },
+    )
+    .await;
     let _ = recv_message(&mut stream).await; // consume history
 
     // Send a large input (>16KB)
@@ -306,7 +333,8 @@ async fn test_unix_socket_reconnection() {
     // First connection: create a session
     let session_id;
     {
-        let mut stream = UnixStream::connect(&socket_path).await
+        let mut stream = UnixStream::connect(&socket_path)
+            .await
             .expect("Failed to connect first time");
 
         let create_msg = ClientMessage::CreateSession {
@@ -318,7 +346,8 @@ async fn test_unix_socket_reconnection() {
         };
         send_message(&mut stream, &create_msg).await;
 
-        let response = recv_message(&mut stream).await
+        let response = recv_message(&mut stream)
+            .await
             .expect("Should receive session list");
         session_id = match response {
             ServerMessage::SessionList { sessions } => sessions[0].id.clone(),
@@ -330,17 +359,22 @@ async fn test_unix_socket_reconnection() {
 
     // Second connection: should see the session still exists
     {
-        let mut stream = UnixStream::connect(&socket_path).await
+        let mut stream = UnixStream::connect(&socket_path)
+            .await
             .expect("Failed to reconnect");
 
         send_message(&mut stream, &ClientMessage::ListSessions).await;
 
-        let response = recv_message(&mut stream).await
+        let response = recv_message(&mut stream)
+            .await
             .expect("Should receive session list on reconnect");
         match response {
             ServerMessage::SessionList { sessions } => {
                 let found = sessions.iter().any(|s| s.id == session_id);
-                assert!(found, "Session should persist after client disconnect and reconnect");
+                assert!(
+                    found,
+                    "Session should persist after client disconnect and reconnect"
+                );
             }
             other => panic!("Expected SessionList, got {:?}", other),
         }
@@ -353,7 +387,8 @@ async fn test_unix_socket_reconnection() {
 async fn test_unix_socket_rename_session() {
     let (socket_path, _port, _server) = spawn_unix_server("rename").await;
 
-    let mut stream = UnixStream::connect(&socket_path).await
+    let mut stream = UnixStream::connect(&socket_path)
+        .await
         .expect("Failed to connect");
 
     // Create session
@@ -387,7 +422,9 @@ async fn test_unix_socket_rename_session() {
     let response = recv_message(&mut stream).await.unwrap();
     match response {
         ServerMessage::SessionList { sessions } => {
-            let session = sessions.iter().find(|s| s.id == session_id)
+            let session = sessions
+                .iter()
+                .find(|s| s.id == session_id)
                 .expect("Session should exist");
             assert_eq!(session.name, "my-session", "Session name should be updated");
         }
@@ -401,7 +438,8 @@ async fn test_unix_socket_rename_session() {
 async fn test_unix_socket_resize() {
     let (socket_path, _port, _server) = spawn_unix_server("resize").await;
 
-    let mut stream = UnixStream::connect(&socket_path).await
+    let mut stream = UnixStream::connect(&socket_path)
+        .await
         .expect("Failed to connect");
 
     // Create session
@@ -432,5 +470,8 @@ async fn test_unix_socket_resize() {
     tokio::time::sleep(Duration::from_millis(100)).await;
     send_message(&mut stream, &ClientMessage::ListSessions).await;
     let response = recv_message(&mut stream).await;
-    assert!(response.is_some(), "Server should still respond after resize");
+    assert!(
+        response.is_some(),
+        "Server should still respond after resize"
+    );
 }

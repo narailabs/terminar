@@ -2,7 +2,7 @@
 // Port of command handlers from tray/src-tauri/src/commands.rs.
 // All IPC channels are prefixed with "tray:".
 
-import { ipcMain, dialog } from 'electron';
+import { ipcMain, dialog, app } from 'electron';
 import type { TrayConfig } from './types.js';
 import { ConfigStore } from './ConfigStore.js';
 import { HealthPoller } from './HealthPoller.js';
@@ -155,5 +155,11 @@ export function registerIpcHandlers(
 
   ipcMain.handle('tray:close-window', (event) => {
     windowManager.closeWindowById(event.sender.id);
+  });
+
+  // ---- App info (used by terminal preload) ----
+
+  ipcMain.handle('app:version', () => {
+    return app.getVersion();
   });
 }

@@ -1,18 +1,30 @@
-use portable_pty::{PtySize, CommandBuilder, native_pty_system, ExitStatus, ChildKiller};
+use portable_pty::{ChildKiller, CommandBuilder, ExitStatus, PtySize, native_pty_system};
 use std::io::{Read, Write};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 /// Abstraction for creating PTYs to allow mocking
 pub trait PtyProvider: Send + Sync {
-    fn create_pty(&self, cols: u16, rows: u16) -> Result<Box<dyn portable_pty::MasterPty + Send>, anyhow::Error>;
-    fn spawn_command(&self, master: &(dyn portable_pty::MasterPty + Send), cmd: CommandBuilder) -> Result<Box<dyn portable_pty::Child + Send + Sync>, anyhow::Error>;
+    fn create_pty(
+        &self,
+        cols: u16,
+        rows: u16,
+    ) -> Result<Box<dyn portable_pty::MasterPty + Send>, anyhow::Error>;
+    fn spawn_command(
+        &self,
+        master: &(dyn portable_pty::MasterPty + Send),
+        cmd: CommandBuilder,
+    ) -> Result<Box<dyn portable_pty::Child + Send + Sync>, anyhow::Error>;
 }
 
 pub struct NativePtyProvider;
 
 impl PtyProvider for NativePtyProvider {
-    fn create_pty(&self, cols: u16, rows: u16) -> Result<Box<dyn portable_pty::MasterPty + Send>, anyhow::Error> {
+    fn create_pty(
+        &self,
+        cols: u16,
+        rows: u16,
+    ) -> Result<Box<dyn portable_pty::MasterPty + Send>, anyhow::Error> {
         let system = native_pty_system();
         let pair = system.openpty(PtySize {
             rows,
@@ -23,8 +35,14 @@ impl PtyProvider for NativePtyProvider {
         Ok(pair.master)
     }
 
-    fn spawn_command(&self, _master: &(dyn portable_pty::MasterPty + Send), _cmd: CommandBuilder) -> Result<Box<dyn portable_pty::Child + Send + Sync>, anyhow::Error> {
-         Err(anyhow::anyhow!("Use native_pty_system directly for native spawning for now"))
+    fn spawn_command(
+        &self,
+        _master: &(dyn portable_pty::MasterPty + Send),
+        _cmd: CommandBuilder,
+    ) -> Result<Box<dyn portable_pty::Child + Send + Sync>, anyhow::Error> {
+        Err(anyhow::anyhow!(
+            "Use native_pty_system directly for native spawning for now"
+        ))
     }
 }
 
@@ -33,11 +51,19 @@ impl PtyProvider for NativePtyProvider {
 pub struct MockPtyProvider;
 
 impl PtyProvider for MockPtyProvider {
-    fn create_pty(&self, _cols: u16, _rows: u16) -> Result<Box<dyn portable_pty::MasterPty + Send>, anyhow::Error> {
+    fn create_pty(
+        &self,
+        _cols: u16,
+        _rows: u16,
+    ) -> Result<Box<dyn portable_pty::MasterPty + Send>, anyhow::Error> {
         Ok(Box::new(MockMasterPty::new()))
     }
 
-    fn spawn_command(&self, _master: &(dyn portable_pty::MasterPty + Send), _cmd: CommandBuilder) -> Result<Box<dyn portable_pty::Child + Send + Sync>, anyhow::Error> {
+    fn spawn_command(
+        &self,
+        _master: &(dyn portable_pty::MasterPty + Send),
+        _cmd: CommandBuilder,
+    ) -> Result<Box<dyn portable_pty::Child + Send + Sync>, anyhow::Error> {
         Ok(Box::new(MockChild::new()))
     }
 }
@@ -55,10 +81,7 @@ struct MockChild {
 impl MockChild {
     fn new() -> Self {
         Self {
-            state: Arc::new((
-                Mutex::new(MockChildState { killed: false }),
-                Condvar::new(),
-            )),
+            state: Arc::new((Mutex::new(MockChildState { killed: false }), Condvar::new())),
         }
     }
 
@@ -66,7 +89,8 @@ impl MockChild {
     /// This is necessary because portable_pty::ExitStatus doesn't expose a public constructor
     fn create_exit_status() -> std::io::Result<ExitStatus> {
         let pty_system = native_pty_system();
-        let pair = pty_system.openpty(PtySize::default())
+        let pair = pty_system
+            .openpty(PtySize::default())
             .map_err(std::io::Error::other)?;
 
         #[cfg(unix)]
@@ -78,7 +102,9 @@ impl MockChild {
             c
         };
 
-        let mut child = pair.slave.spawn_command(cmd)
+        let mut child = pair
+            .slave
+            .spawn_command(cmd)
             .map_err(std::io::Error::other)?;
         child.wait()
     }
@@ -100,7 +126,9 @@ impl ChildKiller for MockChild {
     }
 
     fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
-        Box::new(MockChild { state: self.state.clone() })
+        Box::new(MockChild {
+            state: self.state.clone(),
+        })
     }
 }
 
@@ -130,7 +158,7 @@ impl portable_pty::Child for MockChild {
                 if wait_result.timed_out() && !state.killed {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::TimedOut,
-                        "MockChild::wait() timed out after 30s - ensure kill() is called"
+                        "MockChild::wait() timed out after 30s - ensure kill() is called",
                     ));
                 }
             }
@@ -139,7 +167,9 @@ impl portable_pty::Child for MockChild {
         Self::create_exit_status()
     }
 
-    fn process_id(&self) -> Option<u32> { Some(12345) }
+    fn process_id(&self) -> Option<u32> {
+        Some(12345)
+    }
 }
 
 pub struct MockMasterPty {
@@ -174,13 +204,21 @@ impl portable_pty::MasterPty for MockMasterPty {
         Ok(*self.size.lock().unwrap())
     }
     fn try_clone_reader(&self) -> Result<Box<dyn Read + Send + 'static>, anyhow::Error> {
-        Ok(Box::new(MockReader { receiver: self.receiver.clone() }))
+        Ok(Box::new(MockReader {
+            receiver: self.receiver.clone(),
+        }))
     }
-    fn take_writer(&self) -> Result<Box<dyn Write + Send + 'static>, anyhow::Error>{
-        Ok(Box::new(MockWriter { sender: self.sender.clone() }))
+    fn take_writer(&self) -> Result<Box<dyn Write + Send + 'static>, anyhow::Error> {
+        Ok(Box::new(MockWriter {
+            sender: self.sender.clone(),
+        }))
     }
-    fn process_group_leader(&self) -> Option<i32> { Some(1) }
-    fn as_raw_fd(&self) -> Option<i32> { None } 
+    fn process_group_leader(&self) -> Option<i32> {
+        Some(1)
+    }
+    fn as_raw_fd(&self) -> Option<i32> {
+        None
+    }
 }
 
 struct MockReader {
@@ -248,7 +286,9 @@ impl Write for MockWriter {
         }
         Ok(buf.len())
     }
-    fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -256,47 +296,39 @@ pub mod tests {
 
     use super::*;
 
-    pub use super::MockMasterPty; 
+    pub use super::MockMasterPty;
 
     use portable_pty::MasterPty;
-
-
 
     #[test]
 
     fn test_mock_pty_pipe() {
-
-
-
         let pty = MockMasterPty::new();
 
         let mut writer = pty.take_writer().unwrap();
 
         let mut reader = pty.try_clone_reader().unwrap();
 
-
-
         writer.write_all(b"hello").unwrap();
-
-        
 
         let mut buf = [0u8; 5];
 
         reader.read_exact(&mut buf).unwrap();
 
         assert_eq!(&buf, b"hello");
-
     }
-
-
 
     #[test]
 
     fn test_mock_pty_resize() {
-
         let pty = MockMasterPty::new();
 
-        let new_size = PtySize { rows: 50, cols: 120, pixel_width: 960, pixel_height: 400 };
+        let new_size = PtySize {
+            rows: 50,
+            cols: 120,
+            pixel_width: 960,
+            pixel_height: 400,
+        };
         pty.resize(new_size).unwrap();
 
         let retrieved = pty.get_size().unwrap();
@@ -304,7 +336,5 @@ pub mod tests {
         assert_eq!(retrieved.cols, 120);
         assert_eq!(retrieved.pixel_width, 960);
         assert_eq!(retrieved.pixel_height, 400);
-
     }
-
 }

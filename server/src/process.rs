@@ -7,13 +7,15 @@
 //! - `extract_binary_name_from_cmdline()` extracts the actual binary name from command
 //!   lines where `comm` reports a generic runtime like `node` or `python`.
 
-use std::os::unix::io::{BorrowedFd, RawFd};
 #[cfg(target_os = "macos")]
 use std::mem;
+use std::os::unix::io::{BorrowedFd, RawFd};
 
 /// Wrapper processes (interpreters/runtimes) that may mask the real binary name.
 /// When `comm` reports one of these, we fall back to inspecting the full command line.
-const WRAPPER_PROCESSES: &[&str] = &["node", "python", "python3", "ruby", "perl", "java", "deno", "bun"];
+const WRAPPER_PROCESSES: &[&str] = &[
+    "node", "python", "python3", "ruby", "perl", "java", "deno", "bun",
+];
 
 /// Get the foreground process name for a PTY session.
 ///
@@ -85,7 +87,9 @@ fn resolve_process_cwd(pid: i32) -> Option<String> {
 
     // vip_path is [[c_char; 32]; 32] (libc workaround for [c_char; 1024])
     // Flatten to a single byte slice and find the null terminator
-    let flat: Vec<u8> = vnode_info.pvi_cdir.vip_path
+    let flat: Vec<u8> = vnode_info
+        .pvi_cdir
+        .vip_path
         .iter()
         .flat_map(|chunk| chunk.iter())
         .map(|&b| b as u8)
@@ -122,17 +126,19 @@ pub fn resolve_process_name(pid: i32) -> Option<String> {
     // If the process name is a wrapper (node, python, etc.), try to get the real binary
     if WRAPPER_PROCESSES.contains(&name.as_str())
         && let Some(cmdline) = get_process_cmdline(pid)
-        && let Some(real_name) = extract_binary_name_from_cmdline(&cmdline) {
-            return Some(real_name);
-        }
+        && let Some(real_name) = extract_binary_name_from_cmdline(&cmdline)
+    {
+        return Some(real_name);
+    }
 
     // If the name looks like a version string (e.g., proc_pidpath resolved a symlink
     // to a versioned directory like ~/.claude/local/2.1.29), extract from the cmdline
     if looks_like_version(&name)
         && let Some(cmdline) = get_process_cmdline(pid)
-        && let Some(real_name) = extract_binary_from_first_arg(&cmdline) {
-            return Some(real_name);
-        }
+        && let Some(real_name) = extract_binary_from_first_arg(&cmdline)
+    {
+        return Some(real_name);
+    }
 
     Some(name)
 }
@@ -143,7 +149,9 @@ fn looks_like_version(name: &str) -> bool {
     // Version strings typically start with a digit and contain dots
     name.starts_with(|c: char| c.is_ascii_digit())
         && name.contains('.')
-        && name.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-' || c.is_ascii_alphanumeric())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_digit() || c == '.' || c == '-' || c.is_ascii_alphanumeric())
 }
 
 /// Get the raw process name (comm) without wrapper resolution.
@@ -151,13 +159,8 @@ fn looks_like_version(name: &str) -> bool {
 fn resolve_process_name_raw(pid: i32) -> Option<String> {
     // Try proc_pidpath first (gives full path like /usr/local/bin/node)
     let mut buf = [0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
-    let ret = unsafe {
-        libc::proc_pidpath(
-            pid,
-            buf.as_mut_ptr() as *mut libc::c_void,
-            buf.len() as u32,
-        )
-    };
+    let ret =
+        unsafe { libc::proc_pidpath(pid, buf.as_mut_ptr() as *mut libc::c_void, buf.len() as u32) };
 
     if ret > 0 {
         let path = std::str::from_utf8(&buf[..ret as usize]).ok()?;
@@ -205,16 +208,12 @@ fn resolve_process_name_raw(pid: i32) -> Option<String> {
     }
 
     // Fallback: /proc/<pid>/cmdline (null-separated args)
-    if let Ok(cmdline_bytes) = std::fs::read(format!("/proc/{}/cmdline", pid)) {
-        if let Some(first_arg) = cmdline_bytes.split(|&b| b == 0).next() {
-            if let Ok(arg) = std::str::from_utf8(first_arg) {
-                let binary = std::path::Path::new(arg)
-                    .file_name()?
-                    .to_str()?
-                    .to_string();
-                return Some(binary);
-            }
-        }
+    if let Ok(cmdline_bytes) = std::fs::read(format!("/proc/{}/cmdline", pid))
+        && let Some(first_arg) = cmdline_bytes.split(|&b| b == 0).next()
+        && let Ok(arg) = std::str::from_utf8(first_arg)
+    {
+        let binary = std::path::Path::new(arg).file_name()?.to_str()?.to_string();
+        return Some(binary);
     }
 
     None
@@ -316,11 +315,7 @@ pub fn extract_binary_name_from_cmdline(cmdline: &str) -> Option<String> {
         .to_str()?
         .to_string();
 
-    if name.is_empty() {
-        None
-    } else {
-        Some(name)
-    }
+    if name.is_empty() { None } else { Some(name) }
 }
 
 #[cfg(test)]
@@ -363,7 +358,10 @@ mod tests {
     fn test_resolve_process_name_returns_name_for_current_process() {
         let pid = std::process::id() as i32;
         let result = resolve_process_name(pid);
-        assert!(result.is_some(), "Current process PID should resolve to a name");
+        assert!(
+            result.is_some(),
+            "Current process PID should resolve to a name"
+        );
         // The test binary name should contain "terminar" or be a cargo test runner
         let name = result.unwrap();
         assert!(!name.is_empty(), "Process name should not be empty");
@@ -513,7 +511,10 @@ mod tests {
     #[test]
     fn test_resolve_process_name_raw_returns_none_for_invalid_pid() {
         let result = resolve_process_name_raw(99999999);
-        assert!(result.is_none(), "Invalid PID should return None from raw resolver");
+        assert!(
+            result.is_none(),
+            "Invalid PID should return None from raw resolver"
+        );
     }
 
     #[cfg(target_os = "macos")]
@@ -521,7 +522,10 @@ mod tests {
     fn test_get_process_cmdline_for_current_process() {
         let pid = std::process::id() as i32;
         let result = get_process_cmdline(pid);
-        assert!(result.is_some(), "Current process should have a command line");
+        assert!(
+            result.is_some(),
+            "Current process should have a command line"
+        );
         let cmdline = result.unwrap();
         assert!(!cmdline.is_empty(), "Command line should not be empty");
     }
@@ -531,7 +535,10 @@ mod tests {
     fn test_get_process_cmdline_for_current_process() {
         let pid = std::process::id() as i32;
         let result = get_process_cmdline(pid);
-        assert!(result.is_some(), "Current process should have a command line");
+        assert!(
+            result.is_some(),
+            "Current process should have a command line"
+        );
         let cmdline = result.unwrap();
         assert!(!cmdline.is_empty(), "Command line should not be empty");
     }

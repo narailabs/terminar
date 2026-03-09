@@ -1,5 +1,5 @@
-use terminar_server::messages::{ClientMessage, ServerMessage, SessionInfo};
 use std::collections::HashMap;
+use terminar_server::messages::{ClientMessage, ServerMessage, SessionInfo};
 
 #[test]
 fn test_client_message_serialization() {
@@ -12,7 +12,10 @@ fn test_client_message_serialization() {
         rows: 24,
     };
     let json = serde_json::to_string(&create_msg).unwrap();
-    assert_eq!(json, r#"{"type":"create_session","cwd":"/","shell":"bash","env":{},"cols":80,"rows":24}"#);
+    assert_eq!(
+        json,
+        r#"{"type":"create_session","cwd":"/","shell":"bash","env":{},"cols":80,"rows":24}"#
+    );
 
     // 2. Attach
     let attach_msg = ClientMessage::Attach {
@@ -20,7 +23,10 @@ fn test_client_message_serialization() {
         mode: "mirror".to_string(),
     };
     let json = serde_json::to_string(&attach_msg).unwrap();
-    assert_eq!(json, r#"{"type":"attach","session_id":"123","mode":"mirror"}"#);
+    assert_eq!(
+        json,
+        r#"{"type":"attach","session_id":"123","mode":"mirror"}"#
+    );
 
     // 3. Input
     let input_msg = ClientMessage::Input {
@@ -37,7 +43,10 @@ fn test_client_message_serialization() {
         rows: 30,
     };
     let json = serde_json::to_string(&resize_msg).unwrap();
-    assert_eq!(json, r#"{"type":"resize","session_id":"123","cols":100,"rows":30}"#);
+    assert_eq!(
+        json,
+        r#"{"type":"resize","session_id":"123","cols":100,"rows":30}"#
+    );
 
     // 5. KillSession
     let kill_msg = ClientMessage::KillSession {
@@ -52,7 +61,10 @@ fn test_client_message_serialization() {
         new_name: "prod".to_string(),
     };
     let json = serde_json::to_string(&rename_msg).unwrap();
-    assert_eq!(json, r#"{"type":"rename_session","session_id":"123","new_name":"prod"}"#);
+    assert_eq!(
+        json,
+        r#"{"type":"rename_session","session_id":"123","new_name":"prod"}"#
+    );
 
     // 7. PairRequest
     let pair_msg = ClientMessage::PairRequest;
@@ -74,7 +86,9 @@ fn test_server_message_serialization() {
         last_activity_at: None,
         exit_code: None,
     };
-    let list_msg = ServerMessage::SessionList { sessions: vec![session] };
+    let list_msg = ServerMessage::SessionList {
+        sessions: vec![session],
+    };
     let json = serde_json::to_string(&list_msg).unwrap();
     // ServerMessage is NOT snake_case by default in serde (unless configured)
     // We configured `#[serde(tag = "type")]` but not rename_all on ServerMessage.
@@ -111,5 +125,8 @@ fn test_server_message_serialization() {
         expiry_secs: 300,
     };
     let json = serde_json::to_string(&pair_resp).unwrap();
-    assert_eq!(json, r#"{"type":"PairResponse","code":"123456","expiry_secs":300}"#);
+    assert_eq!(
+        json,
+        r#"{"type":"PairResponse","code":"123456","expiry_secs":300}"#
+    );
 }

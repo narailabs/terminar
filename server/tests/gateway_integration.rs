@@ -11,15 +11,15 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::Router;
 use axum::extract::connect_info::MockConnectInfo;
 use axum::routing::get;
-use axum::Router;
 use tokio::sync::broadcast;
 use tokio_tungstenite::tungstenite;
 
 use terminar_server::auth::PasswordVerifier;
-use terminar_server::gateway::user_server::UserServerManager;
 use terminar_server::gateway::GatewayState;
+use terminar_server::gateway::user_server::UserServerManager;
 use terminar_server::jwt;
 use terminar_server::messages::ServerMessage;
 
@@ -112,8 +112,8 @@ async fn start_test_gateway(
 /// Build the test app. Since the gateway's ws_handler and health_handler are
 /// private, we need to re-implement thin wrappers here for testing.
 fn build_test_app(state: GatewayState) -> Router {
-    use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
     use axum::extract::State;
+    use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
     use axum::response::IntoResponse;
 
     async fn test_ws_handler(
@@ -181,20 +181,15 @@ fn build_test_app(state: GatewayState) -> Router {
                                             .await;
                                         break username.to_string();
                                     } else {
-                                        let _ = send_test_error(
-                                            &mut socket,
-                                            "Invalid credentials",
-                                        )
-                                        .await;
+                                        let _ = send_test_error(&mut socket, "Invalid credentials")
+                                            .await;
                                     }
                                 }
                             }
                             _ => {
-                                let _ = send_test_error(
-                                    &mut socket,
-                                    "Expected AuthPassword message",
-                                )
-                                .await;
+                                let _ =
+                                    send_test_error(&mut socket, "Expected AuthPassword message")
+                                        .await;
                             }
                         }
                     }
@@ -209,10 +204,7 @@ fn build_test_app(state: GatewayState) -> Router {
         // In the test, we just close the connection after auth succeeds.
     }
 
-    async fn send_test_error(
-        socket: &mut WebSocket,
-        message: &str,
-    ) -> Result<(), axum::Error> {
+    async fn send_test_error(socket: &mut WebSocket, message: &str) -> Result<(), axum::Error> {
         let error_msg = ServerMessage::Error {
             message: message.to_string(),
             error_code: None,
@@ -391,7 +383,9 @@ async fn test_gateway_auth_rate_limiting() {
 
     // First attempt: should get "Invalid credentials"
     ws_send(&mut ws, &wrong_auth).await;
-    let r1 = ws_recv(&mut ws).await.expect("Should receive error for attempt 1");
+    let r1 = ws_recv(&mut ws)
+        .await
+        .expect("Should receive error for attempt 1");
     match r1 {
         ServerMessage::Error { message, .. } => {
             assert!(message.contains("Invalid credentials"));
@@ -401,7 +395,9 @@ async fn test_gateway_auth_rate_limiting() {
 
     // Second attempt: should get "Invalid credentials"
     ws_send(&mut ws, &wrong_auth).await;
-    let r2 = ws_recv(&mut ws).await.expect("Should receive error for attempt 2");
+    let r2 = ws_recv(&mut ws)
+        .await
+        .expect("Should receive error for attempt 2");
     match r2 {
         ServerMessage::Error { message, .. } => {
             assert!(message.contains("Invalid credentials"));
@@ -411,7 +407,9 @@ async fn test_gateway_auth_rate_limiting() {
 
     // Third attempt: exceeds max_auth_attempts (2), should get rate limit error
     ws_send(&mut ws, &wrong_auth).await;
-    let r3 = ws_recv(&mut ws).await.expect("Should receive rate limit error");
+    let r3 = ws_recv(&mut ws)
+        .await
+        .expect("Should receive rate limit error");
     match r3 {
         ServerMessage::Error { message, .. } => {
             assert!(
@@ -584,7 +582,9 @@ async fn test_gateway_spawns_user_server_and_proxies() {
     });
     ws_send(&mut ws, &auth_msg).await;
 
-    let auth_response = ws_recv(&mut ws).await.expect("Should receive auth response");
+    let auth_response = ws_recv(&mut ws)
+        .await
+        .expect("Should receive auth response");
     match auth_response {
         ServerMessage::AuthOk { token, .. } => {
             assert!(!token.is_empty(), "Should receive a valid token");

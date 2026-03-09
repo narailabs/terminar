@@ -42,7 +42,8 @@ pub fn get_session_file_path() -> PathBuf {
 /// Atomically write data to a file using temp file + rename.
 /// This prevents corruption if the process crashes mid-write.
 fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
-    let parent = path.parent()
+    let parent = path
+        .parent()
         .ok_or_else(|| format!("No parent directory for {:?}", path))?;
     if !parent.as_os_str().is_empty() {
         std::fs::create_dir_all(parent)
@@ -70,17 +71,20 @@ pub fn save_sessions(path: &str, data: &PersistedSessionData) -> Result<(), Stri
 /// Build PersistedSessionData from a SessionMap by extracting metadata.
 pub fn build_persisted_data(sessions: &crate::session::SessionMap) -> PersistedSessionData {
     let guard = sessions.lock();
-    let sessions_vec = guard.values().map(|s| {
-        PersistedSession {
+    let sessions_vec = guard
+        .values()
+        .map(|s| PersistedSession {
             id: s.id.clone(),
             name: s.name.clone(),
             shell_cmd: s.shell_cmd.clone(),
             cwd: s.cwd.clone(),
             pid: None,
             state: format!("{:?}", s.state),
-        }
-    }).collect();
-    PersistedSessionData { sessions: sessions_vec }
+        })
+        .collect();
+    PersistedSessionData {
+        sessions: sessions_vec,
+    }
 }
 
 /// Load session data from a JSON file.
@@ -127,9 +131,10 @@ pub fn delete_history(session_id: &str) {
     let dir = get_history_dir();
     let path = dir.join(format!("{}.history", session_id));
     if path.exists()
-        && let Err(e) = std::fs::remove_file(&path) {
-            tracing::warn!("Failed to delete history file {:?}: {}", path, e);
-        }
+        && let Err(e) = std::fs::remove_file(&path)
+    {
+        tracing::warn!("Failed to delete history file {:?}: {}", path, e);
+    }
 }
 
 /// Zstd magic bytes: 0x28 0xB5 0x2F 0xFD
@@ -143,8 +148,9 @@ pub fn load_history_auto(base_dir: &str, session_id: &str) -> Result<Option<Vec<
         None => Ok(None),
         Some(data) => {
             if data.len() >= 4 && data[..4] == ZSTD_MAGIC {
-                let decompressed = history::decompress_history(&data)
-                    .map_err(|e| format!("Failed to decompress history for {}: {}", session_id, e))?;
+                let decompressed = history::decompress_history(&data).map_err(|e| {
+                    format!("Failed to decompress history for {}: {}", session_id, e)
+                })?;
                 Ok(Some(decompressed))
             } else {
                 Ok(Some(data))
@@ -162,7 +168,8 @@ pub fn save_all_histories(sessions: &crate::session::SessionMap) {
     // Snapshot history data under the lock (fast)
     let snapshots: Vec<(String, Vec<u8>)> = {
         let guard = sessions.lock();
-        guard.values()
+        guard
+            .values()
             .filter(|s| matches!(s.state, SessionState::Running))
             .filter_map(|s| {
                 let h = s.history.lock();
@@ -184,7 +191,11 @@ pub fn save_all_histories(sessions: &crate::session::SessionMap) {
             match history::compress_history(data) {
                 Ok(compressed) => compressed,
                 Err(e) => {
-                    tracing::warn!("Failed to compress history for {}: {}, saving uncompressed", session_id, e);
+                    tracing::warn!(
+                        "Failed to compress history for {}: {}, saving uncompressed",
+                        session_id,
+                        e
+                    );
                     data.clone()
                 }
             }
@@ -233,7 +244,8 @@ mod tests {
 
     #[test]
     fn test_persisted_session_deserializes_from_json() {
-        let json = r#"{"id":"abc","name":"T","shell_cmd":"/bin/sh","cwd":"/","pid":42,"state":"Running"}"#;
+        let json =
+            r#"{"id":"abc","name":"T","shell_cmd":"/bin/sh","cwd":"/","pid":42,"state":"Running"}"#;
         let session: PersistedSession = serde_json::from_str(json).unwrap();
         assert_eq!(session.id, "abc");
         assert_eq!(session.pid, Some(42));
@@ -364,16 +376,14 @@ mod tests {
         let path_str = path.to_str().unwrap();
 
         let data = PersistedSessionData {
-            sessions: vec![
-                PersistedSession {
-                    id: "r1".to_string(),
-                    name: "R1".to_string(),
-                    shell_cmd: "/bin/bash".to_string(),
-                    cwd: "/tmp".to_string(),
-                    pid: Some(111),
-                    state: "Running".to_string(),
-                },
-            ],
+            sessions: vec![PersistedSession {
+                id: "r1".to_string(),
+                name: "R1".to_string(),
+                shell_cmd: "/bin/bash".to_string(),
+                cwd: "/tmp".to_string(),
+                pid: Some(111),
+                state: "Running".to_string(),
+            }],
         };
 
         save_sessions(path_str, &data).unwrap();
@@ -391,9 +401,9 @@ mod tests {
 
     #[test]
     fn test_build_persisted_data_empty_session_map() {
-        use std::sync::Arc;
         use parking_lot::Mutex;
         use std::collections::HashMap;
+        use std::sync::Arc;
 
         let sessions: crate::session::SessionMap = Arc::new(Mutex::new(HashMap::new()));
         let data = build_persisted_data(&sessions);
@@ -402,11 +412,11 @@ mod tests {
 
     #[test]
     fn test_build_persisted_data_with_sessions() {
-        use std::sync::Arc;
+        use crate::history::CircularBuffer;
+        use crate::pty::{MockPtyProvider, PtyProvider};
         use parking_lot::Mutex;
         use std::collections::HashMap;
-        use crate::pty::{MockPtyProvider, PtyProvider};
-        use crate::history::CircularBuffer;
+        use std::sync::Arc;
         use tokio::sync::broadcast;
 
         let sessions: crate::session::SessionMap = Arc::new(Mutex::new(HashMap::new()));
@@ -424,7 +434,8 @@ mod tests {
             master,
             tx,
             history,
-        ).unwrap();
+        )
+        .unwrap();
         sessions.lock().insert("test-id".to_string(), session);
 
         let data = build_persisted_data(&sessions);
@@ -463,7 +474,10 @@ mod tests {
         let base_dir = dir.path().to_str().unwrap();
 
         let loaded = load_history(base_dir, "nonexistent").unwrap();
-        assert!(loaded.is_none(), "Loading missing history should return None");
+        assert!(
+            loaded.is_none(),
+            "Loading missing history should return None"
+        );
     }
 
     #[test]

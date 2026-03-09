@@ -85,10 +85,9 @@ impl AuditEventType {
     /// Returns the audit level for this event type.
     pub fn level(&self) -> AuditLevel {
         match self {
-            Self::AuthSuccess
-            | Self::AuthFailure
-            | Self::AuthRateLimited
-            | Self::TokenRevoked => AuditLevel::Auth,
+            Self::AuthSuccess | Self::AuthFailure | Self::AuthRateLimited | Self::TokenRevoked => {
+                AuditLevel::Auth
+            }
 
             Self::SessionCreated
             | Self::SessionAttached

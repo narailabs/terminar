@@ -468,6 +468,25 @@
             clearInterval(refreshIntervalId);
             refreshIntervalId = null;
           }
+
+          // Safety valve: if writesInFlight is stuck (xterm dropped a
+          // callback during WebGL context loss or parser error), reset
+          // it so future writes can trigger the final refresh + scroll.
+          if (writesInFlight > 0 && term) {
+            console.warn(`[Terminal:${terminalInstanceId}] Output quiet but writesInFlight=${writesInFlight} stuck, resetting`);
+            writesInFlight = 0;
+            requestAnimationFrame(() => {
+              if (term) {
+                term.refresh(0, term.rows - 1);
+                if (autoScroll && settingsStore.value.autoScroll) {
+                  scrolledByUs = true;
+                  term.scrollToBottom();
+                  scrolledByUs = false;
+                }
+              }
+            });
+          }
+
           outputActivityTimeout = null;
         } else {
           // Still active -- check again later
@@ -834,10 +853,24 @@
           console.warn(`[Terminal:${terminalInstanceId}] WebGL context lost! writesInFlight=${writesInFlight}, buffer=${writeBuffer.length}B`);
           webglAddon?.dispose();
           webglAddon = null;
-          // Force DOM renderer to repaint all rows after takeover
-          requestAnimationFrame(() => {
-            if (term) term.refresh(0, term.rows - 1);
-          });
+
+          // Reset writesInFlight: pending write callbacks from the disposed
+          // WebGL renderer will never fire. Without this reset, the
+          // writesInFlight === 0 gate in flushWriteBuffer's callback blocks
+          // the final refresh + scrollToBottom forever.
+          writesInFlight = 0;
+
+          // Schedule multiple refreshes with increasing delays. The DOM
+          // renderer needs time to fully initialize after WebGL disposal.
+          // A single rAF is insufficient — the first repaint often fires
+          // before the DOM renderer has created its row elements.
+          // Using setTimeout instead of rAF because rAF can be throttled
+          // by the browser after a GPU context loss event.
+          for (const delay of [0, 50, 150, 500]) {
+            setTimeout(() => {
+              if (term) term.refresh(0, term.rows - 1);
+            }, delay);
+          }
         });
 
         term.loadAddon(webglAddon);
@@ -956,14 +989,33 @@
     windowResizeHandler = handleResize;
     window.addEventListener('resize', windowResizeHandler);
 
-    // Handle visibility changes (tab switching, etc.)
+    // Handle visibility changes (tab switching, minimizing, etc.)
     visibilityHandler = () => {
-      if (document.visibilityState === 'visible' && resizeDebouncer) {
-        // Flush any pending resize and recalculate
-        resizeDebouncer.flush();
-        requestAnimationFrame(() => {
-          triggerResize(true);
-        });
+      if (document.visibilityState === 'visible') {
+        // Force an unconditional repaint. Output received while the tab
+        // was hidden is in xterm's buffer but was never painted to screen.
+        // This refresh is independent of the resize pipeline — even if
+        // dimensions haven't changed, the screen content needs repainting.
+        if (term) {
+          // If writesInFlight is stuck (callbacks lost while hidden),
+          // reset it so the write pipeline's final-refresh gate can
+          // open for future writes.
+          if (writesInFlight > 0) {
+            console.warn(`[Terminal:${terminalInstanceId}] Visibility restored with stuck writesInFlight=${writesInFlight}, resetting`);
+            writesInFlight = 0;
+          }
+          requestAnimationFrame(() => {
+            if (term) term.refresh(0, term.rows - 1);
+          });
+        }
+
+        // Also flush pending resize and recalculate dimensions
+        if (resizeDebouncer) {
+          resizeDebouncer.flush();
+          requestAnimationFrame(() => {
+            triggerResize(true);
+          });
+        }
       }
     };
     document.addEventListener('visibilitychange', visibilityHandler);
