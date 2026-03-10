@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent } from '@testing-library/svelte';
 import TerminalComp from './Terminal.svelte';
 
@@ -404,5 +404,220 @@ describe('Terminal - Auto-scroll Badge', () => {
     await fireEvent.click(badge);
 
     expect(mockTerm.scrollToBottom).toHaveBeenCalled();
+  });
+});
+
+describe('stale terminal detection', () => {
+  let mockManager: any;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    mockManager = {
+      on: vi.fn(),
+      off: vi.fn(),
+      sendInput: vi.fn(),
+      resize: vi.fn(),
+      attach: vi.fn(),
+      listenerCount: vi.fn().mockReturnValue(0),
+    };
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Helper: get the onData callback registered by the component */
+  function getOnDataHandler() {
+    const call = mockTerm.onData.mock.calls[0];
+    expect(call).toBeTruthy();
+    return call[0] as (data: string) => void;
+  }
+
+  /** Helper: get the output handler registered via manager.on('output', ...) */
+  function getOutputHandler() {
+    const call = mockManager.on.mock.calls.find(
+      (c: [string, (...args: unknown[]) => void]) => c[0] === 'output'
+    );
+    expect(call).toBeTruthy();
+    return call[1] as (sessionId: string, data: string) => void;
+  }
+
+  /** Helper: flush requestAnimationFrame callbacks + Svelte 5 effects.
+   *  With fake timers, RAF is faked too — advance by 16ms to fire it,
+   *  then settle microtasks so Svelte effects run. */
+  async function flushAll() {
+    // Advance enough to trigger requestAnimationFrame (faked at ~16ms)
+    await vi.advanceTimersByTimeAsync(16);
+    // Extra ticks to let Svelte 5 effects settle
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(0);
+  }
+
+  /** Helper: render, flush initial setup, then clear all mocks so tests
+   *  start with a clean slate (initial mount calls clear/reset/attach).
+   *  The component has a 150ms setTimeout before attach, plus scrollToBottom
+   *  delays at 200/500/1000ms after attach. We advance past all of them. */
+  async function renderAndSetup(props: Record<string, unknown> = {}) {
+    const result = render(TerminalComp, {
+      _managerProp: mockManager,
+      activeSessionId: 'sess-1',
+      isActive: true,
+      ...props,
+    });
+    await flushAll();
+    // Advance past the 150ms attach delay + 1000ms scrollToBottom delays
+    await vi.advanceTimersByTimeAsync(1200);
+    // Clear mocks dirtied by initial mount (session attach calls clear/reset/attach)
+    mockTerm.clear.mockClear();
+    mockTerm.reset.mockClear();
+    mockTerm.refresh.mockClear();
+    mockTerm.scrollToBottom.mockClear();
+    mockManager.attach.mockClear();
+    mockManager.sendInput.mockClear();
+    return result;
+  }
+
+  it('output arriving after input clears stale timer (no false trigger)', async () => {
+    await renderAndSetup();
+
+    const onData = getOnDataHandler();
+    const onOutput = getOutputHandler();
+
+    // Simulate typing
+    onData('x');
+
+    // Output arrives before the 500ms stale timer fires.
+    // The output handler sets outputReceivedSinceInput = true and clears the stale timer.
+    onOutput('sess-1', 'x');
+    await flushAll();
+
+    // Advance past the 500ms stale check delay
+    vi.advanceTimersByTime(600);
+
+    // Tier 2 (full refresh = clear + reset + attach) should NOT have fired
+    expect(mockTerm.clear).not.toHaveBeenCalled();
+    expect(mockTerm.reset).not.toHaveBeenCalled();
+    expect(mockManager.attach).not.toHaveBeenCalled();
+  });
+
+  it('tier 1 light refresh fires when no output after input within 500ms', async () => {
+    await renderAndSetup();
+
+    const onData = getOnDataHandler();
+
+    // Simulate typing with no output response
+    onData('x');
+
+    // Advance past the 500ms stale check delay
+    vi.advanceTimersByTime(500);
+
+    // Tier 1: term.refresh(0, rows - 1) should have been called
+    expect(mockTerm.refresh).toHaveBeenCalledWith(0, mockTerm.rows - 1);
+
+    // But NOT a full refresh (clear + reset + attach)
+    expect(mockTerm.clear).not.toHaveBeenCalled();
+    expect(mockTerm.reset).not.toHaveBeenCalled();
+    expect(mockManager.attach).not.toHaveBeenCalled();
+  });
+
+  it('tier 2 full refresh fires on second stale detection', async () => {
+    await renderAndSetup();
+
+    const onData = getOnDataHandler();
+
+    // First stale detection -> Tier 1 (sets staleSuspected = true)
+    onData('x');
+    vi.advanceTimersByTime(500);
+    expect(mockTerm.refresh).toHaveBeenCalledWith(0, mockTerm.rows - 1);
+
+    // Need to advance past the light throttle (5s) so the next check isn't throttled
+    vi.advanceTimersByTime(5000);
+
+    // Second stale detection -> should trigger Tier 2 (full refresh)
+    onData('y');
+    vi.advanceTimersByTime(500);
+
+    // Tier 2 calls refreshTerminal() which does clear + reset + attach
+    expect(mockTerm.clear).toHaveBeenCalled();
+    expect(mockTerm.reset).toHaveBeenCalled();
+    expect(mockManager.attach).toHaveBeenCalledWith('sess-1');
+  });
+
+  it('focus events do not trigger stale detection', async () => {
+    await renderAndSetup();
+
+    const onData = getOnDataHandler();
+
+    // Send focus in/out sequences
+    onData('\x1b[I');  // focus in
+    onData('\x1b[O');  // focus out
+
+    // Advance past stale check delay
+    vi.advanceTimersByTime(600);
+
+    // No stale detection should have occurred
+    expect(mockTerm.refresh).not.toHaveBeenCalled();
+    expect(mockTerm.clear).not.toHaveBeenCalled();
+
+    // Focus events should not have been sent to the server either
+    expect(mockManager.sendInput).not.toHaveBeenCalled();
+  });
+
+  it('tier 2 is throttled to once per 30 seconds', async () => {
+    await renderAndSetup();
+
+    const onData = getOnDataHandler();
+
+    // Trigger Tier 1 (sets staleSuspected = true)
+    onData('a');
+    vi.advanceTimersByTime(500);
+    expect(mockTerm.refresh).toHaveBeenCalledTimes(1);
+
+    // Wait past light throttle
+    vi.advanceTimersByTime(5000);
+
+    // Trigger Tier 2 (first full refresh)
+    onData('b');
+    vi.advanceTimersByTime(500);
+    expect(mockManager.attach).toHaveBeenCalledTimes(1);
+
+    // Reset tracking
+    mockTerm.refresh.mockClear();
+    mockManager.attach.mockClear();
+
+    // Try to trigger another stale cycle immediately (within 30s window)
+    // staleSuspected was reset to false by the Tier 2 refresh, so this attempts Tier 1
+    onData('c');
+    vi.advanceTimersByTime(500);
+
+    // Advance enough for another Tier 1 to set staleSuspected again
+    vi.advanceTimersByTime(5000);
+    onData('d');
+    vi.advanceTimersByTime(500);
+
+    // Now staleSuspected should be true, try Tier 2 again
+    vi.advanceTimersByTime(5000);
+    onData('e');
+    vi.advanceTimersByTime(500);
+
+    // Tier 2 should NOT have fired again because we're still within the 30s throttle window
+    // (total time since first Tier 2: ~500 + 5000 + 500 + 5000 + 500 + 5000 + 500 = ~17s < 30s)
+    expect(mockManager.attach).not.toHaveBeenCalled();
+
+    // Now advance past the 30s throttle boundary
+    vi.advanceTimersByTime(15000); // total now ~32s since first Tier 2
+
+    // Trigger another stale -> Tier 1 first
+    onData('f');
+    vi.advanceTimersByTime(500);
+    vi.advanceTimersByTime(5000);
+
+    // Then Tier 2
+    onData('g');
+    vi.advanceTimersByTime(500);
+
+    // Now Tier 2 should fire since we're past the 30s throttle
+    expect(mockManager.attach).toHaveBeenCalledWith('sess-1');
   });
 });
