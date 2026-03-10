@@ -198,6 +198,18 @@
   // scrollTop fires the scroll event synchronously, so this flag is only true
   // for exactly that event -- user scrolls (wheel, drag) are unaffected.
   let scrolledByUs = false;
+  // --- Stale terminal detection ---
+  // Detects when keystrokes produce no visible output (frozen display after
+  // sleep/lock screen). Two tiers: lightweight term.refresh(), then full
+  // refreshTerminal() with history replay. Throttled to avoid spam.
+  const STALE_CHECK_DELAY_MS = 500;      // Wait this long after input before checking
+  const STALE_LIGHT_THROTTLE_MS = 5000;  // Tier 1: at most once per 5s
+  const STALE_FULL_THROTTLE_MS = 30000;  // Tier 2: at most once per 30s
+  let staleCheckTimer: ReturnType<typeof setTimeout> | null = null;
+  let staleSuspected = false;
+  let lastLightRefreshAt = 0;
+  let lastFullRefreshAt = 0;
+  let outputReceivedSinceInput = false;
   let lastScrollToBottomTime = 0;
 
   // Auto-scroll tracking: we always scroll to bottom on new output UNLESS the user
@@ -692,6 +704,13 @@
       const handler = (outputSessionId: string, data: string) => {
           if (sessionId === outputSessionId && term) {
               markOutputActive();
+              // Stale detection: output arrived, terminal is alive
+              outputReceivedSinceInput = true;
+              staleSuspected = false;
+              if (staleCheckTimer) {
+                  clearTimeout(staleCheckTimer);
+                  staleCheckTimer = null;
+              }
               bufferedWrite(data);
           }
       };
@@ -943,6 +962,34 @@
                 return; // Don't send focus events to the server
             }
             manager.sendInput(activeSessionId, data);
+
+            // Stale detection: start a timer to check if output arrives.
+            // Reset flag so we can detect absence of output after this input.
+            outputReceivedSinceInput = false;
+            if (staleCheckTimer) clearTimeout(staleCheckTimer);
+            staleCheckTimer = setTimeout(() => {
+                staleCheckTimer = null;
+                if (outputReceivedSinceInput || !term) return;
+
+                const now = Date.now();
+                if (staleSuspected) {
+                    // Tier 2: full refresh (clear + re-attach with history replay)
+                    if (now - lastFullRefreshAt >= STALE_FULL_THROTTLE_MS) {
+                        console.warn(`[Terminal:${terminalInstanceId}] Stale detected (Tier 2): full refresh`);
+                        lastFullRefreshAt = now;
+                        staleSuspected = false;
+                        refreshTerminal();
+                    }
+                } else {
+                    // Tier 1: lightweight repaint
+                    if (now - lastLightRefreshAt >= STALE_LIGHT_THROTTLE_MS) {
+                        console.warn(`[Terminal:${terminalInstanceId}] Stale detected (Tier 1): light refresh`);
+                        lastLightRefreshAt = now;
+                        staleSuspected = true;
+                        term.refresh(0, term.rows - 1);
+                    }
+                }
+            }, STALE_CHECK_DELAY_MS);
         }
     });
 
@@ -1004,6 +1051,12 @@
             console.warn(`[Terminal:${terminalInstanceId}] Visibility restored with stuck writesInFlight=${writesInFlight}, resetting`);
             writesInFlight = 0;
           }
+          // Reset stale detection — the refresh below gives a clean slate
+          staleSuspected = false;
+          if (staleCheckTimer) {
+            clearTimeout(staleCheckTimer);
+            staleCheckTimer = null;
+          }
           requestAnimationFrame(() => {
             if (term) term.refresh(0, term.rows - 1);
           });
@@ -1037,6 +1090,7 @@
     writesInFlight = 0;
     if (resizeTimeout) clearTimeout(resizeTimeout);
     if (outputActivityTimeout) clearTimeout(outputActivityTimeout);
+    if (staleCheckTimer) clearTimeout(staleCheckTimer);
     if (resizeDebouncer) resizeDebouncer.dispose();
     if (searchAddon) searchAddon.dispose();
     if (webglAddon) webglAddon.dispose();
