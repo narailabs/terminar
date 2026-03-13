@@ -1,5 +1,4 @@
-// ConfigStore.ts — Port of tray/src-tauri/src/config.rs
-// Persistent configuration stored at ~/.terminar/tray-config.json.
+// ConfigStore.ts — Persistent configuration stored at ~/.terminar/tray-config.json.
 
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { homedir } from 'os';
@@ -39,37 +38,5 @@ export class ConfigStore {
     const dir = dirname(this.configPath);
     mkdirSync(dir, { recursive: true });
     writeFileSync(this.configPath, JSON.stringify(config, null, 2), 'utf-8');
-  }
-
-  /**
-   * Convert a TrayConfig to gateway CLI arguments.
-   * Port of TrayConfig::to_gateway_args() in config.rs.
-   */
-  static toGatewayArgs(config: TrayConfig): string[] {
-    const args: string[] = ['--port', String(config.gateway_port)];
-
-    switch (config.tls_mode) {
-      case 'off':
-        args.push('--no-auto-tls');
-        break;
-      case 'auto':
-        // auto-tls is the default, no flag needed
-        args.push('--tls-port', String(config.tls_port));
-        break;
-      case 'custom':
-        if (config.tls_cert) {
-          args.push('--tls-cert', config.tls_cert);
-        }
-        if (config.tls_key) {
-          args.push('--tls-key', config.tls_key);
-        }
-        args.push('--tls-port', String(config.tls_port));
-        break;
-    }
-
-    args.push('--idle-timeout', String(config.idle_timeout));
-    args.push('--audit-level', config.audit_level);
-
-    return args;
   }
 }
