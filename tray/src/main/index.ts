@@ -7,6 +7,7 @@ import { ServerManager } from './ServerManager.js';
 import { WindowManager } from './WindowManager.js';
 import { TrayManager } from './TrayManager.js';
 import { WslManager } from './WslManager.js';
+import { SocketBridge } from './SocketBridge.js';
 import { registerIpcHandlers } from './ipc.js';
 
 // ------------------------------------------------------------------
@@ -20,6 +21,7 @@ if (!gotLock) {
 // Shared references for lifecycle handlers
 let windowManager: WindowManager | null = null;
 let serverManager: ServerManager | null = null;
+let socketBridge: SocketBridge | null = null;
 
 // ------------------------------------------------------------------
 // App ready — main setup
@@ -76,6 +78,18 @@ void app.whenReady().then(async () => {
   } catch (e) {
     console.error(`Failed to start server on launch: ${e}`);
   }
+
+  // Create the socket bridge for terminal window communication
+  socketBridge = new SocketBridge(serverManager.getSocketPath());
+
+  // Open the terminal window on launch
+  windowManager.openTerminal();
+
+  // Wire the socket bridge to the terminal window
+  const terminalWin = windowManager.getWindow('terminal');
+  if (terminalWin) {
+    socketBridge.setWindow(terminalWin);
+  }
 });
 
 // ------------------------------------------------------------------
@@ -90,11 +104,17 @@ app.on('window-all-closed', () => {
 });
 
 // ------------------------------------------------------------------
-// macOS: reopen settings when Dock icon is clicked with no windows
+// macOS: reopen terminal when Dock icon is clicked with no windows
 // ------------------------------------------------------------------
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0 && windowManager) {
-    windowManager.openSettings();
+    windowManager.openTerminal();
+
+    // Re-wire socket bridge to the new terminal window
+    const terminalWin = windowManager.getWindow('terminal');
+    if (terminalWin && socketBridge) {
+      socketBridge.setWindow(terminalWin);
+    }
   }
 });
 
@@ -111,9 +131,12 @@ app.on('second-instance', () => {
 });
 
 // ------------------------------------------------------------------
-// Clean shutdown — stop server on quit
+// Clean shutdown — stop server and socket bridge on quit
 // ------------------------------------------------------------------
 app.on('before-quit', () => {
+  if (socketBridge) {
+    socketBridge.destroy();
+  }
   if (serverManager) {
     void serverManager.stop();
   }

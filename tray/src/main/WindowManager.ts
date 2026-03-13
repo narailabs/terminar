@@ -1,4 +1,4 @@
-// WindowManager.ts — Manages named BrowserWindows for the tray app (settings).
+// WindowManager.ts — Manages named BrowserWindows for the tray app.
 
 import { BrowserWindow, app, session } from 'electron';
 import path from 'path';
@@ -85,6 +85,31 @@ export class WindowManager {
     this.loadUrl(win, 'settings');
   }
 
+  /** Open the Terminal window. */
+  openTerminal(): void {
+    const existing = this.getWindow('terminal');
+    if (existing) {
+      existing.show();
+      existing.focus();
+      return;
+    }
+
+    const win = new BrowserWindow({
+      width: 1200,
+      height: 800,
+      title: 'terminar',
+      webPreferences: {
+        preload: this.terminalPreloadPath(),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: false, // Required for Unix socket IPC via preload
+      },
+    });
+
+    this.registerWindow('terminal', win);
+    this.loadTerminalUrl(win);
+  }
+
   /**
    * Close a window by its webContents id.
    * Used by the IPC handler when the renderer requests to close itself.
@@ -120,9 +145,14 @@ export class WindowManager {
   // Internal helpers
   // ------------------------------------------------------------------
 
-  /** Preload script path for tray windows. */
+  /** Preload script path for settings windows. */
   private preloadPath(): string {
     return path.join(getAppRoot(), 'dist-electron', 'index.mjs');
+  }
+
+  /** Preload script path for terminal windows. */
+  private terminalPreloadPath(): string {
+    return path.join(getAppRoot(), 'dist-electron', 'terminal.mjs');
   }
 
   private registerWindow(label: string, win: BrowserWindow): void {
@@ -143,7 +173,7 @@ export class WindowManager {
     });
   }
 
-  /** Load a tray renderer page. */
+  /** Load a tray renderer page (settings, etc). */
   private loadUrl(win: BrowserWindow, mode: string): void {
     // Dev mode: load from Vite dev server; Prod: load from file
     const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL;
@@ -154,6 +184,19 @@ export class WindowManager {
       // Production: load from built files at tray/dist/index.html
       const indexPath = path.join(getAppRoot(), 'dist', 'index.html');
       void win.loadFile(indexPath, { search: `mode=${mode}` });
+    }
+  }
+
+  /** Load the terminal window page (separate HTML entry point). */
+  private loadTerminalUrl(win: BrowserWindow): void {
+    const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL;
+
+    if (VITE_DEV_SERVER_URL) {
+      void win.loadURL(`${VITE_DEV_SERVER_URL}/terminal.html`);
+    } else {
+      // Production: load from built files at tray/dist/terminal.html
+      const terminalPath = path.join(getAppRoot(), 'dist', 'terminal.html');
+      void win.loadFile(terminalPath);
     }
   }
 }
