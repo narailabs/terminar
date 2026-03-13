@@ -1,9 +1,9 @@
 import * as vscode from 'vscode';
 import * as os from 'os';
-import { SessionManager, SessionInfo, readTokenFile } from './SessionManager';
+import { SessionManager, SessionInfo } from './SessionManager';
 import { SessionTreeProvider } from './SessionTreeProvider';
 import { ServerController } from './ServerController';
-import { WebSocketSessionManager, exchangePairingCode, SessionInfo as WsSessionInfo } from './WebSocketAdapter';
+import { WebSocketSessionManager, SessionInfo as WsSessionInfo } from './WebSocketAdapter';
 import { setupServerErrorHandler } from './errorHandling';
 
 function getSocketPath(): string {
@@ -87,22 +87,16 @@ class TerminarExtension {
             const host = await vscode.window.showInputBox({ prompt: 'Enter server address (e.g. localhost:6749)', placeHolder: 'localhost:6749' });
             if (!host) return;
 
-            const code = await vscode.window.showInputBox({ prompt: 'Enter 6-digit pairing code', placeHolder: '123456' });
-            if (!code) return;
-
             try {
-                this.outputChannel.appendLine(`Attempting to pair with ${host}...`);
-                vscode.window.showInformationMessage(`Pairing with ${host}...`);
-
-                const token = await exchangePairingCode(host, code);
-                this.outputChannel.appendLine('Pairing successful, connecting via WebSocket...');
+                this.outputChannel.appendLine(`Connecting to ${host}...`);
+                vscode.window.showInformationMessage(`Connecting to ${host}...`);
 
                 if (this.remoteManager) {
                     this.remoteManager.disconnect();
                 }
 
                 const wsUrl = `wss://${host}/ws`;
-                this.remoteManager = new WebSocketSessionManager(wsUrl, token);
+                this.remoteManager = new WebSocketSessionManager(wsUrl);
 
                 this.remoteManager.on('sessionList', (sessions: WsSessionInfo[]) => {
                     this.outputChannel.appendLine(`Remote sessions: ${sessions.length}`);
@@ -150,12 +144,7 @@ class TerminarExtension {
     }
 
     private setupManager(): SessionManager {
-        const token = readTokenFile();
-        if (!token) {
-            throw new Error('Token file not found. Server may not be running.');
-        }
-
-        const newManager = new SessionManager(getSocketPath(), token);
+        const newManager = new SessionManager(getSocketPath());
 
         newManager.on('sessionList', (sessions: SessionInfo[]) => this.updateSessionList(sessions));
         newManager.on('output', (sessionId: string, data: string) => {
@@ -167,8 +156,24 @@ class TerminarExtension {
     }
 
     private async ensureServerRunning(): Promise<void> {
-        const existingToken = readTokenFile();
-        if (existingToken) {
+        // Try connecting to an already-running server
+        try {
+            this.manager = this.setupManager();
+            if (this.treeProvider) {
+                this.treeProvider.setManager(this.manager);
+            }
+            await (this.manager as SessionManager).connect();
+            return;
+        } catch (e) {
+            this.outputChannel.appendLine("Connection failed, will spawn server...");
+        }
+
+        this.outputChannel.appendLine("Server not found, spawning...");
+        await this.serverController.spawn();
+
+        // Wait for server socket to become available
+        for (let attempt = 0; attempt < 10; attempt++) {
+            await new Promise(r => setTimeout(r, 500));
             try {
                 this.manager = this.setupManager();
                 if (this.treeProvider) {
@@ -176,28 +181,12 @@ class TerminarExtension {
                 }
                 await (this.manager as SessionManager).connect();
                 return;
-            } catch (e) {
-                this.outputChannel.appendLine("Connection failed, will spawn server...");
+            } catch {
+                // Server not ready yet, retry
             }
         }
 
-        this.outputChannel.appendLine("Server not found, spawning...");
-        await this.serverController.spawn();
-
-        for (let attempt = 0; attempt < 10; attempt++) {
-            await new Promise(r => setTimeout(r, 500));
-            const token = readTokenFile();
-            if (token) {
-                this.manager = this.setupManager();
-                if (this.treeProvider) {
-                    this.treeProvider.setManager(this.manager);
-                }
-                await (this.manager as SessionManager).connect();
-                return;
-            }
-        }
-
-        throw new Error('Server failed to start - token file not created');
+        throw new Error('Server failed to start - could not connect to socket');
     }
 
     private updateSessionList(sessions: SessionInfo[]): void {

@@ -4,7 +4,6 @@ import * as fs from 'fs';
 import { SessionManager } from '../SessionManager';
 import { EventEmitter } from 'events';
 
-const TEST_TOKEN = 'test-token-12345';
 
 /**
  * Helper to create a length-prefixed frame.
@@ -47,7 +46,7 @@ suite('SessionManager Negative Scenarios', () => {
             const nonExistentPath = '/tmp/nonexistent-socket-path-12345.sock';
             if (fs.existsSync(nonExistentPath)) fs.unlinkSync(nonExistentPath);
 
-            const manager = new SessionManager(nonExistentPath, TEST_TOKEN);
+            const manager = new SessionManager(nonExistentPath);
             // Suppress unhandled error events from reconnection attempts
             manager.on('error', () => {});
 
@@ -68,7 +67,7 @@ suite('SessionManager Negative Scenarios', () => {
             const nonExistentPath = '/tmp/negative-test-state-12345.sock';
             if (fs.existsSync(nonExistentPath)) fs.unlinkSync(nonExistentPath);
 
-            const manager = new SessionManager(nonExistentPath, TEST_TOKEN);
+            const manager = new SessionManager(nonExistentPath);
             manager.on('error', () => {});
             const states: string[] = [];
             manager.on('stateChange', (state: string) => states.push(state));
@@ -85,7 +84,7 @@ suite('SessionManager Negative Scenarios', () => {
         });
 
         test('disconnect on already disconnected manager is safe', () => {
-            const manager = new SessionManager('/tmp/nonexistent.sock', TEST_TOKEN);
+            const manager = new SessionManager('/tmp/nonexistent.sock');
 
             // Should not throw
             manager.disconnect();
@@ -114,16 +113,12 @@ suite('SessionManager Negative Scenarios', () => {
                     buffer = Buffer.concat([buffer, data]);
                     const { messages, remaining } = parseFrames(buffer);
                     buffer = remaining;
-                    for (const msg of messages) {
-                        if (msg.type === 'auth') {
-                            socket.write(createFrame({ type: 'AuthOk' }));
-                        }
-                    }
+                    // Messages are parsed but no special handling needed
                 });
             });
 
             mockServer.listen(socketPath, () => {
-                manager = new SessionManager(socketPath, TEST_TOKEN);
+                manager = new SessionManager(socketPath);
                 // Add error listener to prevent uncaught error events.
                 // The SessionManager re-emits ShellClient errors,
                 // and without a listener Node throws.
@@ -243,7 +238,7 @@ suite('SessionManager Negative Scenarios', () => {
 
             mockServer = net.createServer((socket) => {
                 serverSockets.push(socket);
-                // Accept connection but never respond (no AuthOk)
+                // Accept connection but never respond to messages
             });
 
             mockServer.listen(socketPath, done);
@@ -262,7 +257,7 @@ suite('SessionManager Negative Scenarios', () => {
         });
 
         test('listSessions does not crash when server does not respond', async () => {
-            const manager = new SessionManager(socketPath, TEST_TOKEN);
+            const manager = new SessionManager(socketPath);
             manager.on('error', () => {});
             await manager.connect();
 
@@ -278,7 +273,7 @@ suite('SessionManager Negative Scenarios', () => {
         });
 
         test('sendInput does not crash when server does not respond', async () => {
-            const manager = new SessionManager(socketPath, TEST_TOKEN);
+            const manager = new SessionManager(socketPath);
             manager.on('error', () => {});
             await manager.connect();
 
@@ -305,17 +300,13 @@ suite('SessionManager Negative Scenarios', () => {
                     buffer = Buffer.concat([buffer, data]);
                     const { messages, remaining } = parseFrames(buffer);
                     buffer = remaining;
-                    for (const msg of messages) {
-                        if (msg.type === 'auth') {
-                            socket.write(createFrame({ type: 'AuthOk' }));
-                        }
-                    }
+                    // Messages are parsed but no special handling needed
                 });
             });
 
             await new Promise<void>(resolve => mockServer.listen(socketPath, resolve));
 
-            const manager = new SessionManager(socketPath, TEST_TOKEN);
+            const manager = new SessionManager(socketPath);
             manager.on('error', () => {});
 
             const closePromise = new Promise<void>(resolve => {
@@ -356,7 +347,7 @@ suite('SessionManager Negative Scenarios', () => {
 
     suite('Operations When Disconnected', () => {
         test('listSessions when disconnected does not throw', () => {
-            const manager = new SessionManager('/tmp/nonexistent.sock', TEST_TOKEN);
+            const manager = new SessionManager('/tmp/nonexistent.sock');
             // Should not throw - may queue or silently fail
             try {
                 manager.listSessions();
@@ -366,7 +357,7 @@ suite('SessionManager Negative Scenarios', () => {
         });
 
         test('sendInput when disconnected does not throw', () => {
-            const manager = new SessionManager('/tmp/nonexistent.sock', TEST_TOKEN);
+            const manager = new SessionManager('/tmp/nonexistent.sock');
             try {
                 manager.sendInput('session-1', 'test');
             } catch {
@@ -375,7 +366,7 @@ suite('SessionManager Negative Scenarios', () => {
         });
 
         test('createSession when disconnected does not throw', () => {
-            const manager = new SessionManager('/tmp/nonexistent.sock', TEST_TOKEN);
+            const manager = new SessionManager('/tmp/nonexistent.sock');
             try {
                 manager.createSession('/tmp', 'bash', {});
             } catch {
@@ -384,7 +375,7 @@ suite('SessionManager Negative Scenarios', () => {
         });
 
         test('killSession when disconnected does not throw', () => {
-            const manager = new SessionManager('/tmp/nonexistent.sock', TEST_TOKEN);
+            const manager = new SessionManager('/tmp/nonexistent.sock');
             try {
                 manager.killSession('session-1');
             } catch {
@@ -393,7 +384,7 @@ suite('SessionManager Negative Scenarios', () => {
         });
 
         test('getLastSessionList returns empty when disconnected', () => {
-            const manager = new SessionManager('/tmp/nonexistent.sock', TEST_TOKEN);
+            const manager = new SessionManager('/tmp/nonexistent.sock');
             const sessions = manager.getLastSessionList();
             assert.ok(Array.isArray(sessions), 'Should return an array');
             assert.strictEqual(sessions.length, 0, 'Should be empty');
