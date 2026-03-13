@@ -1,10 +1,9 @@
 // index.ts — App entry point, lifecycle, and orchestration.
-// Port of tray/src-tauri/src/lib.rs:run().
 
 import { app, BrowserWindow } from 'electron';
 import { ConfigStore } from './ConfigStore.js';
 import { HealthPoller } from './HealthPoller.js';
-import { ServiceManager } from './ServiceManager.js';
+import { ServerManager } from './ServerManager.js';
 import { WindowManager } from './WindowManager.js';
 import { TrayManager } from './TrayManager.js';
 import { registerIpcHandlers } from './ipc.js';
@@ -17,13 +16,14 @@ if (!gotLock) {
   app.quit();
 }
 
-// Shared reference for lifecycle handlers
+// Shared references for lifecycle handlers
 let windowManager: WindowManager | null = null;
+let serverManager: ServerManager | null = null;
 
 // ------------------------------------------------------------------
 // App ready — main setup
 // ------------------------------------------------------------------
-void app.whenReady().then(() => {
+void app.whenReady().then(async () => {
   // Hide from Dock on macOS — this is a tray-only app
   if (process.platform === 'darwin') {
     app.dock?.hide();
@@ -31,15 +31,16 @@ void app.whenReady().then(() => {
 
   // Create core instances
   const configStore = new ConfigStore();
-  const config = configStore.load();
-  const serviceManager = new ServiceManager();
+  serverManager = new ServerManager();
   const healthPoller = new HealthPoller();
   windowManager = new WindowManager();
 
+  // Wire the health poller to the server manager
+  healthPoller.setServerManager(serverManager);
+
   // Create the tray (builds initial menu internally)
   const trayManager = new TrayManager(
-    configStore,
-    serviceManager,
+    serverManager,
     healthPoller,
     windowManager,
   );
@@ -47,7 +48,7 @@ void app.whenReady().then(() => {
   // Register IPC handlers for renderer processes
   registerIpcHandlers(
     configStore,
-    serviceManager,
+    serverManager,
     healthPoller,
     windowManager,
   );
@@ -58,11 +59,13 @@ void app.whenReady().then(() => {
   });
 
   // Start health polling
-  healthPoller.start(config.gateway_port);
+  healthPoller.start();
 
-  // Show install wizard if the service is not installed
-  if (serviceManager.status() === 'notinstalled') {
-    windowManager.openInstall();
+  // Start the server automatically
+  try {
+    await serverManager.start();
+  } catch (e) {
+    console.error(`Failed to start server on launch: ${e}`);
   }
 });
 
@@ -78,11 +81,11 @@ app.on('window-all-closed', () => {
 });
 
 // ------------------------------------------------------------------
-// macOS: reopen terminal when Dock icon is clicked with no windows
+// macOS: reopen settings when Dock icon is clicked with no windows
 // ------------------------------------------------------------------
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0 && windowManager) {
-    windowManager.openTerminal();
+    windowManager.openSettings();
   }
 });
 
@@ -90,11 +93,19 @@ app.on('activate', () => {
 // Second instance — focus an existing window if one is open
 // ------------------------------------------------------------------
 app.on('second-instance', () => {
-  // If a window is already open, focus it
   const windows = BrowserWindow.getAllWindows();
   if (windows.length > 0) {
     const win = windows[0];
     if (win.isMinimized()) win.restore();
     win.focus();
+  }
+});
+
+// ------------------------------------------------------------------
+// Clean shutdown — stop server on quit
+// ------------------------------------------------------------------
+app.on('before-quit', () => {
+  if (serverManager) {
+    void serverManager.stop();
   }
 });

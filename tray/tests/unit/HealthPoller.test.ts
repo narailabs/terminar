@@ -1,5 +1,18 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { HealthPoller } from '../../src/main/HealthPoller.js';
+
+// Minimal mock for ServerManager to avoid importing Electron
+class MockServerManager {
+  private _running = false;
+
+  setRunning(running: boolean): void {
+    this._running = running;
+  }
+
+  isRunning(): boolean {
+    return this._running;
+  }
+}
 
 describe('HealthPoller', () => {
   let poller: HealthPoller;
@@ -8,40 +21,66 @@ describe('HealthPoller', () => {
     poller?.stop();
   });
 
-  it('starts with default (stopped) health', () => {
+  it('starts with stopped status', () => {
     poller = new HealthPoller();
-    expect(poller.latestHealth.status).toBe('stopped');
-    expect(poller.latestHealth.active_servers).toBeNull();
-    expect(poller.latestHealth.version).toBeNull();
+    expect(poller.latestStatus).toBe('stopped');
   });
 
-  it('pollOnce returns stopped when no server is running', async () => {
+  it('pollOnce returns stopped when no server manager is set', () => {
     poller = new HealthPoller();
-    // Use a port that is very unlikely to be in use
-    const health = await poller.pollOnce(59999);
-    expect(health.status).toBe('stopped');
+    const status = poller.pollOnce();
+    expect(status).toBe('stopped');
   });
 
-  it('invokes callback on every poll', async () => {
+  it('pollOnce returns stopped when server is not running', () => {
+    poller = new HealthPoller();
+    const mock = new MockServerManager();
+    mock.setRunning(false);
+    // Use type assertion since we don't want to import the real ServerManager
+    poller.setServerManager(mock as unknown as Parameters<typeof poller.setServerManager>[0]);
+
+    const status = poller.pollOnce();
+    expect(status).toBe('stopped');
+  });
+
+  it('pollOnce returns running when server is running', () => {
+    poller = new HealthPoller();
+    const mock = new MockServerManager();
+    mock.setRunning(true);
+    poller.setServerManager(mock as unknown as Parameters<typeof poller.setServerManager>[0]);
+
+    const status = poller.pollOnce();
+    expect(status).toBe('running');
+  });
+
+  it('invokes callback on every poll', () => {
     poller = new HealthPoller();
 
-    const events: unknown[] = [];
-    poller.setCallback((h) => events.push(h));
+    const events: string[] = [];
+    poller.setCallback((s) => events.push(s));
 
-    await poller.pollOnce(59999);
+    poller.pollOnce();
     expect(events.length).toBe(1);
-    expect((events[0] as { status: string }).status).toBe('stopped');
+    expect(events[0]).toBe('stopped');
   });
 
-  it('updates latestHealth after poll', async () => {
+  it('updates latestStatus after poll', () => {
     poller = new HealthPoller();
-    await poller.pollOnce(59999);
-    expect(poller.latestHealth.status).toBe('stopped');
+    const mock = new MockServerManager();
+    mock.setRunning(true);
+    poller.setServerManager(mock as unknown as Parameters<typeof poller.setServerManager>[0]);
+
+    poller.pollOnce();
+    expect(poller.latestStatus).toBe('running');
+
+    mock.setRunning(false);
+    poller.pollOnce();
+    expect(poller.latestStatus).toBe('stopped');
   });
 
   it('stop() clears the interval', () => {
     poller = new HealthPoller();
-    poller.start(59999);
+    poller.start();
     poller.stop();
     // Should not throw and should be safe to call multiple times
     poller.stop();
@@ -49,173 +88,30 @@ describe('HealthPoller', () => {
 
   it('start() polls immediately then every interval', async () => {
     poller = new HealthPoller();
-    const events: unknown[] = [];
-    poller.setCallback((h) => events.push(h));
+    const events: string[] = [];
+    poller.setCallback((s) => events.push(s));
 
-    poller.start(59999);
+    poller.start();
     // Wait a bit for the immediate poll
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 100));
     poller.stop();
 
     // Should have at least one event from the immediate poll
     expect(events.length).toBeGreaterThanOrEqual(1);
-    // Verify the callback payload has the correct stopped status
-    expect(events[0]).toEqual(expect.objectContaining({ status: 'stopped' }));
+    expect(events[0]).toBe('stopped');
   });
 
   it('start() stops previous interval before starting a new one', async () => {
     poller = new HealthPoller();
-    const events: unknown[] = [];
-    poller.setCallback((h) => events.push(h));
+    const events: string[] = [];
+    poller.setCallback((s) => events.push(s));
 
-    poller.start(59999);
+    poller.start();
     // Starting again should not cause double intervals
-    poller.start(59998);
-    await new Promise((r) => setTimeout(r, 500));
+    poller.start();
+    await new Promise((r) => setTimeout(r, 100));
     poller.stop();
 
-    // All events should reflect the second port (59998), not double-firing from both
     expect(events.length).toBeGreaterThanOrEqual(1);
-    for (const event of events) {
-      expect(event).toEqual(expect.objectContaining({ status: 'stopped' }));
-    }
-  });
-
-  it('returns running status for valid health response', async () => {
-    // Create a simple HTTP server to respond with valid health
-    const { createServer } = await import('http');
-    const server = createServer((_req, res) => {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
-        status: 'ok',
-        active_servers: 2,
-        version: '1.0.0',
-      }));
-    });
-
-    await new Promise<void>((resolve) => {
-      server.listen(0, '127.0.0.1', resolve);
-    });
-    const port = (server.address() as { port: number }).port;
-
-    try {
-      poller = new HealthPoller();
-      const health = await poller.pollOnce(port);
-      expect(health.status).toBe('running');
-      expect(health.active_servers).toBe(2);
-      expect(health.version).toBe('1.0.0');
-    } finally {
-      server.close();
-    }
-  });
-
-  it('returns running with nulls for non-JSON 200 response', async () => {
-    const { createServer } = await import('http');
-    const server = createServer((_req, res) => {
-      res.writeHead(200, { 'Content-Type': 'text/plain' });
-      res.end('OK');
-    });
-
-    await new Promise<void>((resolve) => {
-      server.listen(0, '127.0.0.1', resolve);
-    });
-    const port = (server.address() as { port: number }).port;
-
-    try {
-      poller = new HealthPoller();
-      const health = await poller.pollOnce(port);
-      expect(health.status).toBe('running');
-      expect(health.active_servers).toBeNull();
-      expect(health.version).toBeNull();
-    } finally {
-      server.close();
-    }
-  });
-
-  it('returns starting for non-200 response', async () => {
-    const { createServer } = await import('http');
-    const server = createServer((_req, res) => {
-      res.writeHead(503);
-      res.end('Service Unavailable');
-    });
-
-    await new Promise<void>((resolve) => {
-      server.listen(0, '127.0.0.1', resolve);
-    });
-    const port = (server.address() as { port: number }).port;
-
-    try {
-      poller = new HealthPoller();
-      const health = await poller.pollOnce(port);
-      expect(health.status).toBe('starting');
-    } finally {
-      server.close();
-    }
-  });
-
-  it('invokes callback multiple times from start() polling', async () => {
-    // Use a server that always responds
-    const { createServer } = await import('http');
-    const server = createServer((_req, res) => {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'ok', active_servers: 0, version: '1.0' }));
-    });
-
-    await new Promise<void>((resolve) => {
-      server.listen(0, '127.0.0.1', resolve);
-    });
-    const port = (server.address() as { port: number }).port;
-
-    try {
-      poller = new HealthPoller();
-      const events: unknown[] = [];
-      poller.setCallback((h) => events.push(h));
-
-      poller.start(port);
-      await new Promise((r) => setTimeout(r, 300));
-      poller.stop();
-
-      // Should have at least the immediate poll
-      expect(events.length).toBeGreaterThanOrEqual(1);
-      expect((events[0] as { status: string }).status).toBe('running');
-    } finally {
-      server.close();
-    }
-  });
-
-  it('latestHealth reflects the most recent poll result', async () => {
-    const { createServer } = await import('http');
-    let requestCount = 0;
-    const server = createServer((_req, res) => {
-      requestCount++;
-      if (requestCount === 1) {
-        // First request: connection refused won't apply, server is up
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: 'ok', active_servers: 5, version: '2.0' }));
-      } else {
-        res.writeHead(503);
-        res.end();
-      }
-    });
-
-    await new Promise<void>((resolve) => {
-      server.listen(0, '127.0.0.1', resolve);
-    });
-    const port = (server.address() as { port: number }).port;
-
-    try {
-      poller = new HealthPoller();
-
-      const health1 = await poller.pollOnce(port);
-      expect(health1.status).toBe('running');
-      expect(health1.active_servers).toBe(5);
-      expect(poller.latestHealth.status).toBe('running');
-
-      const health2 = await poller.pollOnce(port);
-      expect(health2.status).toBe('starting');
-      expect(poller.latestHealth.status).toBe('starting');
-    } finally {
-      server.close();
-    }
   });
 });
