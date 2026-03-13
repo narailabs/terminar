@@ -11,25 +11,13 @@ pub enum ServerError {
     #[error("session not found: {0}")]
     SessionNotFound(String),
 
-    /// Authentication failed (invalid or expired token).
-    #[error("authentication failed")]
-    AuthFailed,
-
     /// PTY-related error.
     #[error("PTY error: {0}")]
     PtyError(String),
 
-    /// WebSocket communication error.
-    #[error("WebSocket error: {0}")]
-    WebSocketError(String),
-
     /// Message serialization/deserialization error.
     #[error("protocol error: {0}")]
     ProtocolError(String),
-
-    /// Rate limit exceeded.
-    #[error("rate limit exceeded")]
-    RateLimitExceeded,
 
     /// Invalid input provided.
     #[error("invalid input: {0}")]
@@ -65,11 +53,8 @@ impl ServerError {
     pub fn error_code(&self) -> &'static str {
         match self {
             ServerError::SessionNotFound(_) => "SESSION_NOT_FOUND",
-            ServerError::AuthFailed => "AUTH_FAILED",
             ServerError::PtyError(_) => "PTY_ERROR",
-            ServerError::WebSocketError(_) => "WEBSOCKET_ERROR",
             ServerError::ProtocolError(_) => "PROTOCOL_ERROR",
-            ServerError::RateLimitExceeded => "RATE_LIMIT_EXCEEDED",
             ServerError::InvalidInput(_) => "INVALID_INPUT",
             ServerError::Internal(_) => "INTERNAL_ERROR",
         }
@@ -107,12 +92,6 @@ mod tests {
     }
 
     #[test]
-    fn test_auth_failed_error() {
-        let err = ServerError::AuthFailed;
-        assert_eq!(err.to_string(), "authentication failed");
-    }
-
-    #[test]
     fn test_pty_error() {
         let err = ServerError::pty("spawn failed");
         assert_eq!(err.to_string(), "PTY error: spawn failed");
@@ -122,12 +101,6 @@ mod tests {
     fn test_protocol_error() {
         let err = ServerError::protocol("invalid JSON");
         assert_eq!(err.to_string(), "protocol error: invalid JSON");
-    }
-
-    #[test]
-    fn test_rate_limit_error() {
-        let err = ServerError::RateLimitExceeded;
-        assert_eq!(err.to_string(), "rate limit exceeded");
     }
 
     #[test]
@@ -149,17 +122,8 @@ mod tests {
             ServerError::session_not_found("x").error_code(),
             "SESSION_NOT_FOUND"
         );
-        assert_eq!(ServerError::AuthFailed.error_code(), "AUTH_FAILED");
         assert_eq!(ServerError::pty("x").error_code(), "PTY_ERROR");
-        assert_eq!(
-            ServerError::WebSocketError("x".into()).error_code(),
-            "WEBSOCKET_ERROR"
-        );
         assert_eq!(ServerError::protocol("x").error_code(), "PROTOCOL_ERROR");
-        assert_eq!(
-            ServerError::RateLimitExceeded.error_code(),
-            "RATE_LIMIT_EXCEEDED"
-        );
         assert_eq!(
             ServerError::invalid_input("x").error_code(),
             "INVALID_INPUT"

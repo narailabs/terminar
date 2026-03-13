@@ -14,35 +14,19 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 
 /// Helper: spawn a server with a unique Unix socket path and return the path + handle
-async fn spawn_unix_server(name: &str) -> (String, u16, tokio::task::JoinHandle<()>) {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let port = listener.local_addr().unwrap().port();
-    drop(listener);
-
-    let socket_path = format!("/tmp/test-unix-{}-{}.sock", name, port);
+async fn spawn_unix_server(name: &str) -> (String, tokio::task::JoinHandle<()>) {
+    let socket_path = format!("/tmp/test-unix-{}-{}.sock", name, std::process::id());
 
     // Clean up stale socket file
     let _ = std::fs::remove_file(&socket_path);
 
     let cli = Cli {
-        command: None,
-        port,
         socket: Some(socket_path.clone()),
+        stdio: false,
+        shell: None,
         log_level: "error".to_string(),
         no_auth: true,
         mock_pty: true,
-        cors_origins: vec![],
-        log_json: false,
-        log_file: None,
-        tls_cert: None,
-        tls_key: None,
-        tls_port: 8444,
-        max_auth_attempts: 5,
-        auto_tls: false,
-        audit_level: "off".to_string(),
-        trusted_proxy: None,
-        user_mode: false,
-        require_auth: false,
     };
 
     let sp = socket_path.clone();
@@ -53,7 +37,7 @@ async fn spawn_unix_server(name: &str) -> (String, u16, tokio::task::JoinHandle<
     // Wait for server to start and create socket
     tokio::time::sleep(Duration::from_millis(800)).await;
 
-    (socket_path, port, handle)
+    (socket_path, handle)
 }
 
 /// Helper: send a length-prefixed message over Unix socket
@@ -86,7 +70,7 @@ async fn recv_message(stream: &mut UnixStream) -> Option<ServerMessage> {
 #[tokio::test]
 #[ignore = "Integration test - requires server startup"]
 async fn test_unix_socket_session_lifecycle() {
-    let (socket_path, _port, _server) = spawn_unix_server("lifecycle").await;
+    let (socket_path, _server) = spawn_unix_server("lifecycle").await;
 
     let mut stream = UnixStream::connect(&socket_path)
         .await
@@ -208,7 +192,7 @@ async fn test_unix_socket_session_lifecycle() {
 #[tokio::test]
 #[ignore = "Integration test - requires server startup"]
 async fn test_unix_socket_concurrent_connections() {
-    let (socket_path, _port, _server) = spawn_unix_server("concurrent").await;
+    let (socket_path, _server) = spawn_unix_server("concurrent").await;
 
     let client_count = 5;
     let mut handles = vec![];
@@ -261,7 +245,7 @@ async fn test_unix_socket_concurrent_connections() {
 #[tokio::test]
 #[ignore = "Integration test - requires server startup"]
 async fn test_unix_socket_large_message() {
-    let (socket_path, _port, _server) = spawn_unix_server("large-msg").await;
+    let (socket_path, _server) = spawn_unix_server("large-msg").await;
 
     let mut stream = UnixStream::connect(&socket_path)
         .await
@@ -328,7 +312,7 @@ async fn test_unix_socket_large_message() {
 #[tokio::test]
 #[ignore = "Integration test - requires server startup"]
 async fn test_unix_socket_reconnection() {
-    let (socket_path, _port, _server) = spawn_unix_server("reconnect").await;
+    let (socket_path, _server) = spawn_unix_server("reconnect").await;
 
     // First connection: create a session
     let session_id;
@@ -385,7 +369,7 @@ async fn test_unix_socket_reconnection() {
 #[tokio::test]
 #[ignore = "Integration test - requires server startup"]
 async fn test_unix_socket_rename_session() {
-    let (socket_path, _port, _server) = spawn_unix_server("rename").await;
+    let (socket_path, _server) = spawn_unix_server("rename").await;
 
     let mut stream = UnixStream::connect(&socket_path)
         .await
@@ -436,7 +420,7 @@ async fn test_unix_socket_rename_session() {
 #[tokio::test]
 #[ignore = "Integration test - requires server startup"]
 async fn test_unix_socket_resize() {
-    let (socket_path, _port, _server) = spawn_unix_server("resize").await;
+    let (socket_path, _server) = spawn_unix_server("resize").await;
 
     let mut stream = UnixStream::connect(&socket_path)
         .await
