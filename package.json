@@ -10,7 +10,7 @@
     "tray:build": "cd tray && pnpm build:electron",
     "dev": "concurrently -k -n server,tray -c blue,magenta \"pnpm server:dev\" \"pnpm wait-then:tray\"",
     "dev:tray": "concurrently -k -n server,tray -c blue,magenta \"pnpm server:dev\" \"pnpm wait-then:tray\"",
-    "wait-then:tray": "wait-on http-get://localhost:6749/health && pnpm tray:dev",
+    "wait-then:tray": "wait-on file:$HOME/.terminar/server.sock && pnpm tray:dev",
     "build": "pnpm server:build && cd tray && pnpm build:electron",
     "test": "cd server && cargo test",
     "test:server": "cd server && cargo test",
