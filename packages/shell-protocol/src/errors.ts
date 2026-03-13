@@ -1,5 +1,4 @@
 export type ErrorCode =
-  | 'AUTH_FAILED'
   | 'SESSION_NOT_FOUND'
   | 'PTY_ERROR'
   | 'WEBSOCKET_ERROR'
@@ -17,13 +16,6 @@ export class ShellProtocolError extends Error {
   ) {
     super(message);
     this.name = 'ShellProtocolError';
-  }
-}
-
-export class AuthError extends ShellProtocolError {
-  constructor(message: string) {
-    super(message, 'AUTH_FAILED');
-    this.name = 'AuthError';
   }
 }
 
@@ -91,7 +83,6 @@ class ProtocolError extends ShellProtocolError {
 }
 
 const ERROR_CODE_TO_CLASS: Record<ErrorCode, new (message: string) => ShellProtocolError> = {
-  AUTH_FAILED: AuthError,
   SESSION_NOT_FOUND: SessionError,
   PTY_ERROR: PtyError,
   WEBSOCKET_ERROR: WebSocketError,

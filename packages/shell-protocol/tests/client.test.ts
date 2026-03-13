@@ -8,18 +8,18 @@ class MockSocket extends EventEmitter implements IShellSocket {
 }
 
 describe('ShellClient', () => {
-  it('should send auth on connect', () => {
+  it('should not send anything on connect open (no auth)', () => {
     const socket = new MockSocket();
-    const client = new ShellClient('secret');
+    const client = new ShellClient();
     client.connect(socket);
 
     socket.emit('open');
-    expect(socket.send).toHaveBeenCalledWith(JSON.stringify({ type: 'auth', token: 'secret', protocol_version: '0.2.0' }));
+    expect(socket.send).not.toHaveBeenCalled();
   });
 
   it('should emit message on valid server message', () => {
     const socket = new MockSocket();
-    const client = new ShellClient('secret');
+    const client = new ShellClient();
     client.connect(socket);
 
     const onMessage = vi.fn();
@@ -33,7 +33,7 @@ describe('ShellClient', () => {
 
   it('should emit specific event type', () => {
     const socket = new MockSocket();
-    const client = new ShellClient('secret');
+    const client = new ShellClient();
     client.connect(socket);
 
     const onOutput = vi.fn();
