@@ -1,6 +1,12 @@
 import type { TrayConfig } from '../../shared/types.js';
 export type { TrayConfig };
 
+export interface WslStatus {
+  installed: boolean;
+  hasDistro: boolean;
+  distro: string | null;
+}
+
 interface TrayAPI {
   getConfig(): Promise<TrayConfig>;
   saveConfig(config: TrayConfig): Promise<void>;
@@ -8,6 +14,7 @@ interface TrayAPI {
   startServer(): Promise<void>;
   stopServer(): Promise<void>;
   closeWindow(): Promise<void>;
+  checkWsl(): Promise<WslStatus>;
 }
 
 declare global {

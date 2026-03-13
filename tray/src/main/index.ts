@@ -6,6 +6,7 @@ import { HealthPoller } from './HealthPoller.js';
 import { ServerManager } from './ServerManager.js';
 import { WindowManager } from './WindowManager.js';
 import { TrayManager } from './TrayManager.js';
+import { WslManager } from './WslManager.js';
 import { registerIpcHandlers } from './ipc.js';
 
 // ------------------------------------------------------------------
@@ -60,6 +61,14 @@ void app.whenReady().then(async () => {
 
   // Start health polling
   healthPoller.start();
+
+  // On Windows, check WSL availability before starting server
+  if (WslManager.isWindows()) {
+    if (!WslManager.isWslInstalled() || !WslManager.hasDistro()) {
+      windowManager.showWslGuide();
+      return;
+    }
+  }
 
   // Start the server automatically
   try {

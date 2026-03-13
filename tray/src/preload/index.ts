@@ -8,4 +8,5 @@ contextBridge.exposeInMainWorld('trayAPI', {
   startServer: () => ipcRenderer.invoke('tray:start-server'),
   stopServer: () => ipcRenderer.invoke('tray:stop-server'),
   closeWindow: () => ipcRenderer.invoke('tray:close-window'),
+  checkWsl: () => ipcRenderer.invoke('wsl:check'),
 });
