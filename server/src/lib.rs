@@ -26,9 +26,11 @@ use session::SessionMap;
 
 use parking_lot::Mutex; // Non-poisoning mutex - doesn't require unwrap()
 use std::collections::HashMap;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::net::UnixListener;
 use tokio::sync::{broadcast, mpsc};
 use tracing::{error, info, trace, warn};
@@ -296,6 +298,11 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
         session_name_counter: Arc::new(std::sync::atomic::AtomicU64::new(initial_name_counter)),
     };
 
+    // Stdio transport mode: read/write length-prefixed JSON on stdin/stdout
+    if cli.stdio {
+        return run_stdio_server(state).await;
+    }
+
     // Start Unix Socket Server
     let socket_path_owned = socket_path.to_string();
     if std::path::Path::new(socket_path).exists() {
@@ -476,6 +483,71 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
     );
 
     Ok(())
+}
+
+/// Combines a reader and writer into a single `AsyncRead + AsyncWrite` stream.
+///
+/// Used by stdio transport to pass tokio stdin/stdout as a single stream
+/// to `handle_connection`, which calls `tokio::io::split()` internally.
+struct CombinedStream<R, W> {
+    reader: R,
+    writer: W,
+}
+
+impl<R, W> AsyncRead for CombinedStream<R, W>
+where
+    R: AsyncRead + Unpin,
+    W: Unpin,
+{
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.get_mut().reader).poll_read(cx, buf)
+    }
+}
+
+impl<R, W> AsyncWrite for CombinedStream<R, W>
+where
+    R: Unpin,
+    W: AsyncWrite + Unpin,
+{
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.get_mut().writer).poll_write(cx, buf)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.get_mut().writer).poll_flush(cx)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.get_mut().writer).poll_shutdown(cx)
+    }
+}
+
+/// Runs the server in stdio mode, reading/writing length-prefixed JSON on stdin/stdout.
+///
+/// This mode is used for Windows/WSL support where the Electron app spawns
+/// `wsl.exe terminar-server --stdio` and communicates via stdin/stdout pipes.
+///
+/// The framing format is identical to Unix socket connections: 4-byte big-endian
+/// length prefix followed by a JSON payload.
+async fn run_stdio_server(state: AppState) -> Result<(), Box<dyn std::error::Error>> {
+    info!("Running in stdio mode (stdin/stdout transport)");
+
+    let stdin = tokio::io::stdin();
+    let stdout = tokio::io::stdout();
+    let stream = CombinedStream {
+        reader: stdin,
+        writer: stdout,
+    };
+
+    handle_connection(stream, state.sessions.clone(), state).await
 }
 
 /// Handle Unix socket connection using length-prefixed framing.
@@ -2164,5 +2236,133 @@ mod tests {
             }
             other => panic!("Expected SessionList, got {:?}", other),
         }
+    }
+
+    // === Stdio transport tests ===
+
+    #[tokio::test]
+    async fn test_stdio_read_length_prefixed_message() {
+        // Simulate a client writing a length-prefixed message to the server via stdio
+        let (mut client_io, server_io) = tokio::io::duplex(4096);
+        let (state, _) = create_test_state();
+
+        tokio::spawn(async move {
+            handle_connection(server_io, state.sessions.clone(), state.clone())
+                .await
+                .unwrap();
+        });
+
+        // Write a ListSessions message with length-prefix framing
+        let msg = ClientMessage::ListSessions;
+        let json = serde_json::to_string(&msg).unwrap();
+        let json_bytes = json.as_bytes();
+        let len = json_bytes.len() as u32;
+
+        client_io.write_all(&len.to_be_bytes()).await.unwrap();
+        client_io.write_all(json_bytes).await.unwrap();
+
+        // Read the response
+        let mut len_buf = [0u8; 4];
+        client_io.read_exact(&mut len_buf).await.unwrap();
+        let resp_len = u32::from_be_bytes(len_buf) as usize;
+        assert!(resp_len > 0, "Response should have non-zero length");
+
+        let mut resp_buf = vec![0u8; resp_len];
+        client_io.read_exact(&mut resp_buf).await.unwrap();
+
+        let response: ServerMessage = serde_json::from_slice(&resp_buf).unwrap();
+        match response {
+            ServerMessage::SessionList { sessions } => {
+                assert_eq!(sessions.len(), 0, "Should have empty session list");
+            }
+            other => panic!("Expected SessionList, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_stdio_write_length_prefixed_response() {
+        // Verify responses are correctly length-prefixed
+        let (mut client_io, server_io) = tokio::io::duplex(4096);
+        let (state, _) = create_test_state();
+
+        tokio::spawn(async move {
+            handle_connection(server_io, state.sessions.clone(), state.clone())
+                .await
+                .unwrap();
+        });
+
+        // Send two messages and verify both responses are correctly framed
+        for _ in 0..2 {
+            let msg = ClientMessage::ListSessions;
+            let json = serde_json::to_string(&msg).unwrap();
+            let json_bytes = json.as_bytes();
+            let len = json_bytes.len() as u32;
+
+            client_io.write_all(&len.to_be_bytes()).await.unwrap();
+            client_io.write_all(json_bytes).await.unwrap();
+
+            // Read length prefix
+            let mut len_buf = [0u8; 4];
+            client_io.read_exact(&mut len_buf).await.unwrap();
+            let resp_len = u32::from_be_bytes(len_buf) as usize;
+
+            // Read exactly that many bytes of JSON
+            let mut resp_buf = vec![0u8; resp_len];
+            client_io.read_exact(&mut resp_buf).await.unwrap();
+
+            // Must parse as valid JSON ServerMessage
+            let response: ServerMessage = serde_json::from_slice(&resp_buf).unwrap();
+            assert!(
+                matches!(response, ServerMessage::SessionList { .. }),
+                "Expected SessionList"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_stdio_eof_handling() {
+        // When stdin reaches EOF, handle_connection should exit gracefully (not panic)
+        let (client_io, server_io) = tokio::io::duplex(4096);
+        let (state, _) = create_test_state();
+
+        // Drop the client side to signal EOF before starting
+        drop(client_io);
+
+        // handle_connection should return Ok(()) on EOF
+        let result = handle_connection(server_io, state.sessions.clone(), state.clone()).await;
+        assert!(result.is_ok(), "handle_connection should return Ok on EOF");
+    }
+
+    #[tokio::test]
+    async fn test_stdio_combined_stream_works_bidirectionally() {
+        // Test that CombinedStream correctly routes reads and writes
+        let (client_io, server_io) = tokio::io::duplex(4096);
+        let (reader, writer) = tokio::io::split(client_io);
+
+        // Create a CombinedStream from the split halves
+        // (simulates what run_stdio_server does with stdin/stdout)
+        let mut stream = CombinedStream {
+            reader,
+            writer,
+        };
+
+        let (mut other_side_r, mut other_side_w) = tokio::io::split(server_io);
+
+        // Write from "other side" and read via CombinedStream
+        let write_handle = tokio::spawn(async move {
+            other_side_w.write_all(b"hello").await.unwrap();
+        });
+        write_handle.await.unwrap();
+
+        let mut buf = [0u8; 5];
+        stream.read_exact(&mut buf).await.unwrap();
+        assert_eq!(&buf, b"hello");
+
+        // Write via CombinedStream and read from "other side"
+        stream.write_all(b"world").await.unwrap();
+
+        let mut buf2 = [0u8; 5];
+        other_side_r.read_exact(&mut buf2).await.unwrap();
+        assert_eq!(&buf2, b"world");
     }
 }
