@@ -7,6 +7,7 @@ import { app } from 'electron';
 import { EventEmitter } from 'events';
 import fs from 'fs';
 import { getAppRoot } from './paths.js';
+import { WslManager } from './WslManager.js';
 
 export class ServerManager extends EventEmitter {
   private serverProcess: ChildProcess | null = null;
@@ -47,10 +48,39 @@ export class ServerManager extends EventEmitter {
   async start(): Promise<void> {
     if (this.isRunning()) return;
 
+    if (WslManager.isWindows()) {
+      await this.startViaWsl();
+    } else {
+      await this.startNative();
+    }
+  }
+
+  private async startNative(): Promise<void> {
     const bin = this.getServerBinaryPath();
     this.serverProcess = spawn(bin, ['--socket', this.socketPath], {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+
+    this.attachProcessHandlers();
+    await this.waitForSocket();
+  }
+
+  private async startViaWsl(): Promise<void> {
+    const wslServerPath = '~/.terminar/terminar-server';
+
+    if (!WslManager.isServerInstalled(wslServerPath)) {
+      const bundledPath = this.getServerBinaryPath();
+      await WslManager.installServerBinary(bundledPath, wslServerPath);
+    }
+
+    // Spawn via WSL with stdio mode — communication is via stdin/stdout
+    this.serverProcess = WslManager.spawnServer(wslServerPath);
+    this.attachProcessHandlers();
+    this.emit('started');
+  }
+
+  private attachProcessHandlers(): void {
+    if (!this.serverProcess) return;
 
     this.serverProcess.on('exit', (code) => {
       this.serverProcess = null;
@@ -61,11 +91,12 @@ export class ServerManager extends EventEmitter {
       console.error('[server]', data.toString());
     });
 
-    this.serverProcess.stdout?.on('data', (data: Buffer) => {
-      console.log('[server]', data.toString());
-    });
-
-    await this.waitForSocket();
+    // Only log stdout in non-WSL mode; in WSL stdio mode, stdout carries protocol data
+    if (!WslManager.isWindows()) {
+      this.serverProcess.stdout?.on('data', (data: Buffer) => {
+        console.log('[server]', data.toString());
+      });
+    }
   }
 
   async stop(): Promise<void> {

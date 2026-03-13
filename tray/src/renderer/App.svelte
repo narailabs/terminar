@@ -1,9 +1,17 @@
 <script lang="ts">
   import Settings from "./Settings.svelte";
+  import WslInstallGuide from "./WslInstallGuide.svelte";
+
+  const params = new URLSearchParams(window.location.search);
+  const mode = params.get("mode") ?? "settings";
 </script>
 
 <main>
-  <Settings />
+  {#if mode === "wsl-guide"}
+    <WslInstallGuide />
+  {:else}
+    <Settings />
+  {/if}
 </main>
 
 <style>

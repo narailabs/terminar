@@ -7,6 +7,7 @@ import { ConfigStore } from './ConfigStore.js';
 import { HealthPoller } from './HealthPoller.js';
 import { ServerManager } from './ServerManager.js';
 import { WindowManager } from './WindowManager.js';
+import { WslManager } from './WslManager.js';
 
 /**
  * Register all IPC handlers for the tray app.
@@ -60,4 +61,12 @@ export function registerIpcHandlers(
   ipcMain.handle('app:version', () => {
     return app.getVersion();
   });
+
+  // ---- WSL (Windows only) ----
+
+  ipcMain.handle('wsl:check', () => ({
+    installed: WslManager.isWslInstalled(),
+    hasDistro: WslManager.hasDistro(),
+    distro: WslManager.getDefaultDistro(),
+  }));
 }

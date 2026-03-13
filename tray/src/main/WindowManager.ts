@@ -35,6 +35,31 @@ export class WindowManager {
     return null;
   }
 
+  /** Open the WSL install guide window (Windows only). */
+  showWslGuide(): void {
+    const existing = this.getWindow('wsl-guide');
+    if (existing) {
+      existing.show();
+      existing.focus();
+      return;
+    }
+
+    const win = new BrowserWindow({
+      width: 480,
+      height: 420,
+      title: 'terminar — WSL Required',
+      webPreferences: {
+        preload: this.preloadPath(),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    });
+
+    this.registerWindow('wsl-guide', win);
+    this.loadUrl(win, 'wsl-guide');
+  }
+
   /** Open the Settings window. */
   openSettings(): void {
     const existing = this.getWindow('settings');
