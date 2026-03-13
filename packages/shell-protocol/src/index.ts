@@ -18,7 +18,6 @@ export type { ShellClientEvents } from './client.js';
 // Export error types
 export {
     ShellProtocolError,
-    AuthError,
     SessionError,
     ParseError,
     ValidationError,

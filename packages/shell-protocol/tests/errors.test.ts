@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { EventEmitter } from 'events';
 import {
   ShellProtocolError,
-  AuthError,
   SessionError,
   ParseError,
   ValidationError,
@@ -16,20 +15,12 @@ class MockSocket extends EventEmitter implements IShellSocket {
 
 describe('Error Classes', () => {
   it('ShellProtocolError is an Error with a code', () => {
-    const err = new ShellProtocolError('something broke', 'AUTH_FAILED');
+    const err = new ShellProtocolError('something broke', 'SESSION_NOT_FOUND');
     expect(err).toBeInstanceOf(Error);
     expect(err).toBeInstanceOf(ShellProtocolError);
     expect(err.message).toBe('something broke');
-    expect(err.code).toBe('AUTH_FAILED');
+    expect(err.code).toBe('SESSION_NOT_FOUND');
     expect(err.name).toBe('ShellProtocolError');
-  });
-
-  it('AuthError has AUTH_FAILED code by default', () => {
-    const err = new AuthError('bad token');
-    expect(err).toBeInstanceOf(ShellProtocolError);
-    expect(err).toBeInstanceOf(AuthError);
-    expect(err.code).toBe('AUTH_FAILED');
-    expect(err.name).toBe('AuthError');
   });
 
   it('SessionError has SESSION_NOT_FOUND code by default', () => {
@@ -60,7 +51,7 @@ describe('Error Classes', () => {
 describe('ShellClient Error Discrimination', () => {
   it('should emit ParseError on invalid JSON', () => {
     const socket = new MockSocket();
-    const client = new ShellClient('token');
+    const client = new ShellClient();
     client.connect(socket);
 
     const onError = vi.fn();
@@ -76,7 +67,7 @@ describe('ShellClient Error Discrimination', () => {
 
   it('should emit ValidationError on schema validation failure', () => {
     const socket = new MockSocket();
-    const client = new ShellClient('token');
+    const client = new ShellClient();
     client.connect(socket);
 
     const onError = vi.fn();
