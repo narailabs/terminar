@@ -116,8 +116,6 @@ pub(crate) async fn handle_attach(
             let raw = h.to_vec();
             // Use from_utf8_lossy here because the circular buffer may start
             // mid-character if a character was split at the ring boundary.
-            // The reader now properly handles UTF-8 boundaries for live output,
-            // but history replay may have a truncated start.
             Some((
                 String::from_utf8_lossy(&raw).to_string(),
                 session.output_tx.subscribe(),

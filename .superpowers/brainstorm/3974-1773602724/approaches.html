@@ -1,0 +1,203 @@
+<h2>Agent Runner: Architecture Approaches</h2>
+<p class="subtitle">How should we relate this to terminar? Pick the approach that feels right.</p>
+
+<style>
+  .approach-detail {
+    background: rgba(255,255,255,0.03);
+    border-radius: 8px;
+    padding: 16px;
+    margin: 12px 0;
+  }
+  .approach-detail h4 {
+    margin: 0 0 8px 0;
+    font-size: 14px;
+    color: var(--text-primary, #e2e8f0);
+  }
+  .approach-detail p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-secondary, #94a3b8);
+    line-height: 1.6;
+  }
+  .reuse-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 13px;
+  }
+  .reuse-table th {
+    text-align: left;
+    padding: 8px 12px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary, #64748b);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .reuse-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    color: var(--text-secondary, #94a3b8);
+  }
+  .reuse-table .component {
+    color: var(--text-primary, #e2e8f0);
+    font-weight: 500;
+  }
+  .check { color: #22c55e; }
+  .partial { color: #eab308; }
+  .new { color: #94a3b8; }
+  .arch-flow {
+    background: rgba(255,255,255,0.03);
+    border-radius: 8px;
+    padding: 16px;
+    margin: 12px 0;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 12px;
+    line-height: 1.8;
+    color: var(--text-secondary, #94a3b8);
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .arch-flow .highlight { color: #818cf8; }
+  .arch-flow .new-part { color: #22c55e; }
+  .arch-flow .reused { color: #94a3b8; }
+</style>
+
+<div class="options">
+  <div class="option" data-choice="approach-a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Build inside terminar monorepo</h3>
+      <p>New <code>agent/</code> crate + web views. Reuse server, protocol, and web frontend directly. Ship as <code>terminar-agent</code> binary.</p>
+
+      <div class="approach-detail">
+        <h4>Architecture</h4>
+        <div class="arch-flow"><span class="reused">Web Frontend (extended)</span> ──WebSocket──► <span class="new-part">terminar-agent</span> (new binary)
+  <span class="reused">│ xterm.js terminals</span>                    │
+  <span class="new-part">│ agent dashboard views</span>                 ├── <span class="reused">PTY sessions (from server)</span>
+  <span class="new-part">│ conversation viewer</span>                   ├── <span class="new-part">Agent orchestrator</span>
+                                            ├── <span class="new-part">Claude Code API bridge</span>
+                                            └── <span class="new-part">Agent registry</span></div>
+      </div>
+
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Maximum code reuse — PTY, history, protocol, web components</li>
+          <li>Fastest to prototype</li>
+          <li>Shared tooling (CI, tests, releases)</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>Terminar repo gets heavier</li>
+          <li>Release coupling between terminal tool and agent tool</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="approach-b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>New repo, import terminar as library</h3>
+      <p>Separate project that depends on <code>terminar-server</code> as a Rust library crate for PTY management. Own protocol, own frontend.</p>
+
+      <div class="approach-detail">
+        <h4>Architecture</h4>
+        <div class="arch-flow"><span class="new-part">Agent Web UI</span> ──WebSocket──► <span class="new-part">agent-server</span>
+  <span class="new-part">│ agent-specific views</span>              │
+  <span class="reused">│ xterm.js (copy/fork)</span>              ├── uses <span class="reused">terminar-server</span> as lib
+                                        ├── <span class="new-part">Agent orchestrator</span>
+                                        ├── <span class="new-part">Claude Code bridge</span>
+                                        └── <span class="new-part">Agent registry</span></div>
+      </div>
+
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Clean separation — terminar stays a terminal tool</li>
+          <li>Independent release cycles</li>
+          <li>Can evolve protocol for agent-specific needs</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>More upfront setup</li>
+          <li>Need to extract terminar-server into a reusable library crate</li>
+          <li>Web frontend partially duplicated</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="approach-c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Agent layer on top of terminar (recommended)</h3>
+      <p>New repo. Agent orchestrator connects to terminar-server as a client (via existing protocol). Adds agent-aware UI and Claude Code API integration on top.</p>
+
+      <div class="approach-detail">
+        <h4>Architecture</h4>
+        <div class="arch-flow"><span class="new-part">Agent Dashboard</span> ──► <span class="new-part">agent-orchestrator</span> ──► <span class="reused">terminar-server</span> (unchanged)
+  <span class="new-part">│ agent status/logs</span>        │                          │
+  <span class="new-part">│ conversation view</span>        ├── <span class="new-part">Claude Code bridge</span>    ├── <span class="reused">PTY sessions</span>
+  <span class="reused">│ embedded terminals</span>       ├── <span class="new-part">Agent registry</span>         ├── <span class="reused">History buffer</span>
+                              └── uses <span class="reused">shell-protocol</span>     └── <span class="reused">Persistence</span>
+                                  as client library</div>
+      </div>
+
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Terminar completely untouched — no risk to existing tool</li>
+          <li>Reuses shell-protocol package directly</li>
+          <li>Agent features cleanly isolated</li>
+          <li>Can run terminar-server as a dependency or embed it</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>Protocol may need extensions for agent use cases</li>
+          <li>Two processes to manage (agent-orchestrator + terminar-server)</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<table class="reuse-table">
+  <tr>
+    <th>Terminar Component</th>
+    <th>Approach A</th>
+    <th>Approach B</th>
+    <th>Approach C</th>
+  </tr>
+  <tr>
+    <td class="component">PTY server (Rust)</td>
+    <td><span class="check">Direct reuse</span></td>
+    <td><span class="partial">Library import</span></td>
+    <td><span class="check">Run as-is</span></td>
+  </tr>
+  <tr>
+    <td class="component">Shell protocol (Zod)</td>
+    <td><span class="check">Direct reuse</span></td>
+    <td><span class="partial">Fork/extend</span></td>
+    <td><span class="check">npm dependency</span></td>
+  </tr>
+  <tr>
+    <td class="component">Web terminal (xterm.js)</td>
+    <td><span class="check">Direct reuse</span></td>
+    <td><span class="partial">Copy patterns</span></td>
+    <td><span class="partial">Embed or copy</span></td>
+  </tr>
+  <tr>
+    <td class="component">Session persistence</td>
+    <td><span class="check">Direct reuse</span></td>
+    <td><span class="check">Via library</span></td>
+    <td><span class="check">Via server</span></td>
+  </tr>
+  <tr>
+    <td class="component">Output history (zstd)</td>
+    <td><span class="check">Direct reuse</span></td>
+    <td><span class="check">Via library</span></td>
+    <td><span class="check">Via server</span></td>
+  </tr>
+  <tr>
+    <td class="component">Tray app pattern</td>
+    <td><span class="partial">Extend</span></td>
+    <td><span class="partial">Copy pattern</span></td>
+    <td><span class="new">Separate if needed</span></td>
+  </tr>
+</table>

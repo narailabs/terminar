@@ -2557,6 +2557,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "terminar-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libc",
+ "nix 0.29.0",
+ "parking_lot",
+ "portable-pty",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
+ "zstd",
+]
+
+[[package]]
 name = "terminar-server"
 version = "0.1.0"
 dependencies = [
@@ -2585,6 +2603,7 @@ dependencies = [
  "signature",
  "ssh-key",
  "tempfile",
+ "terminar-core",
  "thiserror 2.0.18",
  "tokio",
  "tokio-tungstenite",

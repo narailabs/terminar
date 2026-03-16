@@ -1,0 +1,190 @@
+<h2>Refined Architecture: Embedded Library</h2>
+<p class="subtitle">terminar-core as a reusable crate, embedded in the agent runner</p>
+
+<style>
+  .layer-diagram {
+    background: var(--bg-secondary, #1a1a2e);
+    border-radius: 16px;
+    padding: 32px 24px;
+    margin: 24px 0;
+  }
+  .layer {
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin: 8px 0;
+    position: relative;
+  }
+  .layer-new {
+    background: rgba(34, 197, 94, 0.08);
+    border: 1px solid rgba(34, 197, 94, 0.3);
+  }
+  .layer-reuse {
+    background: rgba(99, 102, 241, 0.08);
+    border: 1px solid rgba(99, 102, 241, 0.3);
+  }
+  .layer-extract {
+    background: rgba(234, 179, 8, 0.08);
+    border: 1px solid rgba(234, 179, 8, 0.3);
+  }
+  .layer h3 {
+    margin: 0 0 4px 0;
+    font-size: 15px;
+    color: var(--text-primary, #e2e8f0);
+  }
+  .layer p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-secondary, #94a3b8);
+  }
+  .layer-tag {
+    position: absolute;
+    top: 12px;
+    right: 16px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+  .tag-new { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
+  .tag-reuse { background: rgba(99, 102, 241, 0.2); color: #818cf8; }
+  .tag-extract { background: rgba(234, 179, 8, 0.2); color: #eab308; }
+  .connector {
+    text-align: center;
+    color: rgba(255,255,255,0.2);
+    font-size: 18px;
+    margin: 4px 0;
+    letter-spacing: 4px;
+  }
+  .split-layers {
+    display: flex;
+    gap: 8px;
+  }
+  .split-layers .layer {
+    flex: 1;
+  }
+  .crate-detail {
+    background: rgba(255,255,255,0.03);
+    border-radius: 8px;
+    padding: 14px;
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--text-secondary, #8892a8);
+    line-height: 1.6;
+  }
+  .crate-detail code {
+    background: rgba(255,255,255,0.06);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 11px;
+  }
+  .crate-detail ul {
+    margin: 4px 0 0 0;
+    padding-left: 16px;
+  }
+  .crate-detail li {
+    padding: 1px 0;
+  }
+</style>
+
+<div class="layer-diagram">
+
+  <div class="layer layer-new">
+    <span class="layer-tag tag-new">New</span>
+    <h3>Custom UI (your agent dashboard)</h3>
+    <p>Svelte/React/whatever — shows agent status, conversations, terminal views</p>
+    <div class="crate-detail">
+      Connects via WebSocket to the embedded server. Uses <code>shell-protocol</code> + agent-specific extensions.
+    </div>
+  </div>
+
+  <div class="connector">|||</div>
+
+  <div class="split-layers">
+    <div class="layer layer-new">
+      <span class="layer-tag tag-new">New</span>
+      <h3>Agent Orchestrator</h3>
+      <p>Spawns agents, monitors status, manages lifecycle</p>
+      <div class="crate-detail">
+        <ul>
+          <li>Agent registry (which agents are available)</li>
+          <li>Agent lifecycle (spawn, monitor, kill)</li>
+          <li>Claude Code bridge (attach to sessions)</li>
+          <li>Custom protocol messages for agent state</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="layer layer-new">
+      <span class="layer-tag tag-new">New</span>
+      <h3>Agent Binary</h3>
+      <p>Your <code>main.rs</code> — wires everything together</p>
+      <div class="crate-detail">
+        Embeds <code>terminar-core</code>, starts the mini-server, registers agents, serves custom UI.
+      </div>
+    </div>
+  </div>
+
+  <div class="connector">|||</div>
+
+  <div class="layer layer-extract">
+    <span class="layer-tag tag-extract">Extract from terminar</span>
+    <h3>terminar-core (library crate)</h3>
+    <p>The PTY session engine — extracted from <code>server/src/</code></p>
+    <div class="crate-detail">
+      <strong>What moves into the library:</strong>
+      <ul>
+        <li><code>session.rs</code> — session state machine, lifecycle</li>
+        <li><code>pty.rs</code> — PTY spawning (portable-pty)</li>
+        <li><code>history.rs</code> — output history buffer (zstd)</li>
+        <li><code>persistence.rs</code> — session state persistence</li>
+        <li><code>handlers/</code> — message handlers (session, I/O)</li>
+        <li><code>lib.rs</code> — HTTP/WebSocket routing, message dispatch</li>
+      </ul>
+      <strong>What stays in terminar-server binary:</strong>
+      <ul>
+        <li><code>main.rs</code> — CLI args, socket path, startup</li>
+        <li><code>auth.rs</code> / <code>jwt.rs</code> — terminar-specific auth</li>
+        <li><code>tls.rs</code> — TLS setup</li>
+        <li><code>audit.rs</code> — audit logging</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="connector">|||</div>
+
+  <div class="layer layer-reuse">
+    <span class="layer-tag tag-reuse">Reuse as-is</span>
+    <h3>shell-protocol (npm package)</h3>
+    <p>Zod schemas, ShellClient, BaseWebSocketManager — used by your custom UI</p>
+  </div>
+
+</div>
+
+<h3 style="margin-top: 32px;">Key question: scope of the library extraction</h3>
+<p class="subtitle">How much of terminar-server should become the library?</p>
+
+<div class="options">
+  <div class="option" data-choice="minimal-core" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Minimal core (PTY + sessions only)</h3>
+      <p>Just the PTY engine and session management. Agent runner builds its own HTTP/WebSocket layer. ~5 files extracted.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="full-server-lib" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Full server as library (recommended)</h3>
+      <p>PTY + sessions + HTTP/WebSocket routing + message dispatch. Agent runner calls <code>TerminarServer::new().start()</code> and extends the message handler. ~10 files extracted.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="trait-based" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Trait-based plugin system</h3>
+      <p>Core server with <code>trait MessageHandler</code> that consumers implement. Most flexible, most work upfront.</p>
+    </div>
+  </div>
+</div>

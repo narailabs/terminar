@@ -1,0 +1,332 @@
+<h2>Terminar Architecture</h2>
+<p class="subtitle">Click any component you're interested in reusing. Select multiple.</p>
+
+<style>
+  .arch-diagram {
+    position: relative;
+    background: var(--bg-secondary, #1a1a2e);
+    border-radius: 16px;
+    padding: 32px 24px;
+    margin: 24px 0;
+    overflow: hidden;
+  }
+  .arch-diagram::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 20% 30%, rgba(99, 102, 241, 0.06) 0%, transparent 50%),
+                radial-gradient(circle at 80% 70%, rgba(168, 85, 247, 0.06) 0%, transparent 50%);
+    pointer-events: none;
+  }
+  .arch-row {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 16px;
+    justify-content: center;
+    flex-wrap: wrap;
+    position: relative;
+    z-index: 1;
+  }
+  .arch-section {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 16px;
+    flex: 1;
+    min-width: 200px;
+    max-width: 340px;
+    transition: all 0.3s ease;
+    cursor: pointer;
+  }
+  .arch-section:hover {
+    border-color: rgba(99, 102, 241, 0.5);
+    background: rgba(99, 102, 241, 0.08);
+    transform: translateY(-2px);
+  }
+  .arch-section.selected {
+    border-color: rgba(99, 102, 241, 0.8) !important;
+    background: rgba(99, 102, 241, 0.15) !important;
+    box-shadow: 0 0 20px rgba(99, 102, 241, 0.2);
+  }
+  .arch-section .badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+  }
+  .badge-rust { background: rgba(222, 110, 61, 0.2); color: #de6e3d; }
+  .badge-svelte { background: rgba(255, 62, 0, 0.2); color: #ff6b35; }
+  .badge-electron { background: rgba(71, 133, 237, 0.2); color: #4785ed; }
+  .badge-ts { background: rgba(49, 120, 198, 0.2); color: #5b9bd5; }
+  .badge-npm { background: rgba(203, 56, 55, 0.2); color: #cb3837; }
+  .arch-section h3 {
+    margin: 0 0 6px 0;
+    font-size: 16px;
+    color: var(--text-primary, #e2e8f0);
+  }
+  .arch-section p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-secondary, #94a3b8);
+    line-height: 1.5;
+  }
+  .arch-section .tech-list {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+  }
+  .tech-tag {
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.06);
+    color: var(--text-secondary, #94a3b8);
+  }
+  .flow-label {
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-secondary, #64748b);
+    padding: 8px 0;
+    position: relative;
+    z-index: 1;
+  }
+  .flow-label .arrow {
+    color: rgba(99, 102, 241, 0.6);
+    font-size: 14px;
+  }
+  .section-header {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-secondary, #64748b);
+    margin: 24px 0 12px 0;
+    padding-left: 4px;
+    position: relative;
+    z-index: 1;
+  }
+  .feature-list {
+    margin: 8px 0 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .feature-list li {
+    font-size: 12px;
+    color: var(--text-secondary, #8892a8);
+    padding: 2px 0;
+  }
+  .feature-list li::before {
+    content: '>';
+    color: rgba(99, 102, 241, 0.6);
+    margin-right: 6px;
+    font-family: monospace;
+  }
+</style>
+
+<div class="arch-diagram">
+
+  <div class="section-header">Client Frontends</div>
+
+  <div class="arch-row">
+    <div class="arch-section" data-choice="web-frontend" onclick="toggleSelect(this)">
+      <span class="badge badge-svelte">Svelte 5</span>
+      <h3>Web Frontend</h3>
+      <p>Browser-based terminal UI with split panes, tabs, themes, keybindings, and drag-and-drop.</p>
+      <ul class="feature-list">
+        <li>xterm.js terminal emulator</li>
+        <li>Split pane tree + tab workspace model</li>
+        <li>Write buffering (128KB chunks)</li>
+        <li>WebSocket session manager</li>
+        <li>Broadcast mode, search, activity alerts</li>
+      </ul>
+      <div class="tech-list">
+        <span class="tech-tag">Svelte 5</span>
+        <span class="tech-tag">xterm.js</span>
+        <span class="tech-tag">Vite</span>
+        <span class="tech-tag">TypeScript</span>
+      </div>
+    </div>
+
+    <div class="arch-section" data-choice="tray-app" onclick="toggleSelect(this)">
+      <span class="badge badge-electron">Electron</span>
+      <h3>System Tray App</h3>
+      <p>Desktop tray for service lifecycle management, health monitoring, and settings.</p>
+      <ul class="feature-list">
+        <li>Install wizard (first-run setup)</li>
+        <li>Health polling every 5s</li>
+        <li>Service start/stop/restart</li>
+        <li>launchd + systemd support</li>
+        <li>Settings window (port, TLS, auth)</li>
+      </ul>
+      <div class="tech-list">
+        <span class="tech-tag">Electron</span>
+        <span class="tech-tag">Svelte 5</span>
+        <span class="tech-tag">electron-builder</span>
+      </div>
+    </div>
+
+    <div class="arch-section" data-choice="vscode-extension" onclick="toggleSelect(this)">
+      <span class="badge badge-ts">TypeScript</span>
+      <h3>VS Code Extension</h3>
+      <p>IDE integration with tree view sidebar and persistent sessions.</p>
+      <ul class="feature-list">
+        <li>Unix socket transport (length-prefixed)</li>
+        <li>Auto-spawns server process</li>
+        <li>Session tree sidebar</li>
+        <li>Token auth from ~/.terminar/token</li>
+      </ul>
+      <div class="tech-list">
+        <span class="tech-tag">TypeScript</span>
+        <span class="tech-tag">VS Code API</span>
+        <span class="tech-tag">Mocha</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="flow-label">
+    <span class="arrow">&darr;</span> WebSocket / Unix Socket / HTTP
+    <span class="arrow">&darr;</span>
+  </div>
+
+  <div class="section-header">Server Layer</div>
+
+  <div class="arch-row">
+    <div class="arch-section" data-choice="rust-server" onclick="toggleSelect(this)">
+      <span class="badge badge-rust">Rust</span>
+      <h3>terminar-server</h3>
+      <p>Single-user PTY server. Manages terminal sessions with history, persistence, and auth.</p>
+      <ul class="feature-list">
+        <li>PTY spawning via portable-pty</li>
+        <li>Session state machine (create/run/exit)</li>
+        <li>zstd-compressed output history</li>
+        <li>Token auth (~/.terminar/token)</li>
+        <li>Workspace save/load</li>
+        <li>Foreground process detection</li>
+      </ul>
+      <div class="tech-list">
+        <span class="tech-tag">Rust</span>
+        <span class="tech-tag">Tokio</span>
+        <span class="tech-tag">portable-pty</span>
+        <span class="tech-tag">axum</span>
+      </div>
+    </div>
+
+    <div class="arch-section" data-choice="gateway" onclick="toggleSelect(this)">
+      <span class="badge badge-rust">Rust</span>
+      <h3>terminar-gateway</h3>
+      <p>Multi-user reverse proxy. TLS termination, auth, per-user server spawning.</p>
+      <ul class="feature-list">
+        <li>TLS + self-signed cert generation</li>
+        <li>PAM / SSH key authentication</li>
+        <li>JWT issuance + verification</li>
+        <li>sudo -u per-user server spawn</li>
+        <li>WebSocket &harr; Unix socket proxy</li>
+        <li>Idle timeout + server reaping</li>
+      </ul>
+      <div class="tech-list">
+        <span class="tech-tag">Rust</span>
+        <span class="tech-tag">Tokio</span>
+        <span class="tech-tag">rustls</span>
+        <span class="tech-tag">rcgen</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="flow-label">
+    <span class="arrow">&darr;</span> PTY I/O
+    <span class="arrow">&darr;</span>
+  </div>
+
+  <div class="section-header">Shared Infrastructure</div>
+
+  <div class="arch-row">
+    <div class="arch-section" data-choice="shell-protocol" onclick="toggleSelect(this)">
+      <span class="badge badge-ts">TypeScript + Zod</span>
+      <h3>Shell Protocol</h3>
+      <p>Wire protocol package shared across all TypeScript clients. Single source of truth for message types.</p>
+      <ul class="feature-list">
+        <li>Zod schemas for all messages</li>
+        <li>ShellClient high-level API</li>
+        <li>IShellSocket transport interface</li>
+        <li>BaseWebSocketManager lifecycle</li>
+        <li>Protocol version 0.2.0</li>
+      </ul>
+      <div class="tech-list">
+        <span class="tech-tag">TypeScript</span>
+        <span class="tech-tag">Zod</span>
+        <span class="tech-tag">npm package</span>
+      </div>
+    </div>
+
+    <div class="arch-section" data-choice="npm-distribution" onclick="toggleSelect(this)">
+      <span class="badge badge-npm">npm</span>
+      <h3>npm Distribution</h3>
+      <p>Platform-specific binary packages for global install. CLI starts server + tray app.</p>
+      <ul class="feature-list">
+        <li>Main package + platform optionalDeps</li>
+        <li>CLI: terminar server start/stop/status</li>
+        <li>Daemon lifecycle management</li>
+        <li>Postinstall: quarantine removal (macOS)</li>
+      </ul>
+      <div class="tech-list">
+        <span class="tech-tag">Node.js</span>
+        <span class="tech-tag">5 platform packages</span>
+      </div>
+    </div>
+
+    <div class="arch-section" data-choice="deploy-config" onclick="toggleSelect(this)">
+      <span class="badge badge-ts">Config</span>
+      <h3>Deploy / Services</h3>
+      <p>System service configuration for launchd and systemd deployment.</p>
+      <ul class="feature-list">
+        <li>launchd plist templates</li>
+        <li>systemd unit files</li>
+        <li>sudoers configuration</li>
+        <li>logrotate setup</li>
+      </ul>
+      <div class="tech-list">
+        <span class="tech-tag">launchd</span>
+        <span class="tech-tag">systemd</span>
+        <span class="tech-tag">bash</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="options" data-multiselect style="margin-top: 24px;">
+  <p class="subtitle" style="margin-bottom: 12px;">Or tell me at a high level what you're thinking about building:</p>
+  <div class="option" data-choice="similar-pty-tool" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Another PTY-based tool</h3>
+      <p>Different use case but similar server/client architecture</p>
+    </div>
+  </div>
+  <div class="option" data-choice="electron-tray-pattern" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Electron tray + service manager</h3>
+      <p>Desktop app that manages a background service</p>
+    </div>
+  </div>
+  <div class="option" data-choice="protocol-client-pattern" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Multi-client protocol system</h3>
+      <p>Server with web + extension + desktop clients sharing a protocol</p>
+    </div>
+  </div>
+  <div class="option" data-choice="npm-binary-dist" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3>npm-distributed native binary</h3>
+      <p>Rust/Go binary distributed via platform-specific npm packages</p>
+    </div>
+  </div>
+</div>

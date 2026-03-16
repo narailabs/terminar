@@ -90,6 +90,11 @@ export class ServiceManager {
    *  3. System PATH via `which`
    */
   findBinary(name: string): string | null {
+    // 0. CLI-provided path via environment variable
+    if (process.env.TERMINAR_SERVER_BIN && existsSync(process.env.TERMINAR_SERVER_BIN)) {
+      return process.env.TERMINAR_SERVER_BIN;
+    }
+
     // 1. Bundled: same dir as current executable
     const exeDir = dirname(process.execPath);
     const bundled = join(exeDir, name);

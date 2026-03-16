@@ -31,7 +31,7 @@ export const DEFAULT_HEALTH: GatewayHealth = {
 
 export type ServiceStatus = 'running' | 'stopped' | 'notinstalled' | 'unknown';
 
-export type ServiceActions = 'install' | 'running-actions' | 'stopped-actions';
+export type ServiceActions = 'install' | 'running-actions' | 'stopped-actions' | 'none';
 
 export interface MenuSpec {
   status_text: string;

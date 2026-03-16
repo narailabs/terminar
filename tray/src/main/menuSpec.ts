@@ -19,6 +19,7 @@ export function computeMenuSpec(
   health: GatewayHealth,
   serviceStatus: ServiceStatus,
   config: TrayConfig,
+  options?: { launchedByCli?: boolean; portOverride?: number },
 ): MenuSpec {
   // Status line
   let statusIcon = '\u25CB'; // open circle
@@ -44,11 +45,14 @@ export function computeMenuSpec(
     }
   }
 
+  const launchedByCli = options?.launchedByCli ?? false;
+  const displayPort = options?.portOverride ?? config.gateway_port;
   const tlsLabel =
-    config.tls_mode === 'auto' || config.tls_mode === 'custom'
+    !launchedByCli && (config.tls_mode === 'auto' || config.tls_mode === 'custom')
       ? ', TLS'
       : '';
-  const statusText = `Gateway: ${statusIcon} ${statusLabel} (port ${config.gateway_port}${tlsLabel})`;
+  const serviceLabel = launchedByCli ? 'Server' : 'Gateway';
+  const statusText = `${serviceLabel}: ${statusIcon} ${statusLabel} (port ${displayPort}${tlsLabel})`;
 
   const isInstalled = serviceStatus !== 'notinstalled';
   const isRunning = isInstalled && health.status === 'running';
@@ -62,7 +66,9 @@ export function computeMenuSpec(
   }
 
   let serviceActions: ServiceActions;
-  if (!isInstalled) {
+  if (launchedByCli) {
+    serviceActions = 'none';
+  } else if (!isInstalled) {
     serviceActions = 'install';
   } else if (isRunning) {
     serviceActions = 'running-actions';

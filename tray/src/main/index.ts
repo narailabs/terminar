@@ -1,13 +1,23 @@
 // index.ts — App entry point, lifecycle, and orchestration.
 // Port of tray/src-tauri/src/lib.rs:run().
 
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, nativeImage } from 'electron';
+import path from 'path';
 import { ConfigStore } from './ConfigStore.js';
 import { HealthPoller } from './HealthPoller.js';
 import { ServiceManager } from './ServiceManager.js';
 import { WindowManager } from './WindowManager.js';
 import { TrayManager } from './TrayManager.js';
 import { registerIpcHandlers } from './ipc.js';
+import { getAppRoot } from './paths.js';
+
+// Set app name early — controls Dock tooltip, menu labels, and About panel
+app.name = 'terminar';
+
+// Graceful shutdown on SIGTERM (sent by vite-plugin-electron during HMR).
+// Without this, the process dies immediately and orphans Chromium child
+// processes (GPU, network service), which produce cascading crash errors.
+process.on('SIGTERM', () => app.quit());
 
 // ------------------------------------------------------------------
 // Single instance lock
@@ -24,10 +34,23 @@ let windowManager: WindowManager | null = null;
 // App ready — main setup
 // ------------------------------------------------------------------
 void app.whenReady().then(() => {
-  // Hide from Dock on macOS — this is a tray-only app
+  // Set custom Dock icon on macOS (needed for dev mode; prod uses electron-builder icon)
   if (process.platform === 'darwin') {
+    const dockIcon = nativeImage.createFromPath(
+      path.join(getAppRoot(), 'icons', 'icon.png'),
+    );
+    if (!dockIcon.isEmpty()) {
+      app.dock?.setIcon(dockIcon);
+    }
+    // Hide from Dock — this is a tray-only app (shown when windows open)
     app.dock?.hide();
   }
+
+  // Detect CLI launch mode
+  const launchedByCli = process.env.TERMINAR_LAUNCHED_BY_CLI === '1';
+  const serverPort = launchedByCli
+    ? parseInt(process.env.TERMINAR_SERVER_PORT || '6750', 10)
+    : undefined;
 
   // Create core instances
   const configStore = new ConfigStore();
@@ -42,6 +65,7 @@ void app.whenReady().then(() => {
     serviceManager,
     healthPoller,
     windowManager,
+    { launchedByCli, serverPort },
   );
 
   // Register IPC handlers for renderer processes
@@ -57,11 +81,11 @@ void app.whenReady().then(() => {
     trayManager.updateMenu();
   });
 
-  // Start health polling
-  healthPoller.start(config.gateway_port);
+  // Start health polling (use server port in CLI mode, gateway port otherwise)
+  healthPoller.start(launchedByCli ? (serverPort ?? 6750) : config.gateway_port);
 
-  // Show install wizard if the service is not installed
-  if (serviceManager.status() === 'notinstalled') {
+  // Show install wizard if the service is not installed (skip in CLI mode)
+  if (!launchedByCli && serviceManager.status() === 'notinstalled') {
     windowManager.openInstall();
   }
 });

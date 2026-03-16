@@ -1,9 +1,38 @@
 // WindowManager.ts — Port of window creation from tray/src-tauri/src/lib.rs
 // Manages named BrowserWindows for the tray app (install wizard, settings, terminal).
 
-import { BrowserWindow, Menu, app, session } from 'electron';
+import { BrowserWindow, Menu, app, nativeImage, session, shell } from 'electron';
 import path from 'path';
 import { getAppRoot } from './paths.js';
+
+const RETRYABLE_ERRORS = new Set([
+  'ERR_CONNECTION_REFUSED',
+  'ERR_CONNECTION_RESET',
+  'ERR_CONNECTION_CLOSED',
+  'ERR_CONNECTION_TIMED_OUT',
+  'ERR_EMPTY_RESPONSE',
+]);
+
+/** Load the custom terminar dock icon. */
+function getDockIcon(): Electron.NativeImage {
+  const iconPath = path.join(getAppRoot(), 'icons', 'icon.png');
+  return nativeImage.createFromPath(iconPath);
+}
+
+/** Show the macOS Dock icon with the custom terminar icon. */
+function showDockWithIcon(): void {
+  if (process.platform !== 'darwin') return;
+  const icon = getDockIcon();
+  // Set icon before showing to avoid the default Electron icon flash
+  if (!icon.isEmpty()) {
+    app.dock?.setIcon(icon);
+  }
+  app.dock?.show();
+  // Re-set after show — macOS can reset the icon during show()
+  if (!icon.isEmpty()) {
+    setTimeout(() => app.dock?.setIcon(icon), 100);
+  }
+}
 
 export class WindowManager {
   private windows: Map<string, BrowserWindow> = new Map();
@@ -66,6 +95,7 @@ export class WindowManager {
     });
 
     this.registerWindow('install', win);
+    this.openExternalLinks(win);
     this.loadUrl(win, 'install');
   }
 
@@ -91,6 +121,7 @@ export class WindowManager {
     });
 
     this.registerWindow('settings', win);
+    this.openExternalLinks(win);
     this.loadUrl(win, 'settings');
   }
 
@@ -118,6 +149,7 @@ export class WindowManager {
     });
 
     this.registerWindow('terminal', win);
+    this.openExternalLinks(win);
     this.loadTerminalUrl(win);
     this.setupTerminalMenu(win);
   }
@@ -167,13 +199,32 @@ export class WindowManager {
     return path.join(getAppRoot(), 'dist-electron', 'terminal.mjs');
   }
 
+  /** Open http/https links in the system browser instead of inside Electron. */
+  private openExternalLinks(win: BrowserWindow): void {
+    win.webContents.setWindowOpenHandler(({ url }) => {
+      if (url.startsWith('http://') || url.startsWith('https://')) {
+        void shell.openExternal(url);
+        return { action: 'deny' };
+      }
+      return { action: 'allow' };
+    });
+  }
+
   private registerWindow(label: string, win: BrowserWindow): void {
     this.windows.set(label, win);
 
     // macOS: show Dock icon when a window is open
     if (process.platform === 'darwin') {
-      app.dock?.show();
+      showDockWithIcon();
     }
+
+    win.webContents.on('render-process-gone', (_event, details) => {
+      if (details.reason === 'clean-exit') return;
+      console.error(`[window] Renderer crashed (${label}): ${details.reason}`);
+      if (!win.isDestroyed()) {
+        win.webContents.reload();
+      }
+    });
 
     win.on('closed', () => {
       this.windows.delete(label);
@@ -185,13 +236,64 @@ export class WindowManager {
     });
   }
 
+  /**
+   * Attach a did-fail-load listener that retries transient network errors
+   * with exponential backoff. Only active in dev mode when loading from
+   * the Vite dev server, which may not be ready yet.
+   */
+  private attachDevRetry(
+    win: BrowserWindow,
+    url: string,
+    maxRetries = 5,
+  ): void {
+    let attempt = 0;
+
+    const onFailLoad = (
+      _event: Electron.Event,
+      errorCode: number,
+      errorDescription: string,
+      _validatedURL: string,
+      isMainFrame: boolean,
+    ): void => {
+      if (!isMainFrame) return;
+      if (!RETRYABLE_ERRORS.has(errorDescription)) return;
+
+      attempt++;
+      if (attempt > maxRetries) {
+        console.error(
+          `[window] Failed to load ${url} after ${maxRetries} retries (last: ${errorDescription}, code: ${errorCode})`,
+        );
+        return;
+      }
+
+      const delay = 500 * Math.pow(2, attempt - 1); // 500, 1000, 2000, 4000, 8000
+      console.log(
+        `[window] Retry ${attempt}/${maxRetries} for ${url} in ${delay}ms (${errorDescription})`,
+      );
+      setTimeout(() => {
+        if (!win.isDestroyed()) {
+          win.loadURL(url).catch(() => {});
+        }
+      }, delay);
+    };
+
+    win.webContents.on('did-fail-load', onFailLoad);
+
+    // Clean up listener once the page loads successfully (prevents stacking on HMR)
+    win.webContents.once('did-finish-load', () => {
+      win.webContents.removeListener('did-fail-load', onFailLoad);
+    });
+  }
+
   /** Load a tray renderer page (install or settings). */
   private loadUrl(win: BrowserWindow, mode: string): void {
     // Dev mode: load from Vite dev server; Prod: load from file
     const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL;
 
     if (VITE_DEV_SERVER_URL) {
-      void win.loadURL(`${VITE_DEV_SERVER_URL}?mode=${mode}`);
+      const url = `${VITE_DEV_SERVER_URL}?mode=${mode}`;
+      this.attachDevRetry(win, url);
+      win.loadURL(url).catch(() => {});
     } else {
       // Production: load from built files at tray/dist/index.html
       const indexPath = path.join(getAppRoot(), 'dist', 'index.html');
@@ -204,7 +306,9 @@ export class WindowManager {
     const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL;
 
     if (VITE_DEV_SERVER_URL) {
-      void win.loadURL(`${VITE_DEV_SERVER_URL}/terminal.html`);
+      const url = `${VITE_DEV_SERVER_URL}/terminal.html`;
+      this.attachDevRetry(win, url);
+      win.loadURL(url).catch(() => {});
     } else {
       const terminalPath = path.join(getAppRoot(), 'dist', 'terminal.html');
       void win.loadFile(terminalPath);
@@ -219,15 +323,15 @@ export class WindowManager {
       ...(isMac
         ? [
             {
-              label: app.name,
+              label: 'terminar',
               submenu: [
-                { role: 'about' as const },
+                { role: 'about' as const, label: 'About terminar' },
                 { type: 'separator' as const },
-                { role: 'hide' as const },
+                { role: 'hide' as const, label: 'Hide terminar' },
                 { role: 'hideOthers' as const },
                 { role: 'unhide' as const },
                 { type: 'separator' as const },
-                { role: 'quit' as const },
+                { role: 'quit' as const, label: 'Quit terminar' },
               ],
             },
           ]
