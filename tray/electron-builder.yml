@@ -1,4 +1,4 @@
-appId: com.terminar.tray
+appId: com.narai.terminar
 productName: terminar
 directories:
   buildResources: build
@@ -9,7 +9,7 @@ files:
   - icons/**/*
 mac:
   category: public.app-category.developer-tools
-  icon: icons/icon.png
+  icon: icons/icon.icns
   target:
     - target: dmg
       arch: [universal]

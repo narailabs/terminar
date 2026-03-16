@@ -1,0 +1,155 @@
+<h2>terminar Modular Library Design</h2>
+<p class="subtitle">Extraction into reusable Rust crate + web component packages</p>
+
+<style>
+  .pkg-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 20px 0;
+  }
+  .pkg {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 20px;
+    position: relative;
+  }
+  .pkg-full { grid-column: 1 / -1; }
+  .pkg-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+  }
+  .badge-extract { background: rgba(234, 179, 8, 0.2); color: #eab308; }
+  .badge-new-pkg { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
+  .badge-exists { background: rgba(99, 102, 241, 0.2); color: #818cf8; }
+  .badge-skip { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+  .pkg h3 { margin: 0 0 6px; font-size: 15px; color: var(--text-primary, #e2e8f0); }
+  .pkg p { margin: 0 0 10px; font-size: 13px; color: var(--text-secondary, #94a3b8); line-height: 1.5; }
+  .file-list {
+    list-style: none;
+    padding: 0;
+    margin: 8px 0 0;
+    font-size: 12px;
+  }
+  .file-list li {
+    padding: 3px 0;
+    color: var(--text-secondary, #8892a8);
+    font-family: 'SF Mono', monospace;
+  }
+  .file-list .from { color: #eab308; }
+  .file-list .status { margin-left: 6px; font-family: system-ui; }
+  .score {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    font-size: 11px;
+    color: var(--text-secondary, #64748b);
+  }
+  .score .val { font-size: 18px; font-weight: 700; }
+  .score .val.high { color: #22c55e; }
+  .score .val.med { color: #eab308; }
+  .score .val.low { color: #ef4444; }
+  .dep-arrow {
+    text-align: center;
+    color: rgba(99, 102, 241, 0.4);
+    font-size: 20px;
+    padding: 8px 0;
+  }
+  .consumer-box {
+    background: rgba(34, 197, 94, 0.05);
+    border: 1px dashed rgba(34, 197, 94, 0.3);
+    border-radius: 12px;
+    padding: 20px;
+    margin-top: 16px;
+  }
+  .consumer-box h3 { color: #22c55e; }
+  .section-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-secondary, #64748b);
+    margin: 24px 0 12px;
+  }
+</style>
+
+<div class="section-label">Packages to create / extract</div>
+
+<div class="pkg-grid">
+  <div class="pkg">
+    <span class="pkg-badge badge-extract">Extract from server/</span>
+    <div class="score"><span class="val high">Clean</span><br>extraction</div>
+    <h3>terminar-core (Rust crate)</h3>
+    <p>Minimal PTY + session engine. No HTTP, no auth, no TLS.</p>
+    <ul class="file-list">
+      <li><span class="from">pty.rs</span> <span class="status">— 100% independent</span></li>
+      <li><span class="from">session.rs</span> <span class="status">— state machine + lifecycle</span></li>
+      <li><span class="from">history.rs</span> <span class="status">— zstd output buffer</span></li>
+      <li><span class="from">persistence.rs</span> <span class="status">— refactor: parameterize paths</span></li>
+      <li><span class="from">create_session_core()</span> <span class="status">— extract from handlers</span></li>
+      <li><span class="from">constants.rs</span> <span class="status">— subset</span></li>
+    </ul>
+  </div>
+
+  <div class="pkg">
+    <span class="pkg-badge badge-new-pkg">New package</span>
+    <div class="score"><span class="val med">Medium</span><br>effort</div>
+    <h3>@narai/terminar-ui (Web Components)</h3>
+    <p>Svelte 5 components compiled as custom elements.</p>
+    <ul class="file-list">
+      <li><span class="from">&lt;terminar-terminal&gt;</span> <span class="status">— xterm.js widget</span></li>
+      <li><span class="from">&lt;terminar-split&gt;</span> <span class="status">— split pane layout</span></li>
+      <li><span class="from">WebSocketSessionManager</span> <span class="status">— already standalone</span></li>
+      <li><span class="from">workspaceStore</span> <span class="status">— pure data model</span></li>
+    </ul>
+    <p style="font-size: 11px; color: #64748b; margin-top: 8px;">
+      Note: Pane.svelte too coupled (8 stores, 4 contexts) — skip for now
+    </p>
+  </div>
+
+  <div class="pkg">
+    <span class="pkg-badge badge-exists">Already exists</span>
+    <div class="score"><span class="val high">Ready</span><br>as-is</div>
+    <h3>@narai/terminar-protocol</h3>
+    <p>Zod schemas, ShellClient, BaseWebSocketManager. Already an npm package.</p>
+    <ul class="file-list">
+      <li><span class="from">messages.ts</span> <span class="status">— wire protocol types</span></li>
+      <li><span class="from">client.ts</span> <span class="status">— ShellClient API</span></li>
+      <li><span class="from">websocket.ts</span> <span class="status">— BaseWebSocketManager</span></li>
+    </ul>
+  </div>
+
+  <div class="pkg">
+    <span class="pkg-badge badge-extract">Refactor</span>
+    <div class="score"><span class="val high">Thin</span><br>wrapper</div>
+    <h3>terminar-server (stays as binary)</h3>
+    <p>Becomes a thin binary using terminar-core. Adds HTTP/WS, auth, TLS, CLI.</p>
+    <ul class="file-list">
+      <li><span class="from">main.rs</span> <span class="status">— CLI + startup</span></li>
+      <li><span class="from">lib.rs</span> <span class="status">— HTTP routing (uses core)</span></li>
+      <li><span class="from">auth.rs / jwt.rs / tls.rs</span> <span class="status">— server-only</span></li>
+      <li><span class="from">handlers/*</span> <span class="status">— HTTP wrappers around core</span></li>
+    </ul>
+  </div>
+</div>
+
+<div class="dep-arrow">&#8595;&#8595;&#8595; consumed by &#8595;&#8595;&#8595;</div>
+
+<div class="consumer-box">
+  <h3>Your Agent Runner (first consumer)</h3>
+  <p>New project that embeds terminar-core + uses terminar-ui web components.</p>
+  <ul class="file-list">
+    <li><span class="from">agent-runner/</span></li>
+    <li>&nbsp;&nbsp;<span class="from">Cargo.toml</span> <span class="status">— depends on terminar-core</span></li>
+    <li>&nbsp;&nbsp;<span class="from">src/main.rs</span> <span class="status">— agent orchestrator + mini server</span></li>
+    <li>&nbsp;&nbsp;<span class="from">web/</span> <span class="status">— custom UI using &lt;terminar-terminal&gt; + &lt;terminar-split&gt;</span></li>
+    <li>&nbsp;&nbsp;<span class="from">package.json</span> <span class="status">— depends on @narai/terminar-ui + @narai/terminar-protocol</span></li>
+  </ul>
+</div>

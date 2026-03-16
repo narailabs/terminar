@@ -178,6 +178,10 @@
                                       // TUI flicker is avoided by the burst batching logic (FLUSH_TIME_BUDGET_MS) which flushes
                                       // multiple chunks synchronously in the same frame before yielding.
   const MAX_BUFFER_SIZE = 512 * 1024; // 512KB cap to prevent unbounded memory growth (and GC pressure from large string copies)
+  const MAX_WRITES_IN_FLIGHT = 2; // Cap xterm's internal queue to prevent parser saturation.
+                                   // Heavy ANSI/colored output takes xterm 50-100ms+ per 16KB chunk to parse.
+                                   // Without this cap, the drain loop dumps dozens of chunks in one frame,
+                                   // keeping the main thread busy for hundreds of ms and freezing the UI.
   const SCROLL_THROTTLE_MS = 100; // During burst output, scroll at most every 100ms
   const FLUSH_TIME_BUDGET_MS = 8; // Max ms to spend flushing before yielding to browser
   const REFRESH_INTERVAL_MS = 200; // During sustained output, force a screen repaint every 200ms
@@ -318,7 +322,7 @@
   }
 
   function scheduleFlush() {
-    if (writeRafId === null && writeBuffer) {
+    if (writeRafId === null && writeBuffer && writesInFlight < MAX_WRITES_IN_FLIGHT) {
       writeRafId = requestAnimationFrame(flushWriteBuffer);
     }
   }
@@ -329,12 +333,11 @@
     writeRafId = null;
     if (!writeBuffer || !term) return;
 
-    // Drain our buffer into xterm in chunks, staying within the time budget.
-    // xterm has its own internal write queue that processes data asynchronously
-    // (~16ms per frame). We don't need to wait for each callback — just hand off
-    // chunks and let xterm queue them. The callback is used only for scroll/refresh
-    // coordination after xterm finishes processing each chunk.
-    while (writeBuffer && performance.now() - flushBurstStart < FLUSH_TIME_BUDGET_MS) {
+    // Drain our buffer into xterm in chunks, staying within the time budget
+    // and in-flight cap. The cap prevents flooding xterm's internal queue with
+    // heavy ANSI data that takes much longer to parse than plain text, which
+    // would block the main thread and freeze the UI during colored output.
+    while (writeBuffer && writesInFlight < MAX_WRITES_IN_FLIGHT && performance.now() - flushBurstStart < FLUSH_TIME_BUDGET_MS) {
       const chunk = writeBuffer.length <= WRITE_CHUNK_SIZE
         ? writeBuffer
         : writeBuffer.slice(0, WRITE_CHUNK_SIZE);

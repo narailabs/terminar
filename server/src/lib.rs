@@ -15,19 +15,22 @@ pub mod cookies;
 pub mod error;
 pub mod gateway;
 pub mod handlers;
-pub mod history;
 pub mod jwt;
 pub mod logging;
 pub mod messages;
-pub mod persistence;
-pub mod process;
-pub mod pty;
 pub mod revocation;
 pub mod security_headers;
-pub mod session;
 pub mod settings;
 pub mod tls;
 pub mod workspace;
+
+// Re-export core modules from terminar_core for backward compatibility.
+// Server code can use `crate::session::*`, `crate::pty::*`, etc.
+pub use terminar_core::history;
+pub use terminar_core::persistence;
+pub use terminar_core::process;
+pub use terminar_core::pty;
+pub use terminar_core::session;
 
 use config::Cli;
 use messages::{ClientMessage, ServerMessage};
@@ -515,8 +518,9 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
     // Load session metadata and history, then create new PTY sessions
     // with the original IDs and scrollback content.
     let mut initial_name_counter: u64 = 1;
-    let session_file = persistence::get_session_file_path();
-    let history_dir = persistence::get_history_dir();
+    let base_path = settings::get_settings_dir();
+    let session_file = persistence::get_session_file_path(&base_path);
+    let history_dir = persistence::get_history_dir(&base_path);
     let history_dir_str = history_dir.to_string_lossy().to_string();
     match persistence::load_sessions(&session_file.to_string_lossy()) {
         Ok(data) => {
@@ -561,16 +565,16 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
                     };
 
                     // Validate shell and cwd before restoring
-                    let shell = handlers::session::resolve_shell(&s.shell_cmd);
-                    let cwd_candidate = handlers::session::resolve_cwd(&s.cwd);
-                    if handlers::session::validate_shell(&shell).is_some() {
+                    let shell = terminar_core::engine::resolve_shell(&s.shell_cmd);
+                    let cwd_candidate = terminar_core::engine::resolve_cwd(&s.cwd);
+                    if terminar_core::engine::validate_shell(&shell).is_some() {
                         warn!(
                             "Skipping restore of session {} with invalid shell: {}",
                             s.id, shell
                         );
                         continue;
                     }
-                    if handlers::session::validate_cwd(&cwd_candidate).is_some() {
+                    if terminar_core::engine::validate_cwd(&cwd_candidate).is_some() {
                         warn!(
                             "Skipping restore of session {} with invalid cwd: {} (using home dir)",
                             s.id, s.cwd
@@ -578,7 +582,7 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
                         // Fall through with home dir
                     }
 
-                    match handlers::session::create_session_core(
+                    match terminar_core::engine::create_session(
                         Some(&s.id),
                         &s.name,
                         &shell,
@@ -912,13 +916,14 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
 
     // 5. Start periodic session persistence task
     let persist_sessions = sessions.clone();
+    let persist_base_path = settings::get_settings_dir();
     let mut persist_shutdown_rx = shutdown_tx.subscribe();
     let _persist_task = tokio::spawn(async move {
         let save_interval = Duration::from_secs(constants::PERIODIC_SAVE_INTERVAL_SECS);
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(save_interval) => {
-                    persistence::persist_all(&persist_sessions);
+                    persistence::persist_all(&persist_base_path, &persist_sessions);
                 }
                 _ = persist_shutdown_rx.recv() => {
                     info!("Periodic persistence task received shutdown signal");
@@ -1002,7 +1007,7 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
 
     // Save session histories and metadata before cleanup
     info!("Saving session histories and metadata...");
-    persistence::persist_all(&sessions);
+    persistence::persist_all(&settings::get_settings_dir(), &sessions);
 
     // Clean up sessions (kill PTY processes)
     {

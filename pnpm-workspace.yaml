@@ -1,5 +1,4 @@
 packages:
-  - 'electron'
   - 'extension'
   - 'tray'
   - 'web'
