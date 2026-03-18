@@ -32,10 +32,11 @@ jobs:
             target: aarch64-apple-darwin
             artifact: terminar-server
             npm_pkg: darwin-arm64
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact: terminar-server.exe
-            npm_pkg: win32-x64
+          # Windows support deferred — server requires Unix sockets
+          # - os: windows-latest
+          #   target: x86_64-pc-windows-msvc
+          #   artifact: terminar-server.exe
+          #   npm_pkg: win32-x64
     steps:
       - uses: actions/checkout@v4
 
@@ -236,7 +237,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          for pkg_dir in npm/darwin-arm64 npm/darwin-x64 npm/linux-x64 npm/linux-arm64 npm/win32-x64; do
+          for pkg_dir in npm/darwin-arm64 npm/darwin-x64 npm/linux-x64 npm/linux-arm64; do
             echo "Publishing $(node -p "require('./$pkg_dir/package.json').name")..."
             cd "$pkg_dir"
             npm publish --access public || echo "Already published, skipping"
