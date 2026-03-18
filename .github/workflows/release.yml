@@ -163,7 +163,6 @@ jobs:
             ["aarch64-unknown-linux-gnu"]="linux-arm64"
             ["x86_64-apple-darwin"]="darwin-x64"
             ["aarch64-apple-darwin"]="darwin-arm64"
-            ["x86_64-pc-windows-msvc"]="win32-x64"
           )
 
           for target in "${!TARGET_MAP[@]}"; do
@@ -171,12 +170,8 @@ jobs:
             mkdir -p "$pkg_dir/bin"
 
             # Copy binary
-            if [ "$target" = "x86_64-pc-windows-msvc" ]; then
-              cp "artifacts/server/server-$target/terminar-server.exe" "$pkg_dir/bin/"
-            else
-              cp "artifacts/server/server-$target/terminar-server" "$pkg_dir/bin/"
-              chmod +x "$pkg_dir/bin/terminar-server"
-            fi
+            cp "artifacts/server/server-$target/terminar-server" "$pkg_dir/bin/"
+            chmod +x "$pkg_dir/bin/terminar-server"
 
             # Stamp version
             node -e "
