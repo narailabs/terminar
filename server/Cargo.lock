@@ -2559,6 +2559,7 @@ dependencies = [
 [[package]]
 name = "terminar-core"
 version = "0.1.0"
+source = "git+https://github.com/narailabs/terminar-core#e1b94fa6fd8190cab458e9a16e4fb414e705ebf3"
 dependencies = [
  "anyhow",
  "libc",
