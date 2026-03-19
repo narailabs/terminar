@@ -1,6 +1,6 @@
 {
   "name": "terminar",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "private": true,
   "description": "terminar - Persistent terminal sessions with desktop, web, and VS Code extension frontends",
   "scripts": {

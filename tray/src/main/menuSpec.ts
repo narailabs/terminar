@@ -21,11 +21,15 @@ export function computeMenuSpec(
   config: TrayConfig,
   options?: { launchedByCli?: boolean; portOverride?: number },
 ): MenuSpec {
+  const launchedByCli = options?.launchedByCli ?? false;
+  const displayPort = options?.portOverride ?? config.gateway_port;
+
   // Status line
   let statusIcon = '\u25CB'; // open circle
   let statusLabel = 'Unknown';
 
-  if (serviceStatus === 'notinstalled') {
+  // In CLI mode, skip "Not Installed" — the CLI manages the server
+  if (serviceStatus === 'notinstalled' && !launchedByCli) {
     statusIcon = '\u25CB'; // open circle
     statusLabel = 'Not Installed';
   } else {
@@ -45,8 +49,6 @@ export function computeMenuSpec(
     }
   }
 
-  const launchedByCli = options?.launchedByCli ?? false;
-  const displayPort = options?.portOverride ?? config.gateway_port;
   const tlsLabel =
     !launchedByCli && (config.tls_mode === 'auto' || config.tls_mode === 'custom')
       ? ', TLS'
@@ -54,7 +56,8 @@ export function computeMenuSpec(
   const serviceLabel = launchedByCli ? 'Server' : 'Gateway';
   const statusText = `${serviceLabel}: ${statusIcon} ${statusLabel} (port ${displayPort}${tlsLabel})`;
 
-  const isInstalled = serviceStatus !== 'notinstalled';
+  // In CLI mode, the server is always considered "installed" (managed by CLI)
+  const isInstalled = launchedByCli || serviceStatus !== 'notinstalled';
   const isRunning = isInstalled && health.status === 'running';
 
   let serversText = '';
