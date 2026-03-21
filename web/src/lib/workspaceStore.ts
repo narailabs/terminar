@@ -25,13 +25,28 @@ import {
 const STORAGE_KEY = 'workspace-state';
 
 /**
+ * Migrate a workspace loaded from persistence to ensure all tabs have sessionOrder.
+ */
+function migrateWorkspace(workspace: Workspace): Workspace {
+  for (const tab of workspace.tabs) {
+    if (!tab.sessionOrder) {
+      // Migrate: derive sessionOrder from pane tree
+      tab.sessionOrder = getAllPanes(tab.root)
+        .filter((p) => p.sessionId)
+        .map((p) => p.sessionId!);
+    }
+  }
+  return workspace;
+}
+
+/**
  * Load workspace from localStorage (fallback cache)
  */
 function loadFromCache(): Workspace | null {
   try {
     const cached = localStorage.getItem(STORAGE_KEY);
     if (cached) {
-      return JSON.parse(cached);
+      return migrateWorkspace(JSON.parse(cached));
     }
   } catch (e) {
     console.warn('[Workspace] Failed to load from cache:', e);
@@ -144,6 +159,7 @@ function createWorkspaceStore() {
         if (!serverWorkspace.activeTabId) {
           serverWorkspace.activeTabId = serverWorkspace.tabs[0].id;
         }
+        migrateWorkspace(serverWorkspace);
         set(serverWorkspace);
         saveToCache(serverWorkspace);
       } else if (initialSessionId) {
@@ -263,6 +279,10 @@ function createWorkspaceStore() {
               changed = true;
             }
           }
+          // Remove stale IDs from sessionOrder
+          const before = tab.sessionOrder.length;
+          tab.sessionOrder = tab.sessionOrder.filter((id) => validSessionIds.has(id));
+          if (tab.sessionOrder.length !== before) changed = true;
         }
         if (!changed) return ws;
         scheduleSave(ws);
@@ -281,6 +301,10 @@ function createWorkspaceStore() {
         const pane = findPane(tab.root, paneId);
         if (!pane) return ws;
         pane.sessionId = sessionId;
+        // Add new sessions to sessionOrder if not already present
+        if (sessionId && !tab.sessionOrder.includes(sessionId)) {
+          tab.sessionOrder.push(sessionId);
+        }
         scheduleSave(ws);
         return refreshActiveTab(ws);
       });
@@ -309,6 +333,9 @@ function createWorkspaceStore() {
             const newPane = createPane(newSessionId || null);
             newPaneId = newPane.id;
             tab.root = createSplit(direction, [tab.root, newPane]);
+            if (newSessionId && !tab.sessionOrder.includes(newSessionId)) {
+              tab.sessionOrder.push(newSessionId);
+            }
             scheduleSave(ws);
             return refreshActiveTab(ws);
           }
@@ -335,6 +362,9 @@ function createWorkspaceStore() {
           parent.children[index] = newSplit;
         }
 
+        if (newSessionId && !tab.sessionOrder.includes(newSessionId)) {
+          tab.sessionOrder.push(newSessionId);
+        }
         scheduleSave(ws);
         return refreshActiveTab(ws);
       });
@@ -511,6 +541,39 @@ function createWorkspaceStore() {
         const newWs = { ...ws, tabs: newTabs };
         scheduleSave(newWs);
         return newWs;
+      });
+    },
+
+    // ==================== Session Ordering ====================
+
+    /**
+     * Reorder a session within a tab's sessionOrder list.
+     */
+    reorderSession(tabId: TabId, fromIndex: number, toIndex: number) {
+      update((ws) => {
+        const tab = ws.tabs.find((t) => t.id === tabId);
+        if (!tab || fromIndex === toIndex) return ws;
+        const [moved] = tab.sessionOrder.splice(fromIndex, 1);
+        tab.sessionOrder.splice(toIndex, 0, moved);
+        scheduleSave(ws);
+        return ws;
+      });
+    },
+
+    /**
+     * Move a session from one tab's sessionOrder to another tab's sessionOrder.
+     */
+    moveSessionToTab(sessionId: SessionId, fromTabId: TabId, toTabId: TabId) {
+      update((ws) => {
+        const fromTab = ws.tabs.find((t) => t.id === fromTabId);
+        const toTab = ws.tabs.find((t) => t.id === toTabId);
+        if (!fromTab || !toTab) return ws;
+        fromTab.sessionOrder = fromTab.sessionOrder.filter((id) => id !== sessionId);
+        if (!toTab.sessionOrder.includes(sessionId)) {
+          toTab.sessionOrder.push(sessionId);
+        }
+        scheduleSave(ws);
+        return ws;
       });
     },
 

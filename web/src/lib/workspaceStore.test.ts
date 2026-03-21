@@ -32,7 +32,7 @@ const { workspaceStore, activeTab, activePanes } = await import('./workspaceStor
 function freshWorkspace(sessionId?: string): Workspace {
   uuidCounter = 0; // reset so IDs are predictable
   const pane: Pane = { type: 'pane', id: `uuid-${++uuidCounter}`, sessionId: sessionId ?? null };
-  const tab: Tab = { id: `uuid-${++uuidCounter}`, name: 'Terminal 1', root: pane };
+  const tab: Tab = { id: `uuid-${++uuidCounter}`, name: 'Terminal 1', root: pane, sessionOrder: sessionId ? [sessionId] : [] };
   return { tabs: [tab], activeTabId: tab.id };
 }
 
@@ -64,7 +64,7 @@ describe('workspaceStore', () => {
   describe('initialize', () => {
     it('should accept server workspace and use it', () => {
       const pane: Pane = { type: 'pane', id: 'srv-pane', sessionId: 'srv-session' };
-      const tab: Tab = { id: 'srv-tab', name: 'Server Tab', root: pane };
+      const tab: Tab = { id: 'srv-tab', name: 'Server Tab', root: pane, sessionOrder: ['srv-session'] };
       const serverWs: Workspace = { tabs: [tab], activeTabId: 'srv-tab' };
 
       workspaceStore.initialize(serverWs);
@@ -76,7 +76,7 @@ describe('workspaceStore', () => {
 
     it('should set activeTabId to first tab if server workspace has none', () => {
       const pane: Pane = { type: 'pane', id: 'p1', sessionId: null };
-      const tab: Tab = { id: 't1', name: 'Tab', root: pane };
+      const tab: Tab = { id: 't1', name: 'Tab', root: pane, sessionOrder: [] };
       const serverWs: Workspace = { tabs: [tab], activeTabId: '' };
 
       workspaceStore.initialize(serverWs);
@@ -94,7 +94,7 @@ describe('workspaceStore', () => {
     it('should do nothing when server workspace is null and no initialSessionId', () => {
       // First set known state
       const pane: Pane = { type: 'pane', id: 'keep', sessionId: null };
-      const tab: Tab = { id: 'keep-tab', name: 'Keep', root: pane };
+      const tab: Tab = { id: 'keep-tab', name: 'Keep', root: pane, sessionOrder: [] };
       workspaceStore.initialize({ tabs: [tab], activeTabId: 'keep-tab' });
 
       // Now call with nothing
@@ -310,7 +310,7 @@ describe('workspaceStore', () => {
     it('should return null when the active tab does not exist', () => {
       // Force a state where activeTabId points nowhere
       workspaceStore.initialize({
-        tabs: [{ id: 't', name: 'T', root: { type: 'pane', id: 'p', sessionId: null } }],
+        tabs: [{ id: 't', name: 'T', root: { type: 'pane', id: 'p', sessionId: null }, sessionOrder: [] }],
         activeTabId: 'nonexistent',
       });
       const result = workspaceStore.splitPane('p', 'horizontal');
@@ -660,6 +660,87 @@ describe('workspaceStore', () => {
 
     it('should return false for unknown sessions', () => {
       expect(workspaceStore.isSessionNew('unknown')).toBe(false);
+    });
+  });
+
+  // ────────────────────── Session Reordering ──────────────────────
+
+  describe('session reordering', () => {
+    it('should reorder sessions within a tab', () => {
+      // Assign a session to the root pane first so sessionOrder has it
+      const tab = workspaceStore.get().tabs[0];
+      const rootPaneId = (tab.root as Pane).id;
+      workspaceStore.assignSession(rootPaneId, 'session-a');
+      workspaceStore.splitPane(rootPaneId, 'horizontal', 'session-b');
+
+      const updatedTab = workspaceStore.get().tabs[0];
+      // sessionOrder should now be ['session-a', 'session-b']
+      expect(updatedTab.sessionOrder).toHaveLength(2);
+      const orderBefore = [...updatedTab.sessionOrder];
+
+      workspaceStore.reorderSession(updatedTab.id, 0, 1);
+
+      const afterTab = workspaceStore.get().tabs[0];
+      expect(afterTab.sessionOrder[0]).toBe(orderBefore[1]);
+      expect(afterTab.sessionOrder[1]).toBe(orderBefore[0]);
+    });
+
+    it('should be a no-op when fromIndex === toIndex', () => {
+      const tab = workspaceStore.get().tabs[0];
+      const rootPaneId = (tab.root as Pane).id;
+      workspaceStore.assignSession(rootPaneId, 'session-a');
+      workspaceStore.splitPane(rootPaneId, 'horizontal', 'session-b');
+      const orderBefore = [...workspaceStore.get().tabs[0].sessionOrder];
+
+      workspaceStore.reorderSession(workspaceStore.get().tabs[0].id, 0, 0);
+
+      expect(workspaceStore.get().tabs[0].sessionOrder).toEqual(orderBefore);
+    });
+
+    it('should move a session to another tab', () => {
+      const tabId2 = workspaceStore.createTab('Tab 2', 'session-c');
+      const tab1 = workspaceStore.get().tabs[0];
+      const sessionToMove = tab1.sessionOrder[0];
+
+      workspaceStore.moveSessionToTab(sessionToMove, tab1.id, tabId2);
+
+      const updated = workspaceStore.get();
+      const destTab = updated.tabs.find((t) => t.id === tabId2)!;
+      expect(destTab.sessionOrder).toContain(sessionToMove);
+    });
+
+    it('should remove the session from the source tab after moveSessionToTab', () => {
+      const tabId2 = workspaceStore.createTab('Tab 2', 'session-c');
+      // Set active back to tab1 to splitPane there
+      const tab1Id = workspaceStore.get().tabs[0].id;
+      workspaceStore.setActiveTab(tab1Id);
+      const tab1 = workspaceStore.get().tabs[0];
+      workspaceStore.splitPane(tab1.root.id, 'horizontal', 'session-a');
+      const sessionToMove = workspaceStore.get().tabs[0].sessionOrder[0];
+
+      workspaceStore.moveSessionToTab(sessionToMove, tab1Id, tabId2);
+
+      const srcTab = workspaceStore.get().tabs.find((t) => t.id === tab1Id)!;
+      expect(srcTab.sessionOrder).not.toContain(sessionToMove);
+    });
+
+    it('should push sessionId to sessionOrder when assignSession is called with new session', () => {
+      const paneId = (activeTabFromStore()!.root as Pane).id;
+      workspaceStore.assignSession(paneId, 'new-session-x');
+      expect(activeTabFromStore()!.sessionOrder).toContain('new-session-x');
+    });
+
+    it('should remove stale IDs from sessionOrder in clearStaleSessions', () => {
+      const paneId = (activeTabFromStore()!.root as Pane).id;
+      workspaceStore.assignSession(paneId, 'keep-session');
+      // Manually add a stale ID to sessionOrder via splitPane
+      workspaceStore.splitPane(paneId, 'horizontal', 'stale-session');
+      expect(activeTabFromStore()!.sessionOrder).toContain('stale-session');
+
+      workspaceStore.clearStaleSessions(new Set(['keep-session']));
+
+      expect(activeTabFromStore()!.sessionOrder).not.toContain('stale-session');
+      expect(activeTabFromStore()!.sessionOrder).toContain('keep-session');
     });
   });
 
