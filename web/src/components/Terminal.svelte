@@ -5,6 +5,7 @@
   import { WebglAddon } from '@xterm/addon-webgl';
   import { Unicode11Addon } from '@xterm/addon-unicode11';
   import { SearchAddon } from '@xterm/addon-search';
+  import { ImageAddon } from '@xterm/addon-image';
   import '@xterm/xterm/css/xterm.css';
   import type { SessionManager } from '../lib/SessionManager';
   import { xtermOptions, settingsStore } from '../lib/settingsStore.svelte';
@@ -904,6 +905,10 @@
     } else {
       console.log('[Terminal] WebGL disabled via URL parameter');
     }
+
+    // Image display (SIXEL + iTerm2 IIP)
+    const imageAddon = new ImageAddon();
+    term.loadAddon(imageAddon);
 
     // Create resize debouncer
     resizeDebouncer = new TerminalResizeDebouncer(
