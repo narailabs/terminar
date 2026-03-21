@@ -15,6 +15,7 @@
   import { focusedPane } from '../lib/focusStore.svelte';
   import { getManagerContext, getSessionsContext, getActionsContext, setPaneActionsContext } from '../lib/sessionContext.svelte';
   import type { SessionManager } from '../lib/SessionManager';
+  import { sessionCwdStore } from '../lib/sessionCwdStore.svelte';
 
   // Optional prop overrides (for tests that render without context)
   let {
@@ -128,8 +129,26 @@
       workspaceStore.closePane(paneId);
     },
     closePaneAction(paneId) { focusedPane.id = null; workspaceStore.closePane(paneId); },
-    splitHorizontal(paneId) { focusedPane.id = null; workspaceStore.splitPane(paneId, 'horizontal'); },
-    splitVertical(paneId) { focusedPane.id = null; workspaceStore.splitPane(paneId, 'vertical'); },
+    splitHorizontal(paneId) {
+      focusedPane.id = null;
+      const newPaneId = workspaceStore.splitPane(paneId, 'horizontal');
+      if (newPaneId) {
+        const tab = workspaceStore.get().tabs.find(t => t.id === workspaceStore.get().activeTabId);
+        const sourcePane = tab ? findPane(tab.root, paneId) : null;
+        const sourceCwd = sourcePane?.sessionId ? (sessionCwdStore.get(sourcePane.sessionId) ?? '') : '';
+        actions.createNewTerminalWithCwd(newPaneId, sourceCwd);
+      }
+    },
+    splitVertical(paneId) {
+      focusedPane.id = null;
+      const newPaneId = workspaceStore.splitPane(paneId, 'vertical');
+      if (newPaneId) {
+        const tab = workspaceStore.get().tabs.find(t => t.id === workspaceStore.get().activeTabId);
+        const sourcePane = tab ? findPane(tab.root, paneId) : null;
+        const sourceCwd = sourcePane?.sessionId ? (sessionCwdStore.get(sourcePane.sessionId) ?? '') : '';
+        actions.createNewTerminalWithCwd(newPaneId, sourceCwd);
+      }
+    },
     commitResize(splitId, ratios) { workspaceStore.updateRatios(splitId, ratios); },
     toggleFocus(paneId) { focusedPane.id = focusedPane.id === paneId ? null : paneId; },
   });
@@ -139,30 +158,45 @@
     contextMenu = null;
   }
 
+  function getSourceCwdForPane(paneId: string): string {
+    const ws = workspaceStore.get();
+    const tab = ws.tabs.find(t => t.id === ws.activeTabId);
+    const sourcePane = tab ? findPane(tab.root, paneId) : null;
+    return sourcePane?.sessionId ? (sessionCwdStore.get(sourcePane.sessionId) ?? '') : '';
+  }
+
   function handleSplitLeft() {
     if (contextMenu) {
-      workspaceStore.splitPaneBefore(contextMenu.paneId, 'horizontal');
+      const cwd = getSourceCwdForPane(contextMenu.paneId);
+      const newPaneId = workspaceStore.splitPaneBefore(contextMenu.paneId, 'horizontal');
+      if (newPaneId) actions.createNewTerminalWithCwd(newPaneId, cwd);
       contextMenu = null;
     }
   }
 
   function handleSplitHorizontal() {
     if (contextMenu) {
-      workspaceStore.splitPane(contextMenu.paneId, 'horizontal');
+      const cwd = getSourceCwdForPane(contextMenu.paneId);
+      const newPaneId = workspaceStore.splitPane(contextMenu.paneId, 'horizontal');
+      if (newPaneId) actions.createNewTerminalWithCwd(newPaneId, cwd);
       contextMenu = null;
     }
   }
 
   function handleSplitUp() {
     if (contextMenu) {
-      workspaceStore.splitPaneBefore(contextMenu.paneId, 'vertical');
+      const cwd = getSourceCwdForPane(contextMenu.paneId);
+      const newPaneId = workspaceStore.splitPaneBefore(contextMenu.paneId, 'vertical');
+      if (newPaneId) actions.createNewTerminalWithCwd(newPaneId, cwd);
       contextMenu = null;
     }
   }
 
   function handleSplitVertical() {
     if (contextMenu) {
-      workspaceStore.splitPane(contextMenu.paneId, 'vertical');
+      const cwd = getSourceCwdForPane(contextMenu.paneId);
+      const newPaneId = workspaceStore.splitPane(contextMenu.paneId, 'vertical');
+      if (newPaneId) actions.createNewTerminalWithCwd(newPaneId, cwd);
       contextMenu = null;
     }
   }
@@ -289,14 +323,18 @@
     if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key === 'e') {
       event.preventDefault();
       if (activePaneId) {
-        workspaceStore.splitPane(activePaneId, 'horizontal');
+        const cwd = getSourceCwdForPane(activePaneId);
+        const newPaneId = workspaceStore.splitPane(activePaneId, 'horizontal');
+        if (newPaneId) actions.createNewTerminalWithCwd(newPaneId, cwd);
       }
     }
     // Cmd/Ctrl + Shift + O = Split vertical
     else if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key === 'o') {
       event.preventDefault();
       if (activePaneId) {
-        workspaceStore.splitPane(activePaneId, 'vertical');
+        const cwd = getSourceCwdForPane(activePaneId);
+        const newPaneId = workspaceStore.splitPane(activePaneId, 'vertical');
+        if (newPaneId) actions.createNewTerminalWithCwd(newPaneId, cwd);
       }
     }
     // Cmd/Ctrl + W = Close pane

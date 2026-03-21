@@ -41,6 +41,7 @@ export function reactiveBox<T>(initial: T): ReactiveBox<T> {
 
 export interface AppActions {
   createNewTerminal(targetPaneId?: string): void;
+  createNewTerminalWithCwd(targetPaneId: string, cwd: string): void;
   closeTerminal(sessionId: string): void;
   renameTerminal(sessionId: string, newName: string): void;
   toggleSidebar(): void;
@@ -50,6 +51,7 @@ export interface AppActions {
 // No-op actions for when context is not available (e.g., unit tests)
 const NOOP_ACTIONS: AppActions = {
   createNewTerminal() {},
+  createNewTerminalWithCwd() {},
   closeTerminal() {},
   renameTerminal() {},
   toggleSidebar() {},
