@@ -5,7 +5,7 @@
   import { broadcastTargets, toggleTarget, isTarget } from '../lib/broadcastStore.svelte';
   import { foregroundStore } from '../lib/foregroundStore.svelte';
   import { titleStore } from '../lib/titleStore.svelte';
-  import { sessionPaneCounts } from '../lib/workspaceStore';
+  import { sessionPaneCounts, newSessionIds } from '../lib/workspaceStore';
 
   let {
     sessions = [],
@@ -160,6 +160,9 @@
             oneditend={() => handleEditEnd()}
             oncontextmenu={handleContextMenu}
           />
+          {#if $newSessionIds.has(session.id)}
+            <span class="new-badge"> (new)</span>
+          {/if}
         </div>
       </div>
     {/each}
@@ -238,6 +241,18 @@
   .session-item-wrapper {
     flex: 1;
     min-width: 0;
+    position: relative;
+  }
+
+  .new-badge {
+    color: var(--text-secondary, #888);
+    font-style: italic;
+    font-size: 11px;
+    pointer-events: none;
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
   }
 
   .broadcast-checkbox {
