@@ -644,6 +644,25 @@ describe('workspaceStore', () => {
     });
   });
 
+  // ────────────────────── New Session Flags ──────────────────────
+
+  describe('newSessionFlags', () => {
+    it('should mark a session as new', () => {
+      workspaceStore.markSessionNew('session-1');
+      expect(workspaceStore.isSessionNew('session-1')).toBe(true);
+    });
+
+    it('should clear new flag', () => {
+      workspaceStore.markSessionNew('session-1');
+      workspaceStore.clearSessionNew('session-1');
+      expect(workspaceStore.isSessionNew('session-1')).toBe(false);
+    });
+
+    it('should return false for unknown sessions', () => {
+      expect(workspaceStore.isSessionNew('unknown')).toBe(false);
+    });
+  });
+
   // ────────────────────── Derived stores ──────────────────────
 
   describe('derived stores', () => {

@@ -13,6 +13,7 @@
   import { resizeState } from '../lib/resizeStore.svelte';
   import { TerminalResizeDebouncer } from '../lib/TerminalResizeDebouncer';
   import { getManagerContext } from '../lib/sessionContext.svelte';
+  import { workspaceStore } from '../lib/workspaceStore';
 
   // Optional prop override (for tests that render without context).
   // Named _managerProp to avoid shadowing the `manager` local used throughout.
@@ -968,6 +969,10 @@
             // \x1b[I = focus in, \x1b[O = focus out
             if (data === '\x1b[I' || data === '\x1b[O') {
                 return; // Don't send focus events to the server
+            }
+            // Clear the "new" badge on the first real user input
+            if (workspaceStore.isSessionNew(activeSessionId)) {
+                workspaceStore.clearSessionNew(activeSessionId);
             }
             manager.sendInput(activeSessionId, data);
 

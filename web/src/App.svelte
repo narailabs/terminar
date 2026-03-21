@@ -453,6 +453,8 @@
         // Find and select the newly created terminal
         const newSession = sessions.find(s => !previousSessionIds.has(s.id));
         if (newSession) {
+          // Mark as new so the "(new)" badge shows until first input
+          workspaceStore.markSessionNew(newSession.id);
           if (pendingNewTerminalPaneId) {
             // Assign to the specific pane that requested the new terminal
             workspaceStore.assignSession(pendingNewTerminalPaneId, newSession.id);
