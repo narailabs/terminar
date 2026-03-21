@@ -25,6 +25,7 @@
   import { foregroundStore } from './lib/foregroundStore.svelte';
   import { parseSshPrivateKey } from './lib/sshKeyParser';
   import { reactiveBox, setManagerContext, setSessionsContext, setActionsContext, type AppActions } from './lib/sessionContext.svelte';
+  import { sessionCwdStore } from './lib/sessionCwdStore.svelte';
 
   // Check for local-echo mode via URL parameter or localStorage (for e2e tests)
   const isLocalEchoMode = typeof window !== 'undefined' && (
@@ -88,6 +89,7 @@
   // Actions context for child components (replaces event bubbling)
   const appActions: AppActions = {
     createNewTerminal,
+    createNewTerminalWithCwd,
     closeTerminal,
     renameTerminal,
     toggleSidebar: () => { sidebarOpen = !sidebarOpen; },
@@ -488,6 +490,7 @@
     });
 
     manager.on('cwdChanged', (sessionId: string, cwd: string) => {
+      sessionCwdStore.set(sessionId, cwd);
       sessions = sessions.map(s => s.id === sessionId ? { ...s, cwd } : s);
     });
 
@@ -851,6 +854,15 @@
     const estimatedRows = Math.max(10, Math.floor((window.innerHeight * 0.85) / 17));
     const envVars = getEffectiveEnv({});
     manager?.createSession('', '', envVars, estimatedCols, estimatedRows);
+  }
+
+  function createNewTerminalWithCwd(targetPaneId: string, cwd: string) {
+    pendingNewTerminal = true;
+    pendingNewTerminalPaneId = targetPaneId;
+    const estimatedCols = Math.max(40, Math.floor((window.innerWidth * 0.75) / 8));
+    const estimatedRows = Math.max(10, Math.floor((window.innerHeight * 0.85) / 17));
+    const envVars = getEffectiveEnv({});
+    manager?.createSession(cwd, '', envVars, estimatedCols, estimatedRows);
   }
 
   function closeTerminal(sessionId: string) {

@@ -22,9 +22,11 @@
   setSessionsContext(sessionsBox);
   setActionsContext({
     createNewTerminal() {},
+    createNewTerminalWithCwd() {},
     closeTerminal() {},
     renameTerminal() {},
     toggleSidebar() {},
+    resetTerminal() {},
   });
   setPaneActionsContext({
     drop() {},
@@ -37,6 +39,7 @@
     splitHorizontal() {},
     splitVertical() {},
     commitResize() {},
+    toggleFocus() {},
   });
 
   $effect(() => {
