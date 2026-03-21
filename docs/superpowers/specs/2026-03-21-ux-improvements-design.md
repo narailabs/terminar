@@ -19,7 +19,7 @@ A batch of UX improvements to the terminar web and Electron frontends. The large
 ┌─────────────────────────────────────────────┐
 │            Electron Main Process            │
 │  ┌───────────────────────────────────────┐  │
-│  │     WindowManager (new module)        │  │
+│  │   MultiWindowCoordinator (new module)  │  │
 │  │  - tracks BrowserWindow instances     │  │
 │  │  - assigns tabs to windows            │  │
 │  │  - IPC hub for workspace sync         │  │
@@ -46,12 +46,13 @@ A batch of UX improvements to the terminar web and Electron frontends. The large
 
 **New files:**
 
-- `tray/src/main/WindowManager.ts` — window lifecycle, tab-to-window mapping, IPC handlers for workspace sync
+- `tray/src/main/MultiWindowCoordinator.ts` — tab-to-window mapping, IPC hub for workspace sync across terminal windows
 
 **Modified files:**
 
+- `tray/src/main/WindowManager.ts` — refactor `openTerminal()` to support multiple concurrent terminal windows (currently enforces a single terminal window via early-return). Add Cmd+N handler that delegates to MultiWindowCoordinator for tab assignment.
 - `web/src/lib/workspaceStore.ts` — add IPC listeners for cross-window workspace mutations
-- `tray/src/main/index.ts` — integrate WindowManager into app lifecycle
+- `tray/src/main/index.ts` — integrate MultiWindowCoordinator into app lifecycle
 
 ### 2. Sidebar Reordering
 
@@ -77,7 +78,7 @@ Three drag-drop capabilities using existing HTML5 drag-drop patterns from the pa
 
 **Sidebar click behavior change:**
 
-- **Click a session:** No longer switches the active terminal. The sidebar is a session pool, not a navigation list.
+- **Click a session:** Assigns the session to the currently focused pane (replaces the pane's current session). This preserves keyboard accessibility — users don't need drag-and-drop to assign sessions.
 - **Drag session onto a pane:** Replaces that pane's session with the dragged one. The previous session returns to the unassigned pool.
 - **Drag session onto a split zone:** Creates a new split with the dragged session.
 - **Visual distinction:** Sessions assigned to a pane appear dimmed or with a pane indicator. Unassigned sessions appear fully visible.
@@ -86,9 +87,9 @@ Three drag-drop capabilities using existing HTML5 drag-drop patterns from the pa
 
 - `web/src/components/TerminalList.svelte` — remove click-to-switch, add drag source handlers, add drag handles
 - `web/src/components/Pane.svelte` — add drop target handlers to accept sessions from sidebar
-- `web/src/components/TabBar.svelte` (or equivalent) — add drag handlers for tab header reordering
+- `web/src/components/TabBar.svelte` — add drag handlers for tab header reordering
 - `web/src/lib/workspaceStore.ts` — add `reorderSession()`, `moveSessionToTab()`, `reorderTab()` methods
-- `web/src/lib/workspaceTypes.ts` — add `sessionOrder` field to tab type
+- `web/src/lib/workspaceTypes.ts` — add `sessionOrder: string[]` field to tab type (tracks display order of all sessions belonging to this tab, both assigned-to-pane and unassigned)
 
 All ordering persists to localStorage with the rest of the workspace state.
 
@@ -107,7 +108,7 @@ All ordering persists to localStorage with the rest of the workspace state.
 
 ### 5. Broadcast: Default to All
 
-- In `broadcastInput()` in `broadcastStore.svelte.ts`: if `targets.size === 0`, iterate all session IDs instead of doing nothing
+- In `broadcastInput()` in `broadcastStore.svelte.ts`: if `targets.size === 0`, get all session IDs via `sessionManager.getActiveSessions()` (or equivalent enumeration method) and iterate those instead
 - When broadcast mode is on with no checkboxes selected, input goes to every session
 
 ### 6. Default Tab Name
@@ -116,12 +117,15 @@ All ordering persists to localStorage with the rest of the workspace state.
 
 ### 7. Split Inherits CWD
 
-- When splitting a pane, read the source session's current CWD from session metadata (tracked via `CwdChanged` events)
+- Add a client-side `sessionCwdMap: Map<string, string>` (session ID → CWD) to the session metadata store, updated on `CwdChanged` events from the WebSocket manager
+- When splitting a pane, look up the source session's CWD from `sessionCwdMap`
 - Pass that CWD to `createSession()` so the new terminal opens in the same directory
+- Fallback: if CWD is unknown (no `CwdChanged` received yet), use the user's home directory
 
 **Modified files:**
 
-- `web/src/lib/workspaceStore.ts` — `splitPane()` reads source CWD and passes to session creation
+- `web/src/lib/sessionStore.ts` or equivalent — add `sessionCwdMap`, subscribe to `cwdChanged` events
+- `web/src/lib/workspaceStore.ts` — `splitPane()` reads source CWD from map and passes to session creation
 
 ### 8. "(new)" Badge on Terminals
 
@@ -143,7 +147,7 @@ All ordering persists to localStorage with the rest of the workspace state.
 | Multi-window architecture | Shared workspace via IPC | User expects one workspace; tabs are viewports. Standard Electron pattern. |
 | Sidebar drag-drop implementation | HTML5 drag-drop API | Already used for pane reordering. No new dependencies. |
 | "(new)" badge tracking | Client-side flag | Purely cosmetic. No server involvement needed. |
-| Sidebar click behavior | No-op on click; drag to assign | Sidebar is a session pool, not a nav list. Panes are assigned by dragging. |
+| Sidebar click behavior | Click assigns to focused pane; drag for targeted assignment | Sidebar is a session pool. Click provides keyboard-accessible assignment; drag provides targeted pane assignment. |
 | Broadcast with no targets | Send to all sessions | Intuitive default. Matches user expectation of "broadcast". |
 | Image protocol | @xterm/addon-image (SIXEL + iTerm2 IIP) | Actively maintained, works transparently with existing server. |
 
