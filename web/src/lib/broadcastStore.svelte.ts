@@ -81,12 +81,17 @@ export function isTarget(sessionId: string): boolean {
 
 /**
  * Send input data to all broadcast target sessions.
+ * When no targets are selected, falls back to broadcasting to all known sessions.
  * Uses the session manager's sendInput method for each target.
  */
 export function broadcastInput(data: string): void {
   if (!sessionManager) return;
 
-  for (const sessionId of targets) {
+  const sessionIds = targets.size > 0
+    ? targets
+    : new Set(sessionManager.getLastSessionList().map(s => s.id));
+
+  for (const sessionId of sessionIds) {
     sessionManager.sendInput(sessionId, data);
   }
 }

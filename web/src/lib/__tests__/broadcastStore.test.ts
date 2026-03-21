@@ -117,13 +117,25 @@ describe('broadcastStore', () => {
     expect(mockManager.sendInput).toHaveBeenCalledWith('session-3', 'hello');
   });
 
-  it('broadcastInput does nothing with no targets', () => {
-    const mockManager = createMockManager();
+  it('broadcastInput sends to all sessions when no targets selected', () => {
+    // Extend the existing mock with getLastSessionList
+    const mockManager = {
+      ...createMockManager(),
+      getLastSessionList: vi.fn().mockReturnValue([
+        { id: 'session-1' },
+        { id: 'session-2' },
+        { id: 'session-3' },
+      ]),
+    };
     setSessionManager(mockManager as any);
+    // No targets added — targets.size === 0
 
-    broadcastInput('hello');
+    broadcastInput('hello\n');
 
-    expect(mockManager.sendInput).not.toHaveBeenCalled();
+    expect(mockManager.sendInput).toHaveBeenCalledTimes(3);
+    expect(mockManager.sendInput).toHaveBeenCalledWith('session-1', 'hello\n');
+    expect(mockManager.sendInput).toHaveBeenCalledWith('session-2', 'hello\n');
+    expect(mockManager.sendInput).toHaveBeenCalledWith('session-3', 'hello\n');
   });
 
   it('broadcastInput does nothing without a session manager', () => {
