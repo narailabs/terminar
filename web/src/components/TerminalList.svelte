@@ -5,7 +5,8 @@
   import { broadcastTargets, toggleTarget, isTarget } from '../lib/broadcastStore.svelte';
   import { foregroundStore } from '../lib/foregroundStore.svelte';
   import { titleStore } from '../lib/titleStore.svelte';
-  import { sessionPaneCounts, newSessionIds } from '../lib/workspaceStore';
+  import { sessionPaneCounts, newSessionIds, workspaceStore } from '../lib/workspaceStore';
+  import { focusedPane } from '../lib/focusStore.svelte';
 
   let {
     sessions = [],
@@ -41,7 +42,48 @@
   ];
 
   function handleSelect(sessionId: string) {
-    onselect?.(sessionId);
+    // Assign clicked session to the currently focused pane instead of switching active terminal
+    const focusedPaneId = focusedPane.id;
+    if (focusedPaneId) {
+      workspaceStore.assignSession(focusedPaneId, sessionId);
+    } else {
+      onselect?.(sessionId);
+    }
+  }
+
+  // ── Session drag-drop for sidebar reordering ──────────────────────────────
+  let draggedSessionIndex: number | null = $state(null);
+  let sessionDragOverIndex: number | null = $state(null);
+
+  function handleSessionDragStart(event: DragEvent, sessionId: string, index: number) {
+    draggedSessionIndex = index;
+    event.dataTransfer?.setData('text/plain', sessionId);
+    event.dataTransfer?.setData('application/x-terminar-session', sessionId);
+  }
+
+  function handleSessionDragOver(event: DragEvent, index: number) {
+    if (draggedSessionIndex === null) return;
+    event.preventDefault();
+    sessionDragOverIndex = index;
+  }
+
+  function handleSessionDragLeave() {
+    sessionDragOverIndex = null;
+  }
+
+  function handleSessionDrop(event: DragEvent, toIndex: number) {
+    if (draggedSessionIndex === null) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const activeTabId = workspaceStore.get().activeTabId;
+    workspaceStore.reorderSession(activeTabId, draggedSessionIndex, toIndex);
+    draggedSessionIndex = null;
+    sessionDragOverIndex = null;
+  }
+
+  function handleSessionDragEnd() {
+    draggedSessionIndex = null;
+    sessionDragOverIndex = null;
   }
 
   function handleClose(sessionId: string) {
@@ -132,8 +174,18 @@
     ondragleave={handleListDragLeave}
     ondrop={handleListDrop}
   >
-    {#each sessions as session (session.id)}
-      <div class="session-row" class:broadcast-mode={broadcastMode}>
+    {#each sessions as session, index (session.id)}
+      <div
+        class="session-row"
+        class:broadcast-mode={broadcastMode}
+        class:session-drag-over={sessionDragOverIndex === index}
+        draggable="true"
+        ondragstart={(e) => handleSessionDragStart(e, session.id, index)}
+        ondragover={(e) => handleSessionDragOver(e, index)}
+        ondragleave={handleSessionDragLeave}
+        ondrop={(e) => handleSessionDrop(e, index)}
+        ondragend={handleSessionDragEnd}
+      >
         {#if broadcastMode}
           <label class="broadcast-checkbox" aria-label="Toggle broadcast target for {session.name}">
             <input
@@ -232,10 +284,21 @@
   .session-row {
     display: flex;
     align-items: stretch;
+    cursor: grab;
+  }
+
+  .session-row:active {
+    cursor: grabbing;
   }
 
   .session-row.broadcast-mode {
     padding-left: 4px;
+  }
+
+  .session-row.session-drag-over {
+    outline: 2px solid var(--ui-accent, #0e639c);
+    outline-offset: -2px;
+    border-radius: 2px;
   }
 
   .session-item-wrapper {

@@ -46,6 +46,8 @@ export interface Tab {
   name: string;
   /** Root of the split tree */
   root: SplitNode;
+  /** Display order of all sessions in this tab (may include unassigned sessions) */
+  sessionOrder: string[];
 }
 
 /**
@@ -100,10 +102,13 @@ export function createSplit(
  * Helper to create a new tab
  */
 export function createTab(name: string, sessionId?: SessionId): Tab {
+  const id = crypto.randomUUID();
+  const pane = createPane(sessionId ?? null);
   return {
-    id: crypto.randomUUID(),
+    id,
     name,
-    root: createPane(sessionId || null),
+    root: pane,
+    sessionOrder: sessionId ? [sessionId] : [],
   };
 }
 
