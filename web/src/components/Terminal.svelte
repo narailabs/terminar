@@ -1041,7 +1041,17 @@
 
     // Handle visibility changes (tab switching, minimizing, etc.)
     visibilityHandler = () => {
-      if (document.visibilityState === 'visible') {
+      if (document.visibilityState === 'hidden') {
+        hiddenSince = Date.now();
+      } else if (document.visibilityState === 'visible') {
+        // Full recovery after extended hidden period (lock screen, sleep).
+        // Tab switches are typically <5 s so they skip the expensive re-attach.
+        if (hiddenSince && (Date.now() - hiddenSince) > 5000) {
+          console.log(`[Terminal:${terminalInstanceId}] Visibility restored after ${Date.now() - hiddenSince}ms — running full refreshTerminal()`);
+          refreshTerminal();
+        }
+        hiddenSince = null;
+
         // Force an unconditional repaint. Output received while the tab
         // was hidden is in xterm's buffer but was never painted to screen.
         // This refresh is independent of the resize pipeline — even if
@@ -1084,6 +1094,7 @@
   let windowResizeHandler: (() => void) | null = null;
   let visibilityHandler: (() => void) | null = null;
   let scrollEndHandler: (() => void) | null = null;
+  let hiddenSince: number | null = null;
 
   onDestroy(() => {
     console.log(`[Terminal:${terminalInstanceId}] Destroying terminal component. Session: ${currentAttachedSessionId?.slice(0, 8)}`);
