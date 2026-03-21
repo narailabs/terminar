@@ -112,7 +112,7 @@ export function createTab(name: string, sessionId?: SessionId): Tab {
  */
 export function createDefaultWorkspace(initialSessionId?: SessionId): Workspace {
   return {
-    tabs: [createTab('Terminal 1', initialSessionId)],
+    tabs: [createTab('Main', initialSessionId)],
     activeTabId: '', // Will be set to first tab's ID
   };
 }

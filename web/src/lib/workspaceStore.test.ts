@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { Workspace, Tab, Pane, SplitContainer, SplitNode } from './workspaceTypes';
-import { getAllPanes, findPane, findParent } from './workspaceTypes';
+import { getAllPanes, findPane, findParent, createDefaultWorkspace } from './workspaceTypes';
 
 // ── Mocks: must be set up BEFORE importing the store singleton ──────────────
 
@@ -100,6 +100,11 @@ describe('workspaceStore', () => {
       // Now call with nothing
       workspaceStore.initialize(null);
       expect(getStore().activeTabId).toBe('keep-tab');
+    });
+
+    it('should create default workspace with tab named Main', () => {
+      const ws = createDefaultWorkspace('test-session');
+      expect(ws.tabs[0].name).toBe('Main');
     });
   });
 

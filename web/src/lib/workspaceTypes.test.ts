@@ -100,7 +100,7 @@ describe('createDefaultWorkspace', () => {
     const ws = createDefaultWorkspace();
 
     expect(ws.tabs.length).toBe(1);
-    expect(ws.tabs[0].name).toBe('Terminal 1');
+    expect(ws.tabs[0].name).toBe('Main');
     expect(ws.activeTabId).toBe('');
     expect(ws.tabs[0].root.type).toBe('pane');
     expect((ws.tabs[0].root as Pane).sessionId).toBeNull();
