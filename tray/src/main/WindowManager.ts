@@ -125,13 +125,26 @@ export class WindowManager {
     this.loadUrl(win, 'settings');
   }
 
-  /** Open the terminal desktop app window. */
-  openTerminal(): void {
-    const existing = this.getWindow('terminal');
-    if (existing) {
-      existing.show();
-      existing.focus();
-      return;
+  /**
+   * Open a terminal desktop app window.
+   *
+   * Without a tabId, behaves like the original single-window mode: reuses the
+   * existing terminal window if one is open. With a tabId, always creates a new
+   * window and passes the tab as a query parameter so the renderer knows which
+   * tab to display.
+   *
+   * Returns the BrowserWindow so callers (e.g. MultiWindowCoordinator) can
+   * register it for cross-window coordination.
+   */
+  openTerminal(tabId?: string): BrowserWindow {
+    // Without a tabId, preserve single-window behaviour: reuse existing window
+    if (!tabId) {
+      const existing = this.getWindow('terminal');
+      if (existing) {
+        existing.show();
+        existing.focus();
+        return existing;
+      }
     }
 
     const win = new BrowserWindow({
@@ -148,10 +161,14 @@ export class WindowManager {
       },
     });
 
-    this.registerWindow('terminal', win);
+    // Use a unique label so multiple terminal windows can coexist
+    const label = tabId ? `terminal-${Date.now()}` : 'terminal';
+    this.registerWindow(label, win);
     this.openExternalLinks(win);
-    this.loadTerminalUrl(win);
+    this.loadTerminalUrl(win, tabId);
     this.setupTerminalMenu(win);
+
+    return win;
   }
 
   /**
@@ -301,17 +318,22 @@ export class WindowManager {
     }
   }
 
-  /** Load the terminal page (web frontend). */
-  private loadTerminalUrl(win: BrowserWindow): void {
+  /** Load the terminal page (web frontend), optionally targeting a specific tab. */
+  private loadTerminalUrl(win: BrowserWindow, tabId?: string): void {
     const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL;
+    const tabQuery = tabId ? `?tab=${encodeURIComponent(tabId)}` : '';
 
     if (VITE_DEV_SERVER_URL) {
-      const url = `${VITE_DEV_SERVER_URL}/terminal.html`;
+      const url = `${VITE_DEV_SERVER_URL}/terminal.html${tabQuery}`;
       this.attachDevRetry(win, url);
       win.loadURL(url).catch(() => {});
     } else {
       const terminalPath = path.join(getAppRoot(), 'dist', 'terminal.html');
-      void win.loadFile(terminalPath);
+      if (tabId) {
+        void win.loadFile(terminalPath, { search: `tab=${encodeURIComponent(tabId)}` });
+      } else {
+        void win.loadFile(terminalPath);
+      }
     }
   }
 
