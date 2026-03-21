@@ -1,10 +1,11 @@
 // index.ts — App entry point, lifecycle, and orchestration.
 // Port of tray/src-tauri/src/lib.rs:run().
 
-import { app, BrowserWindow, nativeImage } from 'electron';
+import { app, BrowserWindow, globalShortcut, nativeImage } from 'electron';
 import path from 'path';
 import { ConfigStore } from './ConfigStore.js';
 import { HealthPoller } from './HealthPoller.js';
+import { MultiWindowCoordinator } from './MultiWindowCoordinator.js';
 import { ServiceManager } from './ServiceManager.js';
 import { WindowManager } from './WindowManager.js';
 import { TrayManager } from './TrayManager.js';
@@ -83,6 +84,47 @@ void app.whenReady().then(() => {
 
   // Start health polling (use server port in CLI mode, gateway port otherwise)
   healthPoller.start(launchedByCli ? (serverPort ?? 6750) : config.gateway_port);
+
+  // Multi-window coordination (tab-per-window model)
+  const multiWindow = new MultiWindowCoordinator();
+  multiWindow.setupIpc();
+
+  // Cmd+N / Ctrl+N: open a new terminal window with the next available tab.
+  // Capture a local const so TypeScript knows it's non-null inside the callback.
+  const wm = windowManager;
+  globalShortcut.register('CommandOrControl+N', async () => {
+    // Find the primary terminal window to query tab state from the renderer
+    const primaryWin = wm.getWindow('terminal');
+    if (!primaryWin || primaryWin.isDestroyed()) {
+      // No primary window — just open one
+      wm.openTerminal();
+      return;
+    }
+
+    try {
+      const allTabIds: string[] = await primaryWin.webContents.executeJavaScript(
+        'window.__terminar?.getTabIds?.() ?? []',
+      );
+
+      const nextTab = multiWindow.getNextAvailableTab(allTabIds);
+
+      if (!nextTab) {
+        // All tabs are shown — create a new tab in the renderer, then open a window for it
+        const newTabId: string = await primaryWin.webContents.executeJavaScript(
+          'window.__terminar?.createTab?.() ?? ""',
+        );
+        if (newTabId) {
+          const win = wm.openTerminal(newTabId);
+          multiWindow.register(win, newTabId);
+        }
+      } else {
+        const win = wm.openTerminal(nextTab);
+        multiWindow.register(win, nextTab);
+      }
+    } catch (err) {
+      console.error('[multi-window] Failed to open new window:', err);
+    }
+  });
 
   // Show install wizard if the service is not installed (skip in CLI mode)
   if (!launchedByCli && serviceManager.status() === 'notinstalled') {

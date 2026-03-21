@@ -268,8 +268,22 @@
     }
   }
 
+  // Expose tab operations for Electron multi-window coordination.
+  // The main process queries these via executeJavaScript('window.__terminar.getTabIds()').
+  function exposeTerminarBridge() {
+    (window as any).__terminar = {
+      getTabIds: () => workspaceStore.get().tabs.map((t: { id: string }) => t.id),
+      createTab: () => workspaceStore.createTab(),
+    };
+  }
+
   // Auto-connect on mount if local
   onMount(async () => {
+    // Expose the multi-window bridge immediately so it's ready when the
+    // main process queries it (the bridge reads from workspaceStore which
+    // is always available as a module singleton).
+    exposeTerminarBridge();
+
     // Check for local-echo mode (bypasses server completely)
     if (isLocalEchoMode) {
       console.log('[App] Local Echo Mode - bypassing server for testing');
