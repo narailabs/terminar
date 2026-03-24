@@ -19,6 +19,7 @@ export type SessionInfo = z.infer<typeof SessionInfoSchema>;
 const WithSessionId = z.object({ session_id: z.string() });
 
 export const ClientMessageSchema = z.union([
+  z.object({ type: z.literal('auth'), token: z.string(), protocol_version: z.string().optional() }),
   z.object({ type: z.literal('list_sessions') }),
   z.object({
     type: z.literal('create_session'),
@@ -33,6 +34,11 @@ export const ClientMessageSchema = z.union([
   WithSessionId.extend({ type: z.literal('resize'), cols: z.number(), rows: z.number() }),
   WithSessionId.extend({ type: z.literal('rename_session'), new_name: z.string() }),
   WithSessionId.extend({ type: z.literal('kill_session') }),
+  z.object({ type: z.literal('auth_password'), username: z.string(), password: z.string() }),
+  z.object({ type: z.literal('auth_pubkey_init'), username: z.string(), pubkey: z.string() }),
+  z.object({ type: z.literal('auth_pubkey_verify'), signature: z.string(), algorithm: z.string() }),
+  z.object({ type: z.literal('auth_token'), token: z.string() }),
+  z.object({ type: z.literal('refresh_token'), refresh_token: z.string() }),
   z.object({ type: z.literal('save_workspace'), workspace: z.record(z.string(), z.unknown()) }),
   z.object({ type: z.literal('load_workspace') }),
 ]);
@@ -40,10 +46,13 @@ export const ClientMessageSchema = z.union([
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
 
 export const ServerMessageSchema = z.union([
+  z.object({ type: z.literal('AuthOk'), token: z.string(), expires: z.string(), protocol_version: z.string().optional(), refresh_token: z.string().optional() }),
+  z.object({ type: z.literal('AuthChallenge'), nonce: z.string() }),
   z.object({ type: z.literal('SessionList'), sessions: z.array(SessionInfoSchema) }),
   WithSessionId.extend({ type: z.literal('Output'), data: z.string() }),
   WithSessionId.extend({ type: z.literal('SessionClosed') }),
   z.object({ type: z.literal('Error'), message: z.string(), error_code: z.string().optional() }),
+  z.object({ type: z.literal('PairResponse'), code: z.string(), expiry_secs: z.number() }),
   z.object({ type: z.literal('Shutdown'), reason: z.string() }),
   WithSessionId.extend({ type: z.literal('ForegroundChanged'), process_name: z.string().nullable() }),
   WithSessionId.extend({ type: z.literal('SessionActivity'), activity_type: z.enum(['activity', 'bell', 'silence']) }),

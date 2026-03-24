@@ -2,6 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { ClientMessageSchema, ServerMessageSchema, SessionInfoSchema } from '../src/messages.js';
 
 describe('ClientMessage Validation', () => {
+  it('validates auth', () => {
+    const msg = { type: 'auth', token: 'secret' };
+    expect(ClientMessageSchema.parse(msg)).toEqual(msg);
+  });
+
   it('validates list_sessions', () => {
     const msg = { type: 'list_sessions' };
     expect(ClientMessageSchema.parse(msg)).toEqual(msg);
@@ -54,6 +59,25 @@ describe('ClientMessage Validation', () => {
     expect(() => ClientMessageSchema.parse(msg)).toThrow();
   });
 
+  it('validates auth_password', () => {
+    const msg = { type: 'auth_password', username: 'narayan', password: 'secret' };
+    expect(ClientMessageSchema.parse(msg)).toEqual(msg);
+  });
+
+  it('validates auth_pubkey_init', () => {
+    const msg = { type: 'auth_pubkey_init', username: 'narayan', pubkey: 'c3NoLWVkMjU1MTk=' };
+    expect(ClientMessageSchema.parse(msg)).toEqual(msg);
+  });
+
+  it('validates auth_pubkey_verify', () => {
+    const msg = { type: 'auth_pubkey_verify', signature: 'sig-base64', algorithm: 'ssh-ed25519' };
+    expect(ClientMessageSchema.parse(msg)).toEqual(msg);
+  });
+
+  it('validates auth_token', () => {
+    const msg = { type: 'auth_token', token: 'eyJhbGciOiJIUzI1NiJ9.test.sig' };
+    expect(ClientMessageSchema.parse(msg)).toEqual(msg);
+  });
 });
 
 describe('ServerMessage Validation', () => {
@@ -79,6 +103,16 @@ describe('ServerMessage Validation', () => {
 
   it('validates Error', () => {
     const msg = { type: 'Error', message: 'Something went wrong' };
+    expect(ServerMessageSchema.parse(msg)).toEqual(msg);
+  });
+
+  it('validates AuthOk with JWT', () => {
+    const msg = { type: 'AuthOk', token: 'eyJ.test.sig', expires: '2026-01-30T06:42:08Z' };
+    expect(ServerMessageSchema.parse(msg)).toEqual(msg);
+  });
+
+  it('validates AuthChallenge', () => {
+    const msg = { type: 'AuthChallenge', nonce: 'random-nonce-base64' };
     expect(ServerMessageSchema.parse(msg)).toEqual(msg);
   });
 
@@ -129,6 +163,11 @@ describe('ServerMessage Validation', () => {
 
   it('validates WorkspaceData with null workspace', () => {
     const msg = { type: 'WorkspaceData', workspace: null };
+    expect(ServerMessageSchema.parse(msg)).toEqual(msg);
+  });
+
+  it('validates PairResponse', () => {
+    const msg = { type: 'PairResponse', code: 'ABC123', expiry_secs: 300 };
     expect(ServerMessageSchema.parse(msg)).toEqual(msg);
   });
 

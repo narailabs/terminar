@@ -1,4 +1,7 @@
 import * as net from 'net';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 import { EventEmitter } from 'events';
 import { ShellClient } from '@narai/terminar-protocol/dist/client';
 import type { ConnectionState, ReconnectConfig } from '@narai/terminar-protocol/dist/reconnect';
@@ -21,6 +24,26 @@ export interface SessionManagerEvents {
     shutdown: [reason: string];
     error: [err: Error];
     close: [];
+}
+
+/**
+ * Returns the path to the token file (~/.terminar/token)
+ */
+export function getTokenFilePath(): string {
+    return path.join(os.homedir(), '.terminar', 'token');
+}
+
+/**
+ * Reads the authentication token from ~/.terminar/token
+ * @returns The token string, or null if the file doesn't exist
+ */
+export function readTokenFile(): string | null {
+    const tokenPath = getTokenFilePath();
+    try {
+        return fs.readFileSync(tokenPath, 'utf-8').trim();
+    } catch {
+        return null;
+    }
 }
 
 /**
@@ -48,13 +71,18 @@ export class SessionManager extends TypedEmitter {
     private reconnectTimer?: NodeJS.Timeout;
     private shouldReconnect = false;
     private lastSessionList: SessionInfo[] = [];
+    private effectiveToken: string | null;
 
     constructor(
         private socketPath: string,
+        token?: string | null,
         reconnectConfig: Partial<ReconnectConfig> = {}
     ) {
         super();
         this.reconnectConfig = { ...DEFAULT_RECONNECT_CONFIG, ...reconnectConfig };
+
+        // Auto-read token from file if not provided; null means no auth
+        this.effectiveToken = token !== undefined ? token : readTokenFile();
     }
 
     /**
@@ -91,7 +119,7 @@ export class SessionManager extends TypedEmitter {
     }
 
     private setupClient() {
-        this.client = new ShellClient();
+        this.client = new ShellClient(this.effectiveToken);
 
         this.client.on('SessionList', (msg) => {
             this.lastSessionList = msg.sessions;

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  com.terminar.gateway.plist
+
+  macOS launchd configuration for the terminar Gateway.
+
+  Installation:
+    1. Create the service user:
+       sudo sysadminctl -addUser terminar -shell /usr/bin/false -home /var/empty
+    2. Copy this file to /Library/LaunchDaemons/com.terminar.gateway.plist
+    3. Set ownership: sudo chown root:wheel /Library/LaunchDaemons/com.terminar.gateway.plist
+    4. Create socket directory: sudo mkdir -p /var/run/terminar && sudo chown terminar /var/run/terminar
+    5. Load: sudo launchctl load /Library/LaunchDaemons/com.terminar.gateway.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.terminar.gateway</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/terminar-gateway</string>
+        <string>--auto-tls</string>
+        <string>--server-bin</string>
+        <string>/usr/local/bin/terminar-server</string>
+        <string>--socket-dir</string>
+        <string>/var/run/terminar</string>
+    </array>
+
+    <key>UserName</key>
+    <string>terminar</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/var/log/terminar-gateway.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/var/log/terminar-gateway.log</string>
+
+    <key>SoftResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>65536</integer>
+    </dict>
+
+    <key>HardResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>65536</integer>
+    </dict>
+</dict>
+</plist>

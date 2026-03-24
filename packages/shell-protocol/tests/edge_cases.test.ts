@@ -11,7 +11,7 @@ class MockSocket extends EventEmitter implements IShellSocket {
 describe('ShellClient Edge Cases', () => {
   it('should emit error on invalid JSON', () => {
     const socket = new MockSocket();
-    const client = new ShellClient();
+    const client = new ShellClient('token');
     client.connect(socket);
 
     const onError = vi.fn();
@@ -24,7 +24,7 @@ describe('ShellClient Edge Cases', () => {
 
   it('should emit error on schema validation failure', () => {
     const socket = new MockSocket();
-    const client = new ShellClient();
+    const client = new ShellClient('token');
     client.connect(socket);
 
     const onError = vi.fn();
@@ -40,7 +40,7 @@ describe('ShellClient Edge Cases', () => {
 
   it('should handle socket error events', () => {
     const socket = new MockSocket();
-    const client = new ShellClient();
+    const client = new ShellClient('token');
     client.connect(socket);
 
     const onError = vi.fn();
@@ -53,7 +53,7 @@ describe('ShellClient Edge Cases', () => {
   });
 
   it('should throw when sending before connect', () => {
-    const client = new ShellClient();
+    const client = new ShellClient('token');
     expect(() => client.send({ type: 'list_sessions' })).toThrow('Socket not connected');
   });
 });
@@ -81,7 +81,7 @@ describe('Message Schema Edge Cases', () => {
       cols: "80", // Should be number
       rows: 24
     };
-    // Need to test ClientMessageSchema but it's not exported for parsing in tests usually?
+    // Need to test ClientMessageSchema but it's not exported for parsing in tests usually? 
     // It is exported.
     // However, verify import first.
   });

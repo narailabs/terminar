@@ -1,5 +1,5 @@
 import { mount } from 'svelte';
-import TerminalApp from './TerminalApp.svelte';
+import App from '../../../web/src/App.svelte';
 
 const target = document.getElementById('app')!;
-mount(TerminalApp, { target });
+mount(App, { target });

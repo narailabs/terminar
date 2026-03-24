@@ -96,17 +96,19 @@ suite('Extension Activation', () => {
 
             activate(context);
 
-            // Wait for ensureServerRunning() to settle
+            // Wait for ensureServerRunning() to settle (it may or may not connect
+            // depending on whether ~/.terminar/token exists)
             await new Promise(r => setTimeout(r, 200));
 
-            // Reset counter after activation
+            // Reset counter after activation (activation may have called createSession
+            // indirectly if a real token file exists)
             createSessionCallCount = 0;
 
             // Call newSession command
             await registeredCommands['terminar.newSession']();
 
-            // If manager is connected, createSession should have been called
-            // with a home directory and shell path.
+            // If manager is connected (token file existed), createSession should
+            // have been called with a home directory and shell path.
             // If not connected, it no-ops safely.
             if (createSessionCallCount > 0) {
                 assert.strictEqual(createSessionCallCount, 1,

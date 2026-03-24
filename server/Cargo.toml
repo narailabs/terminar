@@ -19,17 +19,44 @@ thiserror = "2.0"
 libc = "0.2"
 nix = { version = "0.29", features = ["process", "signal", "term"] }
 clap = { version = "4.0", features = ["derive"] }
+form_urlencoded = "1.2"
 zstd = "0.13"
+jsonwebtoken = "9"
+ring = "0.17"
+base64 = "0.22"
+ssh-key = { version = "0.6", features = ["ed25519", "p256", "rsa", "std"] }
+signature = "2"
+rcgen = "0.13"
+# PAM support will use direct FFI to libpam (no bindgen needed)
+# pam-client requires libclang which is too heavy for CI
+
+# Web Support
+axum = { version = "0.7", features = ["ws"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["cors", "fs"] }
+futures = "0.3"
 
 tempfile = "3.0"
 
+# TLS Support
+rustls = "0.23"
+rustls-pemfile = "2"
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+
 [dev-dependencies]
+tokio-tungstenite = "0.24"
+reqwest = { version = "0.12", features = ["json"] }
 serial_test = "3.0"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
 criterion = { version = "0.5", features = ["html_reports"] }
 
 [[bin]]
 name = "terminar-server"
 path = "src/main.rs"
+
+[[bin]]
+name = "terminar-gateway"
+path = "src/bin/gateway.rs"
 
 [[bench]]
 name = "message_processing"
