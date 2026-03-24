@@ -34,6 +34,8 @@ function parseFrames(buffer: Buffer): { messages: any[]; remaining: Buffer } {
     return { messages, remaining: buffer.subarray(offset) };
 }
 
+const TEST_TOKEN = 'test-token-12345';
+
 suite('SessionManager', () => {
     const socketPath = '/tmp/test-vscode-terminar.sock';
     let mockServer: net.Server;
@@ -55,6 +57,12 @@ suite('SessionManager', () => {
                 buffer = remaining;
 
                 for (const msg of messages) {
+                    // Handle auth message by responding with AuthOk
+                    if (msg.type === 'auth') {
+                        socket.write(createFrame({ type: 'AuthOk', token: 'jwt-test', expires: '2099-01-01T00:00:00Z' }));
+                        continue;
+                    }
+
                     receivedMessages.push(msg);
 
                     if (msg.type === 'list_sessions') {
@@ -68,7 +76,7 @@ suite('SessionManager', () => {
         });
 
         mockServer.listen(socketPath, () => {
-            manager = new SessionManager(socketPath);
+            manager = new SessionManager(socketPath, TEST_TOKEN);
             done();
         });
     });
@@ -98,6 +106,9 @@ suite('SessionManager', () => {
 
     test('sends create_session', async () => {
         await manager.connect();
+
+        // Wait for auth to complete
+        await new Promise(r => setTimeout(r, 100));
 
         manager.createSession('/tmp', 'bash', {});
 

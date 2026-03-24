@@ -1,13 +1,14 @@
 // ipc.ts — IPC handler registration.
+// Port of command handlers from tray/src-tauri/src/commands.rs.
 // All IPC channels are prefixed with "tray:".
 
-import { ipcMain, app } from 'electron';
+import { ipcMain, dialog, app } from 'electron';
 import type { TrayConfig } from './types.js';
 import { ConfigStore } from './ConfigStore.js';
 import { HealthPoller } from './HealthPoller.js';
-import { ServerManager } from './ServerManager.js';
+import { ServiceManager } from './ServiceManager.js';
 import { WindowManager } from './WindowManager.js';
-import { WslManager } from './WslManager.js';
+import { runElevated } from './elevation.js';
 
 /**
  * Register all IPC handlers for the tray app.
@@ -17,7 +18,7 @@ import { WslManager } from './WslManager.js';
  */
 export function registerIpcHandlers(
   configStore: ConfigStore,
-  serverManager: ServerManager,
+  serviceManager: ServiceManager,
   healthPoller: HealthPoller,
   windowManager: WindowManager,
 ): void {
@@ -34,21 +35,121 @@ export function registerIpcHandlers(
     },
   );
 
-  // ---- Server status ----
+  // ---- Service status ----
 
-  ipcMain.handle('tray:get-server-status', () => {
-    return healthPoller.latestStatus;
+  ipcMain.handle('tray:get-service-status', () => {
+    return serviceManager.status();
   });
 
-  // ---- Server actions ----
+  // ---- Health ----
 
-  ipcMain.handle('tray:start-server', async () => {
-    await serverManager.start();
+  ipcMain.handle('tray:get-health', () => {
+    return healthPoller.latestHealth;
   });
 
-  ipcMain.handle('tray:stop-server', async () => {
-    await serverManager.stop();
+  // ---- Service actions ----
+
+  ipcMain.handle(
+    'tray:install-service',
+    (_event, config: TrayConfig) => {
+      const gatewayBin = serviceManager.findBinary(
+        'terminar-gateway',
+      );
+      if (!gatewayBin) {
+        throw new Error('Could not find terminar-gateway binary');
+      }
+
+      const serverBin = serviceManager.findBinary('terminar-server');
+      if (!serverBin) {
+        throw new Error('Could not find terminar-server binary');
+      }
+
+      const script = serviceManager.installScript(
+        config,
+        gatewayBin,
+        serverBin,
+      );
+      runElevated(script);
+    },
+  );
+
+  ipcMain.handle('tray:uninstall-service', () => {
+    const script = serviceManager.uninstallScript();
+    runElevated(script);
   });
+
+  ipcMain.handle('tray:restart-service', () => {
+    const script = serviceManager.restartScript();
+    runElevated(script);
+  });
+
+  ipcMain.handle('tray:stop-service', () => {
+    const script = serviceManager.stopScript();
+    runElevated(script);
+  });
+
+  ipcMain.handle('tray:start-service', () => {
+    const script = serviceManager.startScript();
+    runElevated(script);
+  });
+
+  // ---- Dialogs ----
+
+  ipcMain.handle(
+    'tray:pick-file',
+    async (
+      _event,
+      options?: { title?: string; filters?: Electron.FileFilter[] },
+    ) => {
+      const result = await dialog.showOpenDialog({
+        title: options?.title,
+        properties: ['openFile'],
+        filters: options?.filters,
+      });
+      if (result.canceled || result.filePaths.length === 0) {
+        return null;
+      }
+      return result.filePaths[0];
+    },
+  );
+
+  ipcMain.handle(
+    'tray:confirm',
+    async (
+      _event,
+      message: string,
+      options?: { title?: string; kind?: string },
+    ) => {
+      const result = await dialog.showMessageBox({
+        type: 'question',
+        buttons: ['Yes', 'No'],
+        defaultId: 1,
+        cancelId: 1,
+        title: options?.title ?? 'Confirm',
+        message,
+      });
+      return result.response === 0; // true if "Yes"
+    },
+  );
+
+  ipcMain.handle(
+    'tray:ask',
+    async (
+      _event,
+      message: string,
+      options?: { title?: string; kind?: string },
+    ) => {
+      const result = await dialog.showMessageBox({
+        type: 'question',
+        buttons: ['Yes', 'No'],
+        defaultId: 0,
+        cancelId: 1,
+        title: options?.title ?? 'Question',
+        message,
+      });
+      return result.response === 0; // true if "Yes"
+    },
+  );
 
   // ---- Window control ----
 
@@ -56,17 +157,9 @@ export function registerIpcHandlers(
     windowManager.closeWindowById(event.sender.id);
   });
 
-  // ---- App info ----
+  // ---- App info (used by terminal preload) ----
 
   ipcMain.handle('app:version', () => {
     return app.getVersion();
   });
-
-  // ---- WSL (Windows only) ----
-
-  ipcMain.handle('wsl:check', () => ({
-    installed: WslManager.isWslInstalled(),
-    hasDistro: WslManager.hasDistro(),
-    distro: WslManager.getDefaultDistro(),
-  }));
 }

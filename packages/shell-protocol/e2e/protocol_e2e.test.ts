@@ -86,7 +86,9 @@ describe.skipIf(!!skipReason)('Shell Protocol E2E', () => {
     beforeAll(async () => {
         if (fs.existsSync(socketPath)) fs.unlinkSync(socketPath);
 
-        serverProcess = cp.spawn(serverBin!, ['--socket', socketPath, '--no-auth', '--mock-pty'], {
+        // Use a random high port to avoid conflicts with any running server on the default port 6749
+        const testPort = String(49152 + Math.floor(Math.random() * 16383));
+        serverProcess = cp.spawn(serverBin!, ['--socket', socketPath, '--port', testPort, '--no-auth', '--mock-pty'], {
             stdio: ['ignore', 'pipe', 'pipe']
         });
 

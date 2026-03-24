@@ -4,6 +4,7 @@ import * as path from 'path';
 import {
   ShellClient,
   ShellProtocolError,
+  AuthError,
   SessionError,
   ParseError,
   ValidationError,
@@ -29,6 +30,7 @@ describe('Dead Code Removal', () => {
   it('should export all public types from index.ts', () => {
     expect(ShellClient).toBeDefined();
     expect(ShellProtocolError).toBeDefined();
+    expect(AuthError).toBeDefined();
     expect(SessionError).toBeDefined();
     expect(ParseError).toBeDefined();
     expect(ValidationError).toBeDefined();

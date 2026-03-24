@@ -7,9 +7,6 @@ files:
   - dist/**/*
   - dist-electron/**/*
   - icons/**/*
-extraResources:
-  - from: "../server/target/release/terminar-server"
-    to: "terminar-server"
 mac:
   category: public.app-category.developer-tools
   icon: icons/icon.icns
@@ -19,21 +16,9 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   hardenedRuntime: true
-  extraResources:
-    - from: "../server/target/release/terminar-server"
-      to: "terminar-server"
 linux:
   category: Development
   icon: icons/icon.png
   target:
     - target: AppImage
     - target: deb
-  extraResources:
-    - from: "../server/target/release/terminar-server"
-      to: "terminar-server"
-win:
-  target:
-    - nsis
-  extraResources:
-    - from: "../server/target/release/terminar-server"
-      to: "terminar-server"

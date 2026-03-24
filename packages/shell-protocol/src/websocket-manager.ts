@@ -45,6 +45,8 @@ export interface WebSocketManagerEvents {
     cwdChanged: [sessionId: string, cwd: string];
     workspaceData: [workspace: Record<string, unknown> | null];
     shutdown: [reason: string];
+    authenticated: [token: string, expires: string];
+    authChallenge: [nonce: string];
     error: [err: Error];
     close: [];
 }
@@ -59,6 +61,7 @@ const TypedEmitter = EventEmitter as new () => TypedEventEmitter<WebSocketManage
  */
 export abstract class BaseWebSocketManager extends TypedEmitter {
     protected socket?: IWebSocket;
+    protected authenticated = false;
     protected state: ConnectionState = 'disconnected';
     protected reconnectConfig: ReconnectConfig;
     protected reconnectAttempt = 0;
@@ -68,6 +71,7 @@ export abstract class BaseWebSocketManager extends TypedEmitter {
 
     constructor(
         protected url: string,
+        protected token?: string,
         reconnectConfig: Partial<ReconnectConfig> = {}
     ) {
         super();
@@ -86,6 +90,10 @@ export abstract class BaseWebSocketManager extends TypedEmitter {
 
     public getLastSessionList(): SessionInfo[] {
         return this.lastSessionList;
+    }
+
+    public isAuthenticated(): boolean {
+        return this.authenticated;
     }
 
     public isConnected(): boolean {
@@ -111,8 +119,12 @@ export abstract class BaseWebSocketManager extends TypedEmitter {
         return new Promise((resolve, reject) => {
             this.setState(this.reconnectAttempt > 0 ? 'reconnecting' : 'connecting');
             this.socket = this.createWebSocket(this.url);
+            this.authenticated = false;
 
             const onOpen = () => {
+                if (this.token) {
+                    this.sendRaw({ type: 'auth', token: this.token });
+                }
                 this.setState('connected');
 
                 const wasReconnect = this.reconnectAttempt > 0;
@@ -143,6 +155,7 @@ export abstract class BaseWebSocketManager extends TypedEmitter {
             };
 
             const onClose = () => {
+                this.authenticated = false;
                 this.setState('disconnected');
                 this.emit('close');
 
@@ -193,7 +206,15 @@ export abstract class BaseWebSocketManager extends TypedEmitter {
             case 'Error':
                 this.emit('error', new Error(parsed.message));
                 break;
+            case 'AuthOk':
+                this.authenticated = true;
+                this.emit('authenticated', parsed.token, parsed.expires);
+                break;
+            case 'AuthChallenge':
+                this.emit('authChallenge', parsed.nonce);
+                break;
             case 'SessionList':
+                this.authenticated = true;
                 this.lastSessionList = parsed.sessions;
                 this.emit('sessionList', parsed.sessions);
                 break;

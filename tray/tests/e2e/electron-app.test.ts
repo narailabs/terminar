@@ -44,9 +44,11 @@ test.describe.serial('Electron Tray App', () => {
   });
 
   test('single instance lock is held', async () => {
+    // Attempting to request another lock should indicate one is already held
     const hasLock = await electronApp.evaluate(async ({ app }) => {
       return app.requestSingleInstanceLock();
     });
+    // The app already has the lock, so requesting again returns true (it's the same app)
     expect(hasLock).toBe(true);
   });
 
@@ -55,6 +57,8 @@ test.describe.serial('Electron Tray App', () => {
       test.skip();
       return;
     }
+    // Dock should be hidden since no windows are open initially
+    // (install wizard may or may not open depending on service status)
     const isReady = await electronApp.evaluate(async ({ app }) => app.isReady());
     expect(isReady).toBe(true);
   });
@@ -92,7 +96,7 @@ test.describe.serial('Electron Tray App', () => {
         });
 
         try {
-          await win.loadFile(html, { search: 'mode=settings' });
+          await win.loadFile(html, { search: 'mode=install' });
           return { success: true, url: win.webContents.getURL(), title: win.getTitle() };
         } catch (err) {
           return { success: false, error: String(err) };
@@ -139,9 +143,16 @@ test.describe.serial('Electron Tray App', () => {
     // Verify all expected methods are exposed
     expect(apiShape).toContain('getConfig');
     expect(apiShape).toContain('saveConfig');
-    expect(apiShape).toContain('getServerStatus');
-    expect(apiShape).toContain('startServer');
-    expect(apiShape).toContain('stopServer');
+    expect(apiShape).toContain('getServiceStatus');
+    expect(apiShape).toContain('getHealth');
+    expect(apiShape).toContain('installService');
+    expect(apiShape).toContain('uninstallService');
+    expect(apiShape).toContain('restartService');
+    expect(apiShape).toContain('stopService');
+    expect(apiShape).toContain('startService');
+    expect(apiShape).toContain('pickFile');
+    expect(apiShape).toContain('confirm');
+    expect(apiShape).toContain('ask');
     expect(apiShape).toContain('closeWindow');
   });
 
@@ -161,8 +172,14 @@ test.describe.serial('Electron Tray App', () => {
     });
 
     expect(config).not.toBeNull();
-    expect(config).toHaveProperty('shell');
-    expect(config).toHaveProperty('log_level');
+    expect(config).toHaveProperty('gateway_port', 6749);
+    expect(config).toHaveProperty('tls_mode');
+    expect(config).toHaveProperty('tls_port');
+    expect(config).toHaveProperty('require_auth');
+    expect(config).toHaveProperty('audit_level');
+    expect(config).toHaveProperty('idle_timeout');
+    expect(config).toHaveProperty('tls_cert');
+    expect(config).toHaveProperty('tls_key');
   });
 
   test('trayAPI.saveConfig + getConfig round-trip preserves values', async () => {
@@ -171,6 +188,7 @@ test.describe.serial('Electron Tray App', () => {
       return;
     }
 
+    // Save a modified config
     const saved = await window.evaluate(async () => {
       const api = (window as unknown as {
         trayAPI: {
@@ -180,7 +198,7 @@ test.describe.serial('Electron Tray App', () => {
       }).trayAPI;
 
       const original = await api.getConfig();
-      const modified = { ...original, shell: '/bin/zsh', log_level: 'debug' };
+      const modified = { ...original, gateway_port: 7777, audit_level: 'verbose' };
       await api.saveConfig(modified);
       const reloaded = await api.getConfig();
 
@@ -190,55 +208,109 @@ test.describe.serial('Electron Tray App', () => {
       return { modified, reloaded };
     });
 
-    expect(saved.reloaded.shell).toBe('/bin/zsh');
-    expect(saved.reloaded.log_level).toBe('debug');
+    expect(saved.reloaded.gateway_port).toBe(7777);
+    expect(saved.reloaded.audit_level).toBe('verbose');
   });
 
   // =========================================================================
-  // IPC: Server status
+  // IPC: Service status
   // =========================================================================
 
-  test('trayAPI.getServerStatus returns valid status string', async () => {
+  test('trayAPI.getServiceStatus returns valid status string', async () => {
     if (!window) {
       test.skip();
       return;
     }
 
     const status = await window.evaluate(async () => {
-      const api = (window as unknown as { trayAPI: { getServerStatus: () => Promise<string> } }).trayAPI;
-      return api.getServerStatus();
+      const api = (window as unknown as { trayAPI: { getServiceStatus: () => Promise<string> } }).trayAPI;
+      return api.getServiceStatus();
     });
 
     expect(status).not.toBeNull();
-    expect(['running', 'stopped']).toContain(status);
+    expect(['running', 'stopped', 'notinstalled', 'unknown']).toContain(status);
   });
 
   // =========================================================================
-  // IPC: Server actions — verify they are callable
+  // IPC: Health polling
   // =========================================================================
 
-  test('trayAPI.stopServer IPC handler is callable', async () => {
+  test('trayAPI.getHealth returns health object with valid status', async () => {
     if (!window) {
       test.skip();
       return;
     }
 
+    const health = await window.evaluate(async () => {
+      const api = (window as unknown as { trayAPI: { getHealth: () => Promise<Record<string, unknown>> } }).trayAPI;
+      return api.getHealth();
+    });
+
+    expect(health).not.toBeNull();
+    expect(health).toHaveProperty('status');
+    expect(['running', 'starting', 'stopped']).toContain(
+      (health as Record<string, unknown>).status,
+    );
+    expect(health).toHaveProperty('active_servers');
+    expect(health).toHaveProperty('version');
+  });
+
+  // =========================================================================
+  // IPC: Service actions (stop/start/restart) — verify they don't crash
+  // These trigger osascript auth dialogs on macOS, which we can't interact
+  // with in CI, but we can verify the IPC handler doesn't throw.
+  // =========================================================================
+
+  test('trayAPI.stopService IPC handler is callable', async () => {
+    if (!window) {
+      test.skip();
+      return;
+    }
+
+    // We can't actually test the osascript auth dialog, but we can verify
+    // the IPC handler exists and doesn't throw before reaching elevation
     const hasHandler = await window.evaluate(() => {
-      const api = (window as unknown as { trayAPI: { stopServer: () => Promise<void> } }).trayAPI;
-      return typeof api.stopServer === 'function';
+      const api = (window as unknown as { trayAPI: { stopService: () => Promise<void> } }).trayAPI;
+      return typeof api.stopService === 'function';
     });
     expect(hasHandler).toBe(true);
   });
 
-  test('trayAPI.startServer IPC handler is callable', async () => {
+  test('trayAPI.startService IPC handler is callable', async () => {
     if (!window) {
       test.skip();
       return;
     }
 
     const hasHandler = await window.evaluate(() => {
-      const api = (window as unknown as { trayAPI: { startServer: () => Promise<void> } }).trayAPI;
-      return typeof api.startServer === 'function';
+      const api = (window as unknown as { trayAPI: { startService: () => Promise<void> } }).trayAPI;
+      return typeof api.startService === 'function';
+    });
+    expect(hasHandler).toBe(true);
+  });
+
+  test('trayAPI.restartService IPC handler is callable', async () => {
+    if (!window) {
+      test.skip();
+      return;
+    }
+
+    const hasHandler = await window.evaluate(() => {
+      const api = (window as unknown as { trayAPI: { restartService: () => Promise<void> } }).trayAPI;
+      return typeof api.restartService === 'function';
+    });
+    expect(hasHandler).toBe(true);
+  });
+
+  test('trayAPI.uninstallService IPC handler is callable', async () => {
+    if (!window) {
+      test.skip();
+      return;
+    }
+
+    const hasHandler = await window.evaluate(() => {
+      const api = (window as unknown as { trayAPI: { uninstallService: () => Promise<void> } }).trayAPI;
+      return typeof api.uninstallService === 'function';
     });
     expect(hasHandler).toBe(true);
   });

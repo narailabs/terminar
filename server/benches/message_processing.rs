@@ -101,10 +101,6 @@ fn bench_serialize_server_messages(c: &mut Criterion) {
             shell: "/bin/bash".to_string(),
             cwd: "/home/user".to_string(),
             started_at: "2025-01-28T10:00:00Z".to_string(),
-            state: None,
-            foreground_process: None,
-            last_activity_at: None,
-            exit_code: None,
         })
         .collect();
     let session_list_msg = ServerMessage::SessionList { sessions };
@@ -114,7 +110,6 @@ fn bench_serialize_server_messages(c: &mut Criterion) {
 
     let error_msg = ServerMessage::Error {
         message: "Session not found".to_string(),
-        error_code: None,
     };
     group.bench_function("Error", |b| {
         b.iter(|| serde_json::to_string(black_box(&error_msg)).unwrap())
