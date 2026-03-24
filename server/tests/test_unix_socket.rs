@@ -25,24 +25,14 @@ async fn spawn_unix_server(name: &str) -> (String, u16, tokio::task::JoinHandle<
     let _ = std::fs::remove_file(&socket_path);
 
     let cli = Cli {
-        command: None,
         port,
         socket: Some(socket_path.clone()),
         log_level: "error".to_string(),
         no_auth: true,
         mock_pty: true,
-        cors_origins: vec![],
         log_json: false,
         log_file: None,
-        tls_cert: None,
-        tls_key: None,
-        tls_port: 8444,
-        max_auth_attempts: 5,
-        auto_tls: false,
         audit_level: "off".to_string(),
-        trusted_proxy: None,
-        user_mode: false,
-        require_auth: false,
     };
 
     let sp = socket_path.clone();

@@ -1,7 +1,7 @@
 //! Protocol message types for client-server communication.
 //!
 //! This module re-exports core session messages from `terminar_core`
-//! and defines auth/pairing/workspace messages that remain server-specific.
+//! and defines workspace messages that remain server-specific.
 //!
 //! The server uses wrapper enums `ClientMessage` and `ServerMessage` that
 //! combine core + server-specific variants for unified dispatch.
@@ -79,22 +79,7 @@ pub enum ClientMessage {
         session_id: String,
     },
 
-    // === Server-specific messages (auth/pairing/workspace) ===
-    /// Request a pairing code for remote client authentication.
-    PairRequest,
-    /// Authenticate with OS username and password (PAM).
-    AuthPassword { username: String, password: String },
-    /// Initiate SSH public key authentication (step 1: send pubkey).
-    AuthPubkeyInit { username: String, pubkey: String },
-    /// Complete SSH public key authentication (step 2: verify signature).
-    AuthPubkeyVerify {
-        signature: String,
-        algorithm: String,
-    },
-    /// Authenticate with a previously issued JWT token (reconnection).
-    AuthToken { token: String },
-    /// Exchange a refresh token for a new access token + refresh token pair.
-    RefreshToken { refresh_token: String },
+    // === Server-specific messages (workspace) ===
     /// Save workspace data (session layout, splits, tabs, etc.).
     SaveWorkspace { workspace: serde_json::Value },
     /// Load previously saved workspace data.
@@ -139,24 +124,17 @@ pub enum ServerMessage {
     /// Notification that the current working directory in a session has changed.
     CwdChanged { session_id: String, cwd: String },
 
-    // === Server-specific messages (auth/pairing/workspace) ===
-    /// Response to a pairing request with a generated code.
-    PairResponse { code: String, expiry_secs: u64 },
-    /// Server is shutting down gracefully. Clients should reconnect later.
-    Shutdown { reason: String },
-    /// Authentication succeeded. Contains a JWT for reconnection.
+    // === Server-specific messages (auth/workspace) ===
+    /// Authentication succeeded. Contains the token and protocol version.
     AuthOk {
         token: String,
         expires: String,
         /// Protocol version the server supports (e.g., "0.2.0").
         #[serde(skip_serializing_if = "Option::is_none")]
         protocol_version: Option<String>,
-        /// Refresh token for obtaining new access tokens without re-authenticating.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        refresh_token: Option<String>,
     },
-    /// SSH public key challenge. Client must sign this nonce with their private key.
-    AuthChallenge { nonce: String },
+    /// Server is shutting down gracefully. Clients should reconnect later.
+    Shutdown { reason: String },
     /// Response to LoadWorkspace with saved workspace data.
     WorkspaceData {
         workspace: Option<serde_json::Value>,
@@ -258,25 +236,11 @@ mod tests {
     }
 
     #[test]
-    fn test_server_message_pair_response() {
-        let msg = ServerMessage::PairResponse {
-            code: "123".into(),
-            expiry_secs: 60,
-        };
-        let json = serde_json::to_string(&msg).unwrap();
-        assert_eq!(
-            json,
-            r#"{"type":"PairResponse","code":"123","expiry_secs":60}"#
-        );
-    }
-
-    #[test]
     fn test_server_message_auth_ok() {
         let msg = ServerMessage::AuthOk {
-            token: "jwt".into(),
+            token: "tok".into(),
             expires: "900s".into(),
             protocol_version: None,
-            refresh_token: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains(r#""type":"AuthOk""#));

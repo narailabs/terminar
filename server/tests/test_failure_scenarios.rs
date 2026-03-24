@@ -21,24 +21,14 @@ async fn spawn_server_with_auth(
     drop(listener);
 
     let cli = Cli {
-        command: None,
         port,
         socket: Some(format!("/tmp/test-failure-{}-{}.sock", name, port)),
         log_level: "error".to_string(),
         no_auth,
         mock_pty: true,
-        cors_origins: vec![],
         log_json: false,
         log_file: None,
-        tls_cert: None,
-        tls_key: None,
-        tls_port: 8444,
-        max_auth_attempts: 5,
-        auto_tls: false,
         audit_level: "off".to_string(),
-        trusted_proxy: None,
-        user_mode: false,
-        require_auth: false,
     };
 
     let socket_path = cli.socket.clone().unwrap();

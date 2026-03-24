@@ -65,11 +65,6 @@ fn test_client_message_serialization() {
         json,
         r#"{"type":"rename_session","session_id":"123","new_name":"prod"}"#
     );
-
-    // 7. PairRequest
-    let pair_msg = ClientMessage::PairRequest;
-    let json = serde_json::to_string(&pair_msg).unwrap();
-    assert_eq!(json, r#"{"type":"pair_request"}"#);
 }
 
 #[test]
@@ -90,9 +85,6 @@ fn test_server_message_serialization() {
         sessions: vec![session],
     };
     let json = serde_json::to_string(&list_msg).unwrap();
-    // ServerMessage is NOT snake_case by default in serde (unless configured)
-    // We configured `#[serde(tag = "type")]` but not rename_all on ServerMessage.
-    // So it should be PascalCase variant names.
     assert!(json.contains(r#"{"type":"SessionList""#));
     assert!(json.contains(r#""id":"123""#));
 
@@ -118,15 +110,4 @@ fn test_server_message_serialization() {
     };
     let json = serde_json::to_string(&error_msg).unwrap();
     assert_eq!(json, r#"{"type":"Error","message":"bad"}"#);
-
-    // 5. PairResponse
-    let pair_resp = ServerMessage::PairResponse {
-        code: "123456".to_string(),
-        expiry_secs: 300,
-    };
-    let json = serde_json::to_string(&pair_resp).unwrap();
-    assert_eq!(
-        json,
-        r#"{"type":"PairResponse","code":"123456","expiry_secs":300}"#
-    );
 }
