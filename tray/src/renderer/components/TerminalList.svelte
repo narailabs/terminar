@@ -5,7 +5,8 @@
   import { broadcastTargets, toggleTarget, isTarget } from '../lib/broadcastStore.svelte';
   import { foregroundStore } from '../lib/foregroundStore.svelte';
   import { titleStore } from '../lib/titleStore.svelte';
-  import { sessionPaneCounts } from '../lib/workspaceStore';
+  import { sessionPaneCounts, newSessionIds, workspaceStore } from '../lib/workspaceStore';
+  import { focusedPane } from '../lib/focusStore.svelte';
 
   let {
     sessions = [],
@@ -29,6 +30,30 @@
     onpanedrop?: (detail: { sourcePaneId: string }) => void;
   } = $props();
 
+  // Reactive workspace subscription for tab grouping
+  let _wsStore = $state(workspaceStore.get());
+  $effect(() => {
+    const unsub = workspaceStore.subscribe((w) => { _wsStore = w; });
+    return unsub;
+  });
+
+  // Group sessions by tab: returns array of { tab, sessions[] } in tab order
+  let tabGroups = $derived((() => {
+    const sessionMap = new Map(sessions.map(s => [s.id, s]));
+    return _wsStore.tabs.map(tab => ({
+      tab,
+      sessions: tab.sessionOrder
+        .map(id => sessionMap.get(id))
+        .filter((s): s is SessionInfo => s !== undefined),
+    })).filter(group => group.sessions.length > 0 || _wsStore.tabs.length > 1);
+  })());
+
+  // Sessions not in any tab's sessionOrder (orphans)
+  let orphanSessions = $derived((() => {
+    const allOrdered = new Set(_wsStore.tabs.flatMap(t => t.sessionOrder));
+    return sessions.filter(s => !allOrdered.has(s.id));
+  })());
+
   let contextMenu: { x: number; y: number; sessionId: string } | null = $state(null);
   let editingSessionId: string | null = $state(null);
 
@@ -41,7 +66,48 @@
   ];
 
   function handleSelect(sessionId: string) {
-    onselect?.(sessionId);
+    // Assign clicked session to the currently focused pane instead of switching active terminal
+    const focusedPaneId = focusedPane.id;
+    if (focusedPaneId) {
+      workspaceStore.assignSession(focusedPaneId, sessionId);
+    } else {
+      onselect?.(sessionId);
+    }
+  }
+
+  // ── Session drag-drop for sidebar reordering ──────────────────────────────
+  let draggedSessionIndex: number | null = $state(null);
+  let sessionDragOverIndex: number | null = $state(null);
+
+  function handleSessionDragStart(event: DragEvent, sessionId: string, index: number) {
+    draggedSessionIndex = index;
+    event.dataTransfer?.setData('text/plain', sessionId);
+    event.dataTransfer?.setData('application/x-terminar-session', sessionId);
+  }
+
+  function handleSessionDragOver(event: DragEvent, index: number) {
+    if (draggedSessionIndex === null) return;
+    event.preventDefault();
+    sessionDragOverIndex = index;
+  }
+
+  function handleSessionDragLeave() {
+    sessionDragOverIndex = null;
+  }
+
+  function handleSessionDrop(event: DragEvent, toIndex: number) {
+    if (draggedSessionIndex === null) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const activeTabId = workspaceStore.get().activeTabId;
+    workspaceStore.reorderSession(activeTabId, draggedSessionIndex, toIndex);
+    draggedSessionIndex = null;
+    sessionDragOverIndex = null;
+  }
+
+  function handleSessionDragEnd() {
+    draggedSessionIndex = null;
+    sessionDragOverIndex = null;
   }
 
   function handleClose(sessionId: string) {
@@ -83,6 +149,31 @@
 
   function handleMenuClose() {
     contextMenu = null;
+  }
+
+  // Tab header drag-over state: tabId -> boolean
+  let tabHeaderDragOver = $state<Record<string, boolean>>({});
+
+  function handleTabHeaderDragOver(event: DragEvent, tabId: string) {
+    if (!event.dataTransfer?.types.includes('application/x-terminar-session')) return;
+    event.preventDefault();
+    tabHeaderDragOver = { ...tabHeaderDragOver, [tabId]: true };
+  }
+
+  function handleTabHeaderDragLeave(tabId: string) {
+    tabHeaderDragOver = { ...tabHeaderDragOver, [tabId]: false };
+  }
+
+  function handleTabHeaderDrop(event: DragEvent, toTabId: string) {
+    tabHeaderDragOver = { ...tabHeaderDragOver, [toTabId]: false };
+    const sessionId = event.dataTransfer?.getData('application/x-terminar-session');
+    if (!sessionId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const fromTabId = workspaceStore.get().activeTabId;
+    if (fromTabId !== toTabId) {
+      workspaceStore.moveSessionToTab(sessionId, fromTabId, toTabId);
+    }
   }
 
   // Pane drag-to-sidebar drop target
@@ -132,37 +223,165 @@
     ondragleave={handleListDragLeave}
     ondrop={handleListDrop}
   >
-    {#each sessions as session (session.id)}
-      <div class="session-row" class:broadcast-mode={broadcastMode}>
-        {#if broadcastMode}
-          <label class="broadcast-checkbox" aria-label="Toggle broadcast target for {session.name}">
-            <input
-              type="checkbox"
-              checked={broadcastTargets.value.has(session.id)}
-              onchange={() => toggleTarget(session.id)}
-            />
-          </label>
-        {/if}
-        <div class="session-item-wrapper">
-          <TerminalListItem
-            id={session.id}
-            name={session.name}
-            shell={session.shell}
-            cwd={session.cwd}
-            foregroundProcess={foregroundStore.processes.get(session.id) ?? null}
-            terminalTitle={titleStore.titles.get(session.id) ?? ''}
-            paneCount={$sessionPaneCounts.get(session.id) ?? 0}
-            isActive={session.id === activeSessionId}
-            startEditing={editingSessionId === session.id}
-            onselect={handleSelect}
-            onclose={handleClose}
-            onrename={handleRename}
-            oneditend={() => handleEditEnd()}
-            oncontextmenu={handleContextMenu}
-          />
+    {#if tabGroups.length > 1}
+      <!-- Multi-tab view: show sessions grouped by tab with drop targets on headers -->
+      {#each tabGroups as group (group.tab.id)}
+        <div
+          class="tab-group-header"
+          class:tab-header-drag-over={tabHeaderDragOver[group.tab.id]}
+          ondragover={(e) => handleTabHeaderDragOver(e, group.tab.id)}
+          ondragleave={() => handleTabHeaderDragLeave(group.tab.id)}
+          ondrop={(e) => handleTabHeaderDrop(e, group.tab.id)}
+          role="heading"
+          aria-level={2}
+        >
+          <span class="tab-group-name">{group.tab.name}</span>
+          {#if tabHeaderDragOver[group.tab.id]}
+            <span class="tab-drop-hint">Drop here</span>
+          {/if}
         </div>
-      </div>
-    {/each}
+        {#each group.sessions as session, index (session.id)}
+          {@const globalIndex = sessions.findIndex(s => s.id === session.id)}
+          {@const isAssigned = ($sessionPaneCounts.get(session.id) ?? 0) > 0}
+          <div
+            class="session-row"
+            class:broadcast-mode={broadcastMode}
+            class:session-drag-over={sessionDragOverIndex === globalIndex}
+            draggable="true"
+            ondragstart={(e) => handleSessionDragStart(e, session.id, globalIndex)}
+            ondragover={(e) => handleSessionDragOver(e, globalIndex)}
+            ondragleave={handleSessionDragLeave}
+            ondrop={(e) => handleSessionDrop(e, globalIndex)}
+            ondragend={handleSessionDragEnd}
+          >
+            {#if broadcastMode}
+              <label class="broadcast-checkbox" aria-label="Toggle broadcast target for {session.name}">
+                <input
+                  type="checkbox"
+                  checked={broadcastTargets.value.has(session.id)}
+                  onchange={() => toggleTarget(session.id)}
+                />
+              </label>
+            {/if}
+            <div class="session-item-wrapper" class:assigned={isAssigned}>
+              <TerminalListItem
+                id={session.id}
+                name={session.name}
+                shell={session.shell}
+                cwd={session.cwd}
+                foregroundProcess={foregroundStore.processes.get(session.id) ?? null}
+                terminalTitle={titleStore.titles.get(session.id) ?? ''}
+                paneCount={$sessionPaneCounts.get(session.id) ?? 0}
+                isActive={session.id === activeSessionId}
+                startEditing={editingSessionId === session.id}
+                onselect={handleSelect}
+                onclose={handleClose}
+                onrename={handleRename}
+                oneditend={() => handleEditEnd()}
+                oncontextmenu={handleContextMenu}
+              />
+              {#if $newSessionIds.has(session.id)}
+                <span class="new-badge"> (new)</span>
+              {/if}
+            </div>
+          </div>
+        {/each}
+      {/each}
+      <!-- Orphan sessions (not in any tab) -->
+      {#each orphanSessions as session, index (session.id)}
+        {@const globalIndex = sessions.findIndex(s => s.id === session.id)}
+        {@const isAssigned = ($sessionPaneCounts.get(session.id) ?? 0) > 0}
+        <div
+          class="session-row"
+          class:broadcast-mode={broadcastMode}
+          class:session-drag-over={sessionDragOverIndex === globalIndex}
+          draggable="true"
+          ondragstart={(e) => handleSessionDragStart(e, session.id, globalIndex)}
+          ondragover={(e) => handleSessionDragOver(e, globalIndex)}
+          ondragleave={handleSessionDragLeave}
+          ondrop={(e) => handleSessionDrop(e, globalIndex)}
+          ondragend={handleSessionDragEnd}
+        >
+          {#if broadcastMode}
+            <label class="broadcast-checkbox" aria-label="Toggle broadcast target for {session.name}">
+              <input
+                type="checkbox"
+                checked={broadcastTargets.value.has(session.id)}
+                onchange={() => toggleTarget(session.id)}
+              />
+            </label>
+          {/if}
+          <div class="session-item-wrapper" class:assigned={isAssigned}>
+            <TerminalListItem
+              id={session.id}
+              name={session.name}
+              shell={session.shell}
+              cwd={session.cwd}
+              foregroundProcess={foregroundStore.processes.get(session.id) ?? null}
+              terminalTitle={titleStore.titles.get(session.id) ?? ''}
+              paneCount={$sessionPaneCounts.get(session.id) ?? 0}
+              isActive={session.id === activeSessionId}
+              startEditing={editingSessionId === session.id}
+              onselect={handleSelect}
+              onclose={handleClose}
+              onrename={handleRename}
+              oneditend={() => handleEditEnd()}
+              oncontextmenu={handleContextMenu}
+            />
+            {#if $newSessionIds.has(session.id)}
+              <span class="new-badge"> (new)</span>
+            {/if}
+          </div>
+        </div>
+      {/each}
+    {:else}
+      <!-- Single-tab view: flat list -->
+      {#each sessions as session, index (session.id)}
+        {@const isAssigned = ($sessionPaneCounts.get(session.id) ?? 0) > 0}
+        <div
+          class="session-row"
+          class:broadcast-mode={broadcastMode}
+          class:session-drag-over={sessionDragOverIndex === index}
+          draggable="true"
+          ondragstart={(e) => handleSessionDragStart(e, session.id, index)}
+          ondragover={(e) => handleSessionDragOver(e, index)}
+          ondragleave={handleSessionDragLeave}
+          ondrop={(e) => handleSessionDrop(e, index)}
+          ondragend={handleSessionDragEnd}
+        >
+          {#if broadcastMode}
+            <label class="broadcast-checkbox" aria-label="Toggle broadcast target for {session.name}">
+              <input
+                type="checkbox"
+                checked={broadcastTargets.value.has(session.id)}
+                onchange={() => toggleTarget(session.id)}
+              />
+            </label>
+          {/if}
+          <div class="session-item-wrapper" class:assigned={isAssigned}>
+            <TerminalListItem
+              id={session.id}
+              name={session.name}
+              shell={session.shell}
+              cwd={session.cwd}
+              foregroundProcess={foregroundStore.processes.get(session.id) ?? null}
+              terminalTitle={titleStore.titles.get(session.id) ?? ''}
+              paneCount={$sessionPaneCounts.get(session.id) ?? 0}
+              isActive={session.id === activeSessionId}
+              startEditing={editingSessionId === session.id}
+              onselect={handleSelect}
+              onclose={handleClose}
+              onrename={handleRename}
+              oneditend={() => handleEditEnd()}
+              oncontextmenu={handleContextMenu}
+            />
+            {#if $newSessionIds.has(session.id)}
+              <span class="new-badge"> (new)</span>
+            {/if}
+          </div>
+        </div>
+      {/each}
+    {/if}
   </div>
 
   <button class="new-terminal-btn" onclick={handleNewTerminal}>
@@ -229,15 +448,38 @@
   .session-row {
     display: flex;
     align-items: stretch;
+    cursor: grab;
+  }
+
+  .session-row:active {
+    cursor: grabbing;
   }
 
   .session-row.broadcast-mode {
     padding-left: 4px;
   }
 
+  .session-row.session-drag-over {
+    outline: 2px solid var(--ui-accent, #0e639c);
+    outline-offset: -2px;
+    border-radius: 2px;
+  }
+
   .session-item-wrapper {
     flex: 1;
     min-width: 0;
+    position: relative;
+  }
+
+  .new-badge {
+    color: var(--text-secondary, #888);
+    font-style: italic;
+    font-size: 11px;
+    pointer-events: none;
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
   }
 
   .broadcast-checkbox {
@@ -253,6 +495,49 @@
     accent-color: var(--ui-accent, #0e639c);
     width: 14px;
     height: 14px;
+  }
+
+  .tab-group-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 8px 2px 6px;
+    margin-top: 6px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--ui-text-muted, #777);
+    border-bottom: 1px solid var(--ui-border, #3c3c3c);
+    cursor: default;
+    transition: background 0.1s, border-color 0.1s;
+  }
+
+  .tab-group-header:first-child {
+    margin-top: 0;
+  }
+
+  .tab-group-header.tab-header-drag-over {
+    background: rgba(14, 99, 156, 0.15);
+    border-color: var(--ui-accent, #0e639c);
+    color: var(--ui-accent, #0e639c);
+  }
+
+  .tab-group-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tab-drop-hint {
+    font-size: 9px;
+    color: var(--ui-accent, #0e639c);
+    flex-shrink: 0;
+    margin-left: 4px;
+  }
+
+  .session-item-wrapper.assigned {
+    opacity: 0.6;
   }
 
   .new-terminal-btn {
