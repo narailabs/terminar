@@ -2,11 +2,11 @@
 
 ## No Mocking Policy (MANDATORY)
 
-**NEVER use mock PTY, mock data, or any mock/stub options unless the user explicitly asks for it.** Always use `pnpm dev` (real PTY), never `pnpm dev:mock`. Always use `cargo run -- --no-auth`, never `--mock-pty`. If a real dependency is unavailable, fail explicitly rather than silently using fakes.
+**NEVER use mock PTY, mock data, or any mock/stub options unless the user explicitly asks for it.** Always use `pnpm dev` (real PTY). Always use `cargo run -- --no-auth`. If a real dependency is unavailable, fail explicitly rather than silently using fakes.
 
 ## Overview
 
-Persistent terminal sessions that survive crashes and restarts. A Rust server manages PTY sessions, with multiple client frontends. Think of it as a built-in tmux.
+Persistent terminal sessions that survive crashes and restarts. A Rust server manages PTY sessions on a Unix socket, with an Electron tray app as the distributed frontend. Think of it as a built-in tmux.
 
 **Full architecture reference:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
@@ -14,42 +14,36 @@ Persistent terminal sessions that survive crashes and restarts. A Rust server ma
 
 ```
 terminar/
-├── server/                  # Rust backend (2 binaries: terminar-server + terminar-gateway)
+├── server/                  # Rust backend (terminar-server binary)
 │   └── src/
-│       ├── main.rs          # Single-user server entry point
-│       ├── bin/gateway.rs   # Multi-user gateway entry point
-│       ├── gateway/         # Gateway: auth, proxy, per-user server spawning
+│       ├── main.rs          # Server entry point
 │       ├── lib.rs           # Server core: routing, message dispatch
-│       ├── handlers/        # Message handlers (auth, session, I/O, workspace)
-│       ├── session.rs       # PTY session lifecycle
-│       ├── pty.rs           # PTY spawning (portable-pty)
-│       ├── messages.rs      # Wire protocol types (Rust side)
-│       ├── auth.rs          # Token/password/SSH key auth
-│       ├── jwt.rs           # JWT signing & verification
-│       ├── tls.rs           # TLS setup, self-signed cert generation
-│       ├── persistence.rs   # Session state persistence
-│       ├── history.rs       # Terminal output history (zstd compressed)
-│       ├── audit.rs         # Security event logging
 │       ├── config.rs        # CLI args (clap)
+│       ├── handlers/        # Message handlers (session, I/O, workspace)
+│       ├── messages.rs      # Wire protocol types (Rust side)
+│       ├── connection.rs    # Client connection tracking
+│       ├── settings.rs      # Per-session settings
+│       ├── workspace.rs     # Workspace persistence
+│       ├── audit.rs         # Event logging
+│       ├── constants.rs     # Defaults (ports, timeouts, limits)
+│       ├── error.rs         # Error types
 │       └── logging.rs       # Tracing configuration
-├── web/                     # Web frontend (Svelte 5 + xterm.js + Vite)
+├── web/                     # Web frontend (Svelte 5 + xterm.js + Vite) — dev-only, not shipped
 │   └── src/
 │       ├── App.svelte       # Root component
 │       ├── components/      # ~20 components: Terminal, Pane, WorkspaceView, Sidebar, etc.
 │       └── lib/             # ~50 modules: stores, managers, keybindings, themes
-├── tray/                    # System tray app (Electron + Svelte 5)
+├── tray/                    # System tray app (Electron + Svelte 5) — shipped desktop app
 │   └── src/
-│       ├── main/            # Electron main process (tray, health, service, config, IPC)
+│       ├── main/            # Electron main process (tray, health, server, config, IPC)
 │       ├── preload/         # contextBridge API (trayAPI)
-│       └── renderer/        # Svelte: Install wizard, Settings window
+│       └── renderer/        # Svelte: Settings window, embedded terminal
 ├── extension/               # VS Code extension (TypeScript)
 │   └── src/                 # ServerController, SessionManager, NetSocketAdapter
 ├── packages/
 │   └── shell-protocol/      # Shared TypeScript protocol (@narai/terminar-protocol)
 │       └── src/             # Zod schemas, ShellClient, BaseWebSocketManager
-├── electron/                # Electron desktop app (experimental, inactive)
-├── deploy/                  # Systemd/launchd service files, sudoers, logrotate
-├── docs/                    # API docs, architecture plans, security guides
+├── docs/                    # API docs, architecture plans
 │   ├── ARCHITECTURE.md      # Detailed architecture reference (READ THIS)
 │   ├── API.md               # Protocol & REST API reference
 │   └── plans/               # Design documents for major features
@@ -58,59 +52,41 @@ terminar/
 
 ## Architecture
 
-### Single-User Mode (local development, VS Code)
+### Local-Only Mode
 
 ```
-VS Code Extension ──Unix Socket──► terminar-server ◄──WebSocket──► Web Frontend
-                                        │
-                                   PTY Sessions (portable-pty)
+Electron Tray (tray/) ──WebSocket──► terminar-server ◄──Unix Socket──► VS Code Extension
+       │                                    │
+  Embedded terminal                    PTY Sessions (portable-pty)
+  Settings window
+  Health polling
 ```
 
-### Multi-User Mode (shared servers, production)
-
-```
-Browser ──TLS──► terminar-gateway ──sudo──► terminar-server --user-mode (per user)
-                    │                              │
-                Auth (password/SSH)          PTY Sessions
-                JWT issuance              /run/terminar/<user>.sock
-```
-
-### System Tray (Electron)
-
-```
-Tray App (tray/) ──HTTP health──► terminar-gateway/server
-     │
-  Service management (launchd/systemd via elevated bash scripts)
-  Settings window (Svelte 5)
-  Install wizard
-```
+The server listens on a Unix socket and localhost HTTP. The Electron tray app is the shipped desktop frontend. The web frontend (`web/`) is used only during development.
 
 ### Components
 
-- **terminar-server** (`server/`): Single-user PTY server. Unix socket + WebSocket. Token auth via `~/.terminar/token`.
-- **terminar-gateway** (`server/src/bin/gateway.rs`): Multi-user reverse proxy. TLS termination, password/SSH auth, spawns per-user servers via `sudo -u`.
-- **Web Frontend** (`web/`): Svelte 5 + xterm.js. Split panes, tabs, drag-and-drop, themes, keybindings.
-- **System Tray** (`tray/`): Electron tray app. Service lifecycle, health polling, settings, install wizard.
+- **terminar-server** (`server/`): Local PTY server. Unix socket + localhost HTTP/WebSocket. Token auth via `~/.terminar/token`.
+- **Electron Tray** (`tray/`): Shipped desktop app. System tray icon, embedded terminal, settings, health polling. Bundles the server binary.
+- **Web Frontend** (`web/`): Svelte 5 + xterm.js. Dev-only — not shipped in the distributed app.
 - **VS Code Extension** (`extension/`): Connects via Unix socket with length-prefixed framing.
 - **Protocol Package** (`packages/shell-protocol/`): Zod schemas, ShellClient, BaseWebSocketManager. Shared by web + extension.
-- **Electron** (`electron/`): Experimental desktop wrapper (inactive).
 
 ## Build & Test Commands
 
 ### Root-level shortcuts (preferred)
 
 ```bash
-pnpm dev                     # Start server + web (USE THIS BY DEFAULT)
-pnpm dev:tray                # Start server + web + tray (all frontends)
-pnpm dev:all                 # Start server + web + tray + electron (everything)
-pnpm dev:mock                # ONLY when user explicitly requests mock
-pnpm build                   # Build server (release) + web
-pnpm test                    # Test server + web
+pnpm dev                     # Start server + tray (USE THIS BY DEFAULT)
+pnpm dev:web                 # Start server + web (for web frontend development)
+pnpm dev:all                 # Start server + web + tray (everything)
+pnpm build                   # Build server (release) + tray
+pnpm test                    # Test server
 pnpm test:server             # Test server only
 pnpm test:web                # Test web only
 pnpm test:extension          # Test extension only
 pnpm tray:dev                # Run tray app only (Electron dev)
-pnpm tray:test               # Test tray app (unit + e2e)
+pnpm tray:test               # Test tray app
 ```
 
 ### Rust Server
@@ -118,14 +94,13 @@ pnpm tray:test               # Test tray app (unit + e2e)
 ```bash
 cd server
 cargo build                  # Debug build
-cargo build --release        # Release build (outputs terminar-server + terminar-gateway)
+cargo build --release        # Release build (outputs terminar-server)
 cargo test                   # Run tests
 cargo clippy                 # Lint
 cargo run -- --no-auth       # Dev mode (USE THIS BY DEFAULT)
-cargo run --bin terminar-gateway -- --port 6749  # Run gateway
 ```
 
-### Web Frontend
+### Web Frontend (dev-only)
 
 ```bash
 cd web
@@ -140,8 +115,8 @@ pnpm test:watch              # Vitest (watch mode)
 ```bash
 cd tray
 pnpm dev                     # Run in dev mode (Electron + Vite)
-pnpm test -- --run           # Vitest unit tests (77 tests)
-npx playwright test          # Playwright E2E tests (22 tests)
+pnpm test -- --run           # Vitest unit tests
+npx playwright test          # Playwright E2E tests
 pnpm build                   # Build distributable (electron-builder)
 ```
 
@@ -176,15 +151,13 @@ pnpm test                    # Mocha tests (requires protocol dist/)
 |------|---------|
 | `packages/shell-protocol/src/messages.ts` | Wire protocol schemas (Zod) - single source of truth |
 | `packages/shell-protocol/src/client.ts` | `ShellClient` class + `IShellSocket` interface |
-| `server/src/handlers/` | Server-side message handlers (auth, session, I/O, workspace) |
-| `server/src/gateway/` | Multi-user gateway (proxy, user server lifecycle) |
-| `server/src/pty.rs` | PTY spawning and management |
+| `server/src/handlers/` | Server-side message handlers (session, I/O, workspace) |
 | `web/src/components/Terminal.svelte` | xterm.js terminal widget (write buffering, auto-scroll) |
 | `web/src/lib/workspaceStore.ts` | Split pane / tab workspace state |
 | `web/src/lib/sessionContext.ts` | Svelte context API for session access |
 | `tray/src/main/index.ts` | Tray app entry (Electron lifecycle, orchestration) |
-| `tray/src/main/ServiceManager.ts` | launchd/systemd service management (bash scripts) |
 | `tray/src/main/TrayManager.ts` | System tray icon + dynamic context menu |
+| `tray/src/main/ServerManager.ts` | Server process lifecycle management |
 | `docs/ARCHITECTURE.md` | Full architecture reference |
 | `docs/API.md` | API reference documentation |
 
