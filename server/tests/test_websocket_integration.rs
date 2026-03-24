@@ -15,24 +15,14 @@ async fn spawn_test_server() -> (String, tokio::task::JoinHandle<()>) {
     drop(listener);
 
     let cli = Cli {
-        command: None,
         port,
         socket: Some(format!("/tmp/test-server-{}.sock", port)),
         log_level: "error".to_string(),
         no_auth: true,
         mock_pty: true,
-        cors_origins: vec![],
         log_json: false,
         log_file: None,
-        tls_cert: None,
-        tls_key: None,
-        tls_port: 8444,
-        max_auth_attempts: 5,
-        auto_tls: false,
         audit_level: "off".to_string(),
-        trusted_proxy: None,
-        user_mode: false,
-        require_auth: false,
     };
 
     let socket_path = cli.socket.clone().unwrap();
@@ -65,16 +55,22 @@ async fn test_websocket_flow_full() {
         .await
         .unwrap();
 
-    let msg = socket.next().await.unwrap().unwrap();
+    // First message may be AuthOk (sent for local connections), skip it
     let mut session_id = String::new();
-
-    if let Message::Text(text) = msg {
-        let resp: ServerMessage = serde_json::from_str(&text).unwrap();
-        if let ServerMessage::SessionList { sessions } = resp {
-            assert_eq!(sessions.len(), 1);
-            session_id = sessions[0].id.clone();
-        } else {
-            panic!("Expected SessionList");
+    let start = std::time::Instant::now();
+    while start.elapsed() < Duration::from_secs(5) {
+        let msg = socket.next().await.unwrap().unwrap();
+        if let Message::Text(text) = msg {
+            let resp: ServerMessage = serde_json::from_str(&text).unwrap();
+            match resp {
+                ServerMessage::SessionList { sessions } => {
+                    assert_eq!(sessions.len(), 1);
+                    session_id = sessions[0].id.clone();
+                    break;
+                }
+                ServerMessage::AuthOk { .. } => continue, // Skip AuthOk
+                _ => panic!("Expected SessionList or AuthOk, got {:?}", resp),
+            }
         }
     }
 
@@ -139,24 +135,14 @@ async fn spawn_test_server_with_auth() -> (String, tokio::task::JoinHandle<()>) 
     drop(listener);
 
     let cli = Cli {
-        command: None,
         port,
         socket: Some(format!("/tmp/test-server-auth-{}.sock", port)),
         log_level: "error".to_string(),
         no_auth: false, // Auth ENABLED - but localhost should still skip it
         mock_pty: true,
-        cors_origins: vec![],
         log_json: false,
         log_file: None,
-        tls_cert: None,
-        tls_key: None,
-        tls_port: 8444,
-        max_auth_attempts: 5,
-        auto_tls: false,
         audit_level: "off".to_string(),
-        trusted_proxy: None,
-        user_mode: false,
-        require_auth: false,
     };
 
     let socket_path = cli.socket.clone().unwrap();
@@ -197,8 +183,24 @@ async fn test_localhost_connection_skips_auth() {
     if let Message::Text(text) = msg {
         let resp: ServerMessage = serde_json::from_str(&text).unwrap();
         match resp {
+            ServerMessage::AuthOk { .. } => {
+                // AuthOk is sent first for local connections, now get SessionList
+                let msg2 = tokio::time::timeout(Duration::from_secs(5), socket.next())
+                    .await
+                    .expect("Timeout waiting for SessionList")
+                    .expect("Connection closed")
+                    .expect("Failed to receive message");
+                if let Message::Text(text2) = msg2 {
+                    let resp2: ServerMessage = serde_json::from_str(&text2).unwrap();
+                    match resp2 {
+                        ServerMessage::SessionList { sessions } => {
+                            assert_eq!(sessions.len(), 0, "Expected empty session list");
+                        }
+                        _ => panic!("Expected SessionList after AuthOk, got {:?}", resp2),
+                    }
+                }
+            }
             ServerMessage::SessionList { sessions } => {
-                // Success! Localhost connection skipped auth
                 assert_eq!(sessions.len(), 0, "Expected empty session list");
             }
             ServerMessage::Error { message, .. } => {
