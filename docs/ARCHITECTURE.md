@@ -5,40 +5,21 @@
 
 ## System Overview
 
-terminar provides persistent terminal sessions across VS Code, browsers, and desktop apps. It has two deployment modes:
-
-1. **Single-user** — `terminar-server` runs locally, connects via Unix socket (VS Code) or WebSocket (browser)
-2. **Multi-user** — `terminar-gateway` runs on a shared server, authenticates users, spawns per-user `terminar-server` instances via `sudo`
+terminar provides persistent terminal sessions across an Electron tray app, VS Code, and a dev-only web frontend. It runs locally only — the server listens on a Unix socket and localhost HTTP.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Client Frontends                         │
 │                                                                 │
-│  VS Code Extension    Web (Svelte)   Tray (Electron)   Electron  │
-│   Unix socket         WebSocket       HTTP health      WebSocket │
-└──────┬─────────────────┬──────────────────┬──────────────┬──────┘
-       │                 │                  │              │
-       ▼                 ▼                  ▼              ▼
+│  Electron Tray (shipped)   VS Code Extension   Web (dev-only)   │
+│   WebSocket (localhost)     Unix socket         WebSocket        │
+└──────────────┬──────────────────┬──────────────────┬────────────┘
+               │                  │                  │
+               ▼                  ▼                  ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│                     terminar-server (single-user)                │
-│  Unix socket (:sock) + HTTP/WebSocket (:6749)                    │
+│                     terminar-server (local)                      │
+│  Unix socket (:sock) + HTTP/WebSocket (localhost:6749)           │
 │  PTY management, session persistence, output history             │
-└──────────────────────────────────────────────────────────────────┘
-
-       OR (multi-user deployment):
-
-┌──────────────────────────────────────────────────────────────────┐
-│                     terminar-gateway                             │
-│  TLS termination (:8444), HTTP (:6749)                           │
-│  Auth (password/SSH key → JWT), per-user server spawning         │
-│                                                                  │
-│  ┌────────────────────────────────────────────────────────┐      │
-│  │  sudo -u alice terminar-server --user-mode             │      │
-│  │  /run/terminar/alice.sock                              │      │
-│  ├────────────────────────────────────────────────────────┤      │
-│  │  sudo -u bob terminar-server --user-mode               │      │
-│  │  /run/terminar/bob.sock                                │      │
-│  └────────────────────────────────────────────────────────┘      │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -46,47 +27,30 @@ terminar provides persistent terminal sessions across VS Code, browsers, and des
 
 ## Rust Server (`server/`)
 
-### Binaries
+### Binary
 
 | Binary | Entry Point | Purpose |
 |--------|-------------|---------|
-| `terminar-server` | `src/main.rs` | Single-user PTY server |
-| `terminar-gateway` | `src/bin/gateway.rs` | Multi-user reverse proxy |
+| `terminar-server` | `src/main.rs` | Local PTY server |
 
 ### Module Map
 
 | Module | Purpose |
 |--------|---------|
 | `main.rs` | CLI parsing, socket path, starts server |
-| `lib.rs` | HTTP/WebSocket routing, message dispatch (~2000 lines + tests) |
+| `lib.rs` | HTTP/WebSocket routing, message dispatch |
 | `config.rs` | `Cli` struct (clap) for terminar-server args |
 | `messages.rs` | Client/Server message types (serde) |
 | **`handlers/`** | |
-| `handlers/auth.rs` | Token exchange, version negotiation |
+| `handlers/mod.rs` | Handler dispatch |
 | `handlers/session.rs` | Create, list, kill, rename sessions; PTY spawning |
 | `handlers/io.rs` | Input (write to PTY), Resize, Attach (output forwarding) |
 | `handlers/workspace.rs` | Save/load workspace layout (JSON persistence) |
-| **`gateway/`** | |
-| `gateway/mod.rs` | Gateway main: state, routing, health endpoint |
-| `gateway/config.rs` | `GatewayConfig` (clap) for gateway args |
-| `gateway/proxy.rs` | WebSocket proxy: gateway → per-user server |
-| `gateway/user_server.rs` | Spawn/track/reap per-user server processes |
-| **Security** | |
-| `auth.rs` | PAM login, password verification, SSH key auth |
-| `jwt.rs` | JWT signing/verification, key management |
-| `cookies.rs` | HttpOnly cookie auth for browsers |
-| `revocation.rs` | Token blacklist |
-| `tls.rs` | TLS setup, self-signed cert generation, cert reload |
-| `security_headers.rs` | HSTS, CSP, etc. |
-| `audit.rs` | Security event logging to disk |
 | **Core** | |
-| `session.rs` | Session state machine, PTY lifecycle |
-| `pty.rs` | PTY spawning via `portable-pty` |
 | `connection.rs` | Client connection tracking |
-| `persistence.rs` | Session state → JSON file |
-| `history.rs` | Output history ring buffer, zstd compression |
-| `process.rs` | Process tree, foreground process detection |
+| `workspace.rs` | Workspace state persistence |
 | `settings.rs` | Per-session settings (theme, env vars) |
+| `audit.rs` | Event logging to disk |
 | `constants.rs` | Defaults (ports, timeouts, limits) |
 | `error.rs` | Error types |
 | `logging.rs` | Tracing config (JSON, file, env filter) |
@@ -101,28 +65,62 @@ terminar provides persistent terminal sessions across VS Code, browsers, and des
 --persist-sessions      Save sessions to disk
 --persist-history       Save terminal output history
 --compress-history      zstd compression for history >1MB
---tls-cert/--tls-key    TLS certificate and key paths
---user-mode             Run as per-user server (spawned by gateway)
-pair                    Subcommand: generate pairing code for browser auth
-```
-
-**terminar-gateway:**
-```
---port <PORT>           HTTP port (default: 6749)
---tls-port <PORT>       TLS port (default: 8444)
---server-bin <PATH>     Path to terminar-server binary
---socket-dir <PATH>     Per-user socket directory (default: /run/terminar)
---idle-timeout <SECS>   Shutdown idle servers (default: 1800)
---auto-tls              Auto-generate self-signed cert (default: true)
 ```
 
 ### Tech Stack
 
-Tokio, Axum, portable-pty, serde/serde_json, jsonwebtoken, rustls, zstd, ring, tracing
+Tokio, Axum, portable-pty, serde/serde_json, zstd, tracing
 
 ---
 
-## Web Frontend (`web/`)
+## Electron Tray (`tray/`)
+
+Electron app — runs as a menu bar icon (macOS) or system tray (Linux/Windows). Tray-only (no Dock icon on macOS). This is the shipped desktop frontend that bundles the server binary.
+
+### Electron Main Process (`tray/src/main/`)
+
+| Module | Purpose |
+|--------|---------|
+| `index.ts` | App lifecycle, orchestration, single instance lock |
+| `TrayManager.ts` | System tray icon + dynamic context menu from health/config state |
+| `HealthPoller.ts` | Polls server `/health` endpoint every 5s via `fetch()` |
+| `ServerManager.ts` | Server process lifecycle (start, stop, restart) |
+| `ConfigStore.ts` | `TrayConfig` persistence (`~/.terminar/tray-config.json`) |
+| `WindowManager.ts` | Settings/terminal window lifecycle |
+| `WebUIManager.ts` | Embedded web UI management |
+| `SocketBridge.ts` | Socket bridge for extension communication |
+| `MultiWindowCoordinator.ts` | Coordinate multiple window instances |
+| `WslManager.ts` | WSL integration (Windows) |
+| `ipc.ts` | IPC handler registration (main <-> renderer) |
+| `menuSpec.ts` | Pure function `computeMenuSpec()` for tray menu (unit-testable) |
+| `paths.ts` | App root path resolution (`getAppRoot()`) |
+| `types.ts` | Shared TypeScript types and defaults |
+
+### Svelte Frontend (`tray/src/renderer/`)
+
+| Component | Purpose |
+|-----------|---------|
+| `App.svelte` | Routes between views |
+| `Settings.svelte` | Configuration UI |
+| `TerminalApp.svelte` | Embedded terminal view |
+
+### Tray Menu Items
+
+- Server status (green/yellow/red indicator)
+- Open Web UI (launches browser)
+- Start/Stop/Restart Server
+- Settings window
+- Quit
+
+### Tech Stack
+
+Electron, Svelte 5, Vite, Playwright (E2E), Vitest (unit)
+
+---
+
+## Web Frontend (`web/`) — Dev-Only
+
+Used during development for rapid UI iteration. Not shipped in the distributed app.
 
 ### Component Hierarchy
 
@@ -137,7 +135,6 @@ App.svelte                      # Root: connection, auth, session management
 │   └── SplitContainer.svelte    # Recursive split layout
 │       └── Pane.svelte          # Terminal pane wrapper
 │           └── Terminal.svelte  # xterm.js instance (write buffering, auto-scroll)
-├── LoginPage.svelte             # Password/SSH key/pairing code auth
 ├── SettingsPanel.svelte         # Settings UI
 ├── SearchBar.svelte             # Terminal search
 ├── BroadcastBar.svelte          # Broadcast input to multiple sessions
@@ -183,50 +180,6 @@ Svelte 5, Vite, xterm.js, Vitest, TypeScript
 
 ---
 
-## System Tray (`tray/`)
-
-Electron app — runs as a menu bar icon (macOS) or system tray (Linux/Windows). Tray-only (no Dock icon on macOS).
-
-### Electron Main Process (`tray/src/main/`)
-
-| Module | Purpose |
-|--------|---------|
-| `index.ts` | App lifecycle, orchestration, single instance lock |
-| `TrayManager.ts` | System tray icon + dynamic context menu from health/config state |
-| `HealthPoller.ts` | Polls gateway `/health` endpoint every 5s via `fetch()` |
-| `ServiceManager.ts` | launchd/systemd service management (bash script generation) |
-| `ConfigStore.ts` | `TrayConfig` persistence (`~/.terminar/tray-config.json`) |
-| `WindowManager.ts` | Install/Settings window lifecycle |
-| `elevation.ts` | Elevated script execution via `osascript` (macOS) / `pkexec` (Linux) |
-| `ipc.ts` | IPC handler registration (main ↔ renderer) |
-| `types.ts` | Shared TypeScript types and defaults |
-
-### Svelte Frontend (`tray/src/renderer/`)
-
-| Component | Purpose |
-|-----------|---------|
-| `App.svelte` | Routes between Install and Settings views |
-| `Install.svelte` | First-run wizard (install gateway service) |
-| `Settings.svelte` | Configure port, TLS, auth, audit level |
-| `lib/api.ts` | Typed wrapper around `window.trayAPI` (preload bridge) |
-
-### Tray Menu Items
-
-- Server status (green/yellow/red indicator)
-- Open Web UI (launches browser)
-- Toggle TLS / Toggle Auth
-- Audit Level submenu
-- Start/Stop/Restart Service
-- Install/Uninstall Gateway
-- Settings window
-- Quit
-
-### Tech Stack
-
-Electron, Svelte 5, Vite, Playwright (E2E), Vitest (unit)
-
----
-
 ## Protocol Package (`packages/shell-protocol/`)
 
 Shared TypeScript package used by both web frontend and VS Code extension.
@@ -263,43 +216,13 @@ Tests: Mocha (not Vitest), mock `vscode` module via `setup.js`
 
 ---
 
-## Electron (`electron/`) — Experimental (Inactive)
-
-Scaffolded desktop wrapper experiment. Not the primary desktop path — the Electron tray app (`tray/`) is the active desktop component.
-
-Contains: `WindowManager`, `ServerManager`, `TrayManager`, `MenuManager`, `ShortcutManager`, `AutoUpdater`, `ConfigStore`, IPC handlers.
-
----
-
-## Deployment (`deploy/`)
-
-| File | Purpose |
-|------|---------|
-| `terminar-server.service` | Systemd unit for single-user server |
-| `terminar-gateway.service` | Systemd unit for multi-user gateway |
-| `com.terminar.gateway.plist` | macOS launchd plist for gateway |
-| `terminar-sudoers` | sudoers fragment: gateway can spawn per-user servers |
-| `postinst.sh` | Debian post-install script |
-| `logrotate.d/` | Log rotation for server + audit logs |
-
-### Gateway Deployment Model
-
-1. Gateway runs as `terminar` system user
-2. Spawns per-user servers via `sudo -u <username> terminar-server --user-mode`
-3. Each user's server listens on `/run/terminar/<username>.sock`
-4. Gateway proxies authenticated WebSocket → per-user socket
-5. Idle servers shut down after 30 min (configurable)
-
----
-
-## Authentication Flows
+## Authentication
 
 | Client | Flow |
 |--------|------|
-| **VS Code** | Server writes token to `~/.terminar/token` → extension reads it automatically |
-| **Browser (single-user)** | `terminar-server pair` generates 8-digit code → browser enters code → gets token |
-| **Browser (multi-user)** | Browser connects to gateway TLS → password/SSH key auth → JWT |
+| **VS Code** | Server writes token to `~/.terminar/token` -> extension reads it automatically |
 | **Tray App** | HTTP polling to `/health` endpoint (no session auth needed) |
+| **Web (dev)** | Connects to localhost server with token auth |
 
 ---
 
@@ -308,7 +231,7 @@ Contains: `WindowManager`, `ServerManager`, `TrayManager`, `MenuManager`, `Short
 ```
 Client ──[ClientMessage JSON]──→ Transport ──→ Server message dispatch
                                                     │
-                                              Handler (auth/session/io/workspace)
+                                              Handler (session/io/workspace)
                                                     │
 Server ──[ServerMessage JSON]──→ Transport ──→ Client
 ```
