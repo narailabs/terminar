@@ -6,6 +6,7 @@
   import { Unicode11Addon } from '@xterm/addon-unicode11';
   import { SearchAddon } from '@xterm/addon-search';
   import { ImageAddon } from '@xterm/addon-image';
+  import { WebLinksAddon } from '@xterm/addon-web-links';
   import '@xterm/xterm/css/xterm.css';
   import type { SessionManager } from '../lib/SessionManager';
   import { xtermOptions, settingsStore } from '../lib/settingsStore.svelte';
@@ -823,6 +824,16 @@
         onSearchResults(resultIndex >= 0 ? resultIndex + 1 : 0, resultCount);
       }
     });
+
+    // Load Web Links addon for clickable HTTP/HTTPS URLs.
+    // Cmd+Click (macOS) or Ctrl+Click (other) opens in system browser.
+    const isMac = navigator.platform.toUpperCase().includes('MAC');
+    const webLinksAddon = new WebLinksAddon((event, uri) => {
+      if (isMac ? event.metaKey : event.ctrlKey) {
+        window.open(uri, '_blank', 'noopener,noreferrer');
+      }
+    });
+    term.loadAddon(webLinksAddon);
 
     term.open(terminalContainer);
 
