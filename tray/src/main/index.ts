@@ -1,12 +1,10 @@
 // index.ts — App entry point, lifecycle, and orchestration.
-// Port of tray/src-tauri/src/lib.rs:run().
 
 import { app, BrowserWindow, globalShortcut, nativeImage } from 'electron';
 import path from 'path';
 import { ConfigStore } from './ConfigStore.js';
 import { HealthPoller } from './HealthPoller.js';
 import { MultiWindowCoordinator } from './MultiWindowCoordinator.js';
-import { ServiceManager } from './ServiceManager.js';
 import { WindowManager } from './WindowManager.js';
 import { TrayManager } from './TrayManager.js';
 import { registerIpcHandlers } from './ipc.js';
@@ -56,23 +54,20 @@ void app.whenReady().then(() => {
   // Create core instances
   const configStore = new ConfigStore();
   const config = configStore.load();
-  const serviceManager = new ServiceManager();
   const healthPoller = new HealthPoller();
   windowManager = new WindowManager();
 
   // Create the tray (builds initial menu internally)
   const trayManager = new TrayManager(
     configStore,
-    serviceManager,
     healthPoller,
     windowManager,
-    { launchedByCli, serverPort },
+    { serverPort },
   );
 
   // Register IPC handlers for renderer processes
   registerIpcHandlers(
     configStore,
-    serviceManager,
     healthPoller,
     windowManager,
   );
@@ -82,8 +77,8 @@ void app.whenReady().then(() => {
     trayManager.updateMenu();
   });
 
-  // Start health polling (use server port in CLI mode, gateway port otherwise)
-  healthPoller.start(launchedByCli ? (serverPort ?? 6750) : config.gateway_port);
+  // Start health polling
+  healthPoller.start(serverPort ?? config.server_port);
 
   // Multi-window coordination (tab-per-window model)
   const multiWindow = new MultiWindowCoordinator();
@@ -125,11 +120,6 @@ void app.whenReady().then(() => {
       console.error('[multi-window] Failed to open new window:', err);
     }
   });
-
-  // Show install wizard if the service is not installed (skip in CLI mode)
-  if (!launchedByCli && serviceManager.status() === 'notinstalled') {
-    windowManager.openInstall();
-  }
 });
 
 // ------------------------------------------------------------------

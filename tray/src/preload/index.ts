@@ -13,13 +13,7 @@ contextBridge.exposeInMainWorld('multiWindow', {
 contextBridge.exposeInMainWorld('trayAPI', {
   getConfig: () => ipcRenderer.invoke('tray:get-config'),
   saveConfig: (config: TrayConfig) => ipcRenderer.invoke('tray:save-config', config),
-  getServiceStatus: () => ipcRenderer.invoke('tray:get-service-status'),
   getHealth: () => ipcRenderer.invoke('tray:get-health'),
-  installService: (config: TrayConfig) => ipcRenderer.invoke('tray:install-service', config),
-  uninstallService: () => ipcRenderer.invoke('tray:uninstall-service'),
-  restartService: () => ipcRenderer.invoke('tray:restart-service'),
-  stopService: () => ipcRenderer.invoke('tray:stop-service'),
-  startService: () => ipcRenderer.invoke('tray:start-service'),
   pickFile: (options: { title: string; filters: { name: string; extensions: string[] }[] }) =>
     ipcRenderer.invoke('tray:pick-file', options),
   confirm: (message: string, options: { title: string; kind: string }) =>

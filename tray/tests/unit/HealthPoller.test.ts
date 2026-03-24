@@ -11,7 +11,6 @@ describe('HealthPoller', () => {
   it('starts with default (stopped) health', () => {
     poller = new HealthPoller();
     expect(poller.latestHealth.status).toBe('stopped');
-    expect(poller.latestHealth.active_servers).toBeNull();
     expect(poller.latestHealth.version).toBeNull();
   });
 
@@ -88,7 +87,6 @@ describe('HealthPoller', () => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         status: 'ok',
-        active_servers: 2,
         version: '1.0.0',
       }));
     });
@@ -102,14 +100,13 @@ describe('HealthPoller', () => {
       poller = new HealthPoller();
       const health = await poller.pollOnce(port);
       expect(health.status).toBe('running');
-      expect(health.active_servers).toBe(2);
       expect(health.version).toBe('1.0.0');
     } finally {
       server.close();
     }
   });
 
-  it('returns running with nulls for non-JSON 200 response', async () => {
+  it('returns running with null version for non-JSON 200 response', async () => {
     const { createServer } = await import('http');
     const server = createServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -125,7 +122,6 @@ describe('HealthPoller', () => {
       poller = new HealthPoller();
       const health = await poller.pollOnce(port);
       expect(health.status).toBe('running');
-      expect(health.active_servers).toBeNull();
       expect(health.version).toBeNull();
     } finally {
       server.close();
@@ -158,7 +154,7 @@ describe('HealthPoller', () => {
     const { createServer } = await import('http');
     const server = createServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'ok', active_servers: 0, version: '1.0' }));
+      res.end(JSON.stringify({ status: 'ok', version: '1.0' }));
     });
 
     await new Promise<void>((resolve) => {
@@ -189,9 +185,8 @@ describe('HealthPoller', () => {
     const server = createServer((_req, res) => {
       requestCount++;
       if (requestCount === 1) {
-        // First request: connection refused won't apply, server is up
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: 'ok', active_servers: 5, version: '2.0' }));
+        res.end(JSON.stringify({ status: 'ok', version: '2.0' }));
       } else {
         res.writeHead(503);
         res.end();
@@ -208,7 +203,7 @@ describe('HealthPoller', () => {
 
       const health1 = await poller.pollOnce(port);
       expect(health1.status).toBe('running');
-      expect(health1.active_servers).toBe(5);
+      expect(health1.version).toBe('2.0');
       expect(poller.latestHealth.status).toBe('running');
 
       const health2 = await poller.pollOnce(port);
