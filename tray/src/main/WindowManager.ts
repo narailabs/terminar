@@ -72,33 +72,6 @@ export class WindowManager {
     return null;
   }
 
-  /** Open the Install Gateway wizard window. */
-  openInstall(): void {
-    const existing = this.getWindow('install');
-    if (existing) {
-      existing.show();
-      existing.focus();
-      return;
-    }
-
-    const win = new BrowserWindow({
-      width: 400,
-      height: 350,
-      resizable: false,
-      title: 'Install terminar Gateway',
-      webPreferences: {
-        preload: this.preloadPath(),
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-      },
-    });
-
-    this.registerWindow('install', win);
-    this.openExternalLinks(win);
-    this.loadUrl(win, 'install');
-  }
-
   /** Open the Settings window. */
   openSettings(): void {
     const existing = this.getWindow('settings');
