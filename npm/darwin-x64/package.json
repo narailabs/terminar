@@ -1,0 +1,12 @@
+{
+  "name": "@narai/terminar-darwin-x64",
+  "version": "0.0.1",
+  "description": "terminar server binary for macOS x64 (Intel)",
+  "os": ["darwin"],
+  "cpu": ["x64"],
+  "files": ["bin/"],
+  "scripts": {
+    "postinstall": "node -e \"const{execSync:e}=require('child_process');try{e('chmod +x bin/terminar-server')}catch(x){}try{e('xattr -d com.apple.quarantine bin/terminar-server 2>/dev/null')}catch(x){}try{e('codesign --force --sign - bin/terminar-server')}catch(x){}\""
+  },
+  "license": "MIT"
+}

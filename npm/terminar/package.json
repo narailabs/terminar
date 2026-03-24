@@ -1,0 +1,20 @@
+{
+  "name": "terminar",
+  "version": "0.0.1",
+  "description": "Persistent terminal sessions that survive crashes and restarts",
+  "bin": {
+    "terminar": "bin/terminar.js"
+  },
+  "files": ["bin/", "lib/", "app/"],
+  "dependencies": {
+    "electron": "^40.6.0"
+  },
+  "optionalDependencies": {
+    "@narai/terminar-darwin-arm64": "0.0.1",
+    "@narai/terminar-darwin-x64": "0.0.1",
+    "@narai/terminar-linux-x64": "0.0.1",
+    "@narai/terminar-linux-arm64": "0.0.1",
+    "@narai/terminar-win32-x64": "0.0.1"
+  },
+  "license": "MIT"
+}

@@ -1,4 +1,4 @@
-import { writable, derived, get } from 'svelte/store';
+import { writable, derived, get, readonly } from 'svelte/store';
 import type {
   Workspace,
   TabId,
@@ -22,13 +22,28 @@ import {
 const STORAGE_KEY = 'workspace-state';
 
 /**
+ * Migrate a workspace loaded from persistence to ensure all tabs have sessionOrder.
+ */
+function migrateWorkspace(workspace: Workspace): Workspace {
+  for (const tab of workspace.tabs) {
+    if (!tab.sessionOrder) {
+      // Migrate: derive sessionOrder from pane tree
+      tab.sessionOrder = getAllPanes(tab.root)
+        .filter((p) => p.sessionId)
+        .map((p) => p.sessionId!);
+    }
+  }
+  return workspace;
+}
+
+/**
  * Load workspace from localStorage (fallback cache)
  */
 function loadFromCache(): Workspace | null {
   try {
     const cached = localStorage.getItem(STORAGE_KEY);
     if (cached) {
-      return JSON.parse(cached);
+      return migrateWorkspace(JSON.parse(cached));
     }
   } catch (e) {
     console.warn('[Workspace] Failed to load from cache:', e);
@@ -50,6 +65,10 @@ function saveToCache(workspace: Workspace): void {
 /**
  * Create the workspace store
  */
+// Tracks which sessions are "new" (haven't received user input yet).
+// Kept outside the workspace writable so mutations don't trigger workspace re-serialisation.
+const _newSessions = writable<Set<SessionId>>(new Set());
+
 function createWorkspaceStore() {
   const initialWorkspace = loadFromCache() || createDefaultWorkspace();
 
@@ -137,6 +156,7 @@ function createWorkspaceStore() {
         if (!serverWorkspace.activeTabId) {
           serverWorkspace.activeTabId = serverWorkspace.tabs[0].id;
         }
+        migrateWorkspace(serverWorkspace);
         set(serverWorkspace);
         saveToCache(serverWorkspace);
       } else if (initialSessionId) {
@@ -256,6 +276,10 @@ function createWorkspaceStore() {
               changed = true;
             }
           }
+          // Remove stale IDs from sessionOrder
+          const before = tab.sessionOrder.length;
+          tab.sessionOrder = tab.sessionOrder.filter((id) => validSessionIds.has(id));
+          if (tab.sessionOrder.length !== before) changed = true;
         }
         if (!changed) return ws;
         scheduleSave(ws);
@@ -274,6 +298,10 @@ function createWorkspaceStore() {
         const pane = findPane(tab.root, paneId);
         if (!pane) return ws;
         pane.sessionId = sessionId;
+        // Add new sessions to sessionOrder if not already present
+        if (sessionId && !tab.sessionOrder.includes(sessionId)) {
+          tab.sessionOrder.push(sessionId);
+        }
         scheduleSave(ws);
         return refreshActiveTab(ws);
       });
@@ -302,6 +330,9 @@ function createWorkspaceStore() {
             const newPane = createPane(newSessionId || null);
             newPaneId = newPane.id;
             tab.root = createSplit(direction, [tab.root, newPane]);
+            if (newSessionId && !tab.sessionOrder.includes(newSessionId)) {
+              tab.sessionOrder.push(newSessionId);
+            }
             scheduleSave(ws);
             return refreshActiveTab(ws);
           }
@@ -328,6 +359,9 @@ function createWorkspaceStore() {
           parent.children[index] = newSplit;
         }
 
+        if (newSessionId && !tab.sessionOrder.includes(newSessionId)) {
+          tab.sessionOrder.push(newSessionId);
+        }
         scheduleSave(ws);
         return refreshActiveTab(ws);
       });
@@ -507,6 +541,39 @@ function createWorkspaceStore() {
       });
     },
 
+    // ==================== Session Ordering ====================
+
+    /**
+     * Reorder a session within a tab's sessionOrder list.
+     */
+    reorderSession(tabId: TabId, fromIndex: number, toIndex: number) {
+      update((ws) => {
+        const tab = ws.tabs.find((t) => t.id === tabId);
+        if (!tab || fromIndex === toIndex) return ws;
+        const [moved] = tab.sessionOrder.splice(fromIndex, 1);
+        tab.sessionOrder.splice(toIndex, 0, moved);
+        scheduleSave(ws);
+        return ws;
+      });
+    },
+
+    /**
+     * Move a session from one tab's sessionOrder to another tab's sessionOrder.
+     */
+    moveSessionToTab(sessionId: SessionId, fromTabId: TabId, toTabId: TabId) {
+      update((ws) => {
+        const fromTab = ws.tabs.find((t) => t.id === fromTabId);
+        const toTab = ws.tabs.find((t) => t.id === toTabId);
+        if (!fromTab || !toTab) return ws;
+        fromTab.sessionOrder = fromTab.sessionOrder.filter((id) => id !== sessionId);
+        if (!toTab.sessionOrder.includes(sessionId)) {
+          toTab.sessionOrder.push(sessionId);
+        }
+        scheduleSave(ws);
+        return ws;
+      });
+    },
+
     // ==================== Layout Templates ====================
 
     /**
@@ -536,6 +603,35 @@ function createWorkspaceStore() {
       };
 
       return template;
+    },
+
+    // ==================== New Session Flags ====================
+
+    /**
+     * Mark a session as new (badge shown until first input).
+     */
+    markSessionNew(sessionId: SessionId) {
+      _newSessions.update((s) => new Set([...s, sessionId]));
+    },
+
+    /**
+     * Clear the new flag (call on first user input).
+     */
+    clearSessionNew(sessionId: SessionId) {
+      _newSessions.update((s) => {
+        const next = new Set(s);
+        next.delete(sessionId);
+        return next;
+      });
+    },
+
+    /**
+     * Returns true if the session has the "new" flag set.
+     * Note: this is NOT reactive when called outside a Svelte reactive context.
+     * Use the exported `newSessionIds` store for reactive template bindings.
+     */
+    isSessionNew(sessionId: SessionId): boolean {
+      return get(_newSessions).has(sessionId);
     },
 
     /**
@@ -584,6 +680,13 @@ export const activeTab = derived(workspaceStore, ($ws) =>
 export const activePanes = derived(activeTab, ($tab) =>
   $tab ? getAllPanes($tab.root) : []
 );
+
+/**
+ * Read-only store of session IDs currently flagged as "new".
+ * Use this in Svelte templates for reactive badge rendering:
+ *   {#if $newSessionIds.has(session.id)} ... {/if}
+ */
+export const newSessionIds = readonly(_newSessions);
 
 /**
  * Derived store: how many panes each session is assigned to (across all tabs)

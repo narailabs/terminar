@@ -1036,6 +1036,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "terminar-core"
+version = "0.1.0"
+source = "git+https://github.com/narailabs/terminar-core#8f6baa77af57f5ce5a9b402dc6b3356cdce1caa1"
+dependencies = [
+ "anyhow",
+ "libc",
+ "nix 0.29.0",
+ "parking_lot",
+ "portable-pty",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
+ "zstd",
+]
+
+[[package]]
 name = "terminar-server"
 version = "0.1.0"
 dependencies = [
@@ -1050,6 +1069,7 @@ dependencies = [
  "serde_json",
  "serial_test",
  "tempfile",
+ "terminar-core",
  "thiserror 2.0.18",
  "tokio",
  "tracing",

@@ -1,14 +1,24 @@
 // index.ts — App entry point, lifecycle, and orchestration.
+// Port of tray/src-tauri/src/lib.rs:run().
 
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, globalShortcut, nativeImage } from 'electron';
+import path from 'path';
 import { ConfigStore } from './ConfigStore.js';
 import { HealthPoller } from './HealthPoller.js';
-import { ServerManager } from './ServerManager.js';
+import { MultiWindowCoordinator } from './MultiWindowCoordinator.js';
+import { ServiceManager } from './ServiceManager.js';
 import { WindowManager } from './WindowManager.js';
 import { TrayManager } from './TrayManager.js';
-import { WslManager } from './WslManager.js';
-import { SocketBridge } from './SocketBridge.js';
 import { registerIpcHandlers } from './ipc.js';
+import { getAppRoot } from './paths.js';
+
+// Set app name early — controls Dock tooltip, menu labels, and About panel
+app.name = 'terminar';
+
+// Graceful shutdown on SIGTERM (sent by vite-plugin-electron during HMR).
+// Without this, the process dies immediately and orphans Chromium child
+// processes (GPU, network service), which produce cascading crash errors.
+process.on('SIGTERM', () => app.quit());
 
 // ------------------------------------------------------------------
 // Single instance lock
@@ -18,40 +28,51 @@ if (!gotLock) {
   app.quit();
 }
 
-// Shared references for lifecycle handlers
+// Shared reference for lifecycle handlers
 let windowManager: WindowManager | null = null;
-let serverManager: ServerManager | null = null;
-let socketBridge: SocketBridge | null = null;
 
 // ------------------------------------------------------------------
 // App ready — main setup
 // ------------------------------------------------------------------
-void app.whenReady().then(async () => {
-  // Hide from Dock on macOS — this is a tray-only app
+void app.whenReady().then(() => {
+  // Set custom Dock icon on macOS (needed for dev mode; prod uses electron-builder icon)
   if (process.platform === 'darwin') {
+    const dockIcon = nativeImage.createFromPath(
+      path.join(getAppRoot(), 'icons', 'icon.png'),
+    );
+    if (!dockIcon.isEmpty()) {
+      app.dock?.setIcon(dockIcon);
+    }
+    // Hide from Dock — this is a tray-only app (shown when windows open)
     app.dock?.hide();
   }
 
+  // Detect CLI launch mode
+  const launchedByCli = process.env.TERMINAR_LAUNCHED_BY_CLI === '1';
+  const serverPort = launchedByCli
+    ? parseInt(process.env.TERMINAR_SERVER_PORT || '6750', 10)
+    : undefined;
+
   // Create core instances
   const configStore = new ConfigStore();
-  serverManager = new ServerManager();
+  const config = configStore.load();
+  const serviceManager = new ServiceManager();
   const healthPoller = new HealthPoller();
   windowManager = new WindowManager();
 
-  // Wire the health poller to the server manager
-  healthPoller.setServerManager(serverManager);
-
   // Create the tray (builds initial menu internally)
   const trayManager = new TrayManager(
-    serverManager,
+    configStore,
+    serviceManager,
     healthPoller,
     windowManager,
+    { launchedByCli, serverPort },
   );
 
   // Register IPC handlers for renderer processes
   registerIpcHandlers(
     configStore,
-    serverManager,
+    serviceManager,
     healthPoller,
     windowManager,
   );
@@ -61,34 +82,53 @@ void app.whenReady().then(async () => {
     trayManager.updateMenu();
   });
 
-  // Start health polling
-  healthPoller.start();
+  // Start health polling (use server port in CLI mode, gateway port otherwise)
+  healthPoller.start(launchedByCli ? (serverPort ?? 6750) : config.gateway_port);
 
-  // On Windows, check WSL availability before starting server
-  if (WslManager.isWindows()) {
-    if (!WslManager.isWslInstalled() || !WslManager.hasDistro()) {
-      windowManager.showWslGuide();
+  // Multi-window coordination (tab-per-window model)
+  const multiWindow = new MultiWindowCoordinator();
+  multiWindow.setupIpc();
+
+  // Cmd+N / Ctrl+N: open a new terminal window with the next available tab.
+  // Capture a local const so TypeScript knows it's non-null inside the callback.
+  const wm = windowManager;
+  globalShortcut.register('CommandOrControl+N', async () => {
+    // Find the primary terminal window to query tab state from the renderer
+    const primaryWin = wm.getWindow('terminal');
+    if (!primaryWin || primaryWin.isDestroyed()) {
+      // No primary window — just open one
+      wm.openTerminal();
       return;
     }
-  }
 
-  // Start the server automatically
-  try {
-    await serverManager.start();
-  } catch (e) {
-    console.error(`Failed to start server on launch: ${e}`);
-  }
+    try {
+      const allTabIds: string[] = await primaryWin.webContents.executeJavaScript(
+        'window.__terminar?.getTabIds?.() ?? []',
+      );
 
-  // Create the socket bridge for terminal window communication
-  socketBridge = new SocketBridge(serverManager.getSocketPath());
+      const nextTab = multiWindow.getNextAvailableTab(allTabIds);
 
-  // Open the terminal window on launch
-  windowManager.openTerminal();
+      if (!nextTab) {
+        // All tabs are shown — create a new tab in the renderer, then open a window for it
+        const newTabId: string = await primaryWin.webContents.executeJavaScript(
+          'window.__terminar?.createTab?.() ?? ""',
+        );
+        if (newTabId) {
+          const win = wm.openTerminal(newTabId);
+          multiWindow.register(win, newTabId);
+        }
+      } else {
+        const win = wm.openTerminal(nextTab);
+        multiWindow.register(win, nextTab);
+      }
+    } catch (err) {
+      console.error('[multi-window] Failed to open new window:', err);
+    }
+  });
 
-  // Wire the socket bridge to the terminal window
-  const terminalWin = windowManager.getWindow('terminal');
-  if (terminalWin) {
-    socketBridge.setWindow(terminalWin);
+  // Show install wizard if the service is not installed (skip in CLI mode)
+  if (!launchedByCli && serviceManager.status() === 'notinstalled') {
+    windowManager.openInstall();
   }
 });
 
@@ -109,12 +149,6 @@ app.on('window-all-closed', () => {
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0 && windowManager) {
     windowManager.openTerminal();
-
-    // Re-wire socket bridge to the new terminal window
-    const terminalWin = windowManager.getWindow('terminal');
-    if (terminalWin && socketBridge) {
-      socketBridge.setWindow(terminalWin);
-    }
   }
 });
 
@@ -122,22 +156,11 @@ app.on('activate', () => {
 // Second instance — focus an existing window if one is open
 // ------------------------------------------------------------------
 app.on('second-instance', () => {
+  // If a window is already open, focus it
   const windows = BrowserWindow.getAllWindows();
   if (windows.length > 0) {
     const win = windows[0];
     if (win.isMinimized()) win.restore();
     win.focus();
-  }
-});
-
-// ------------------------------------------------------------------
-// Clean shutdown — stop server and socket bridge on quit
-// ------------------------------------------------------------------
-app.on('before-quit', () => {
-  if (socketBridge) {
-    socketBridge.destroy();
-  }
-  if (serverManager) {
-    void serverManager.stop();
   }
 });
