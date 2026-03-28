@@ -157,7 +157,25 @@
 
   export function registerCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean): void {
     if (term) {
-      term.attachCustomKeyEventHandler(handler);
+      term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+        // macOS-style line/word navigation:
+        // Cmd+Left/Right    → beginning/end of line (Ctrl-A / Ctrl-E)
+        // Option+Left/Right → word backward/forward (ESC b / ESC f)
+        // Return false to prevent xterm from also sending its own sequences.
+        if (event.type === 'keydown' && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+          let seq: string | null = null;
+          if (event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
+            seq = event.key === 'ArrowLeft' ? '\x01' : '\x05';
+          } else if (event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey) {
+            seq = event.key === 'ArrowLeft' ? '\x1bb' : '\x1bf';
+          }
+          if (seq && manager && activeSessionId && isActive) {
+            manager.sendInput(activeSessionId, seq);
+            return false;
+          }
+        }
+        return handler(event);
+      });
     }
   }
   let lastRows: number = 0;
@@ -970,6 +988,56 @@
         }
       }
     }, true); // capture phase -- fires before xterm's own handler
+
+    // Option+Click to position cursor on the current line (like iTerm2).
+    // For shells (no mouse tracking): calculates column delta and sends arrow keys.
+    // For TUI apps (mouse tracking enabled): re-dispatches as a plain click so
+    // the app handles cursor positioning via its own mouse event handler.
+    let optClickSynthetic = false;
+    terminalContainer.addEventListener('mousedown', (e: MouseEvent) => {
+      if (optClickSynthetic) return; // let synthetic events pass through
+      if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
+      if (!term || !manager || !activeSessionId || !isActive) return;
+
+      // TUI app with mouse tracking: strip Alt and re-dispatch as plain click
+      console.log('[OPT-CLICK] mouseTracking:', term.modes.mouseTrackingMode);
+      if (term.modes.mouseTrackingMode !== 'none') {
+        e.preventDefault();
+        e.stopPropagation();
+        optClickSynthetic = true;
+        terminalContainer.dispatchEvent(new MouseEvent('mousedown', {
+          clientX: e.clientX, clientY: e.clientY,
+          button: e.button, buttons: e.buttons,
+          bubbles: true, cancelable: true,
+        }));
+        optClickSynthetic = false;
+        return;
+      }
+
+      if (!isAtBottom()) return;
+
+      const screen = term.element?.querySelector('.xterm-screen');
+      if (!screen) return;
+      const rect = screen.getBoundingClientRect();
+      const cellWidth = rect.width / term.cols;
+      const cellHeight = rect.height / term.rows;
+      const clickCol = Math.min(Math.floor((e.clientX - rect.left) / cellWidth), term.cols - 1);
+      const clickRow = Math.floor((e.clientY - rect.top) / cellHeight);
+
+      if (clickRow !== term.buffer.active.cursorY) return;
+
+      const delta = clickCol - term.buffer.active.cursorX;
+      if (delta === 0) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      term.focus();
+
+      const seq = delta > 0
+        ? '\x1b[C'.repeat(delta)
+        : '\x1b[D'.repeat(-delta);
+      manager.sendInput(activeSessionId, seq);
+    }, true);
 
     term.onData((data) => {
         // Only send input if this terminal is in the active pane
