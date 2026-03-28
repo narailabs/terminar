@@ -14,6 +14,7 @@ pub mod handlers;
 pub mod logging;
 pub mod messages;
 pub mod settings;
+pub mod shell_init;
 pub mod workspace;
 
 // Re-export core modules from terminar_core for backward compatibility.

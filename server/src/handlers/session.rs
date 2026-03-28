@@ -81,6 +81,13 @@ pub(crate) async fn handle_create_session(
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     );
 
+    // Inject shell-specific init (e.g., zsh word-navigation keybindings via ZDOTDIR)
+    let session_env = if resolved_shell.ends_with("/zsh") || resolved_shell.ends_with("/zsh5") {
+        crate::shell_init::prepare_zsh_env(env)
+    } else {
+        env.clone()
+    };
+
     // Map to Result<String, String> so the non-Send error is dropped before any .await
     let result = terminar_core::engine::create_session(
         None,
@@ -89,7 +96,7 @@ pub(crate) async fn handle_create_session(
         &resolved_cwd,
         cols,
         rows,
-        env,
+        &session_env,
         sessions,
         state.mock_provider.as_ref(),
         None,
