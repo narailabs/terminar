@@ -1,6 +1,6 @@
 {
   "name": "@narai/terminar-linux-x64",
-  "version": "0.0.1",
+  "version": "0.2.0",
   "description": "terminar server binary for Linux x64",
   "os": ["linux"],
   "cpu": ["x64"],
