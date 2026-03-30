@@ -905,27 +905,6 @@
     sidebarOpen = !sidebarOpen;
   }
 
-  function handleSidebarSelect(sessionId: string) {
-    // When clicking a session in sidebar, assign it to active pane
-    const ws = workspaceStore.get();
-    const tab = ws.tabs.find(t => t.id === ws.activeTabId);
-    if (tab) {
-      // Find first pane (simple approach - could be enhanced to track active pane)
-      function findFirstPane(node: any): string | null {
-        if (node.type === 'pane') return node.id;
-        for (const child of node.children) {
-          const found = findFirstPane(child);
-          if (found) return found;
-        }
-        return null;
-      }
-      const paneId = findFirstPane(tab.root);
-      if (paneId) {
-        workspaceStore.assignSession(paneId, sessionId);
-      }
-    }
-  }
-
   function handleSidebarClose(sessionId: string) {
     closeTerminal(sessionId);
   }
@@ -999,7 +978,6 @@
         isOpen={sidebarOpen}
         broadcastMode={broadcastEnabled.value}
         ontoggle={() => handleSidebarToggle()}
-        onselect={(sessionId) => handleSidebarSelect(sessionId)}
         onclose={(sessionId) => handleSidebarClose(sessionId)}
         onrename={(detail) => handleSidebarRename(detail)}
         oncreate={() => handleSidebarCreate()}

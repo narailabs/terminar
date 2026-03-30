@@ -1,4 +1,6 @@
 <script lang="ts">
+  import type { Tag } from '../lib/tagStore.svelte';
+
   let {
     id,
     name,
@@ -7,6 +9,7 @@
     foregroundProcess = null,
     terminalTitle = '',
     paneCount = 0,
+    tags = [],
     isActive = false,
     startEditing = false,
     onselect,
@@ -22,6 +25,7 @@
     foregroundProcess?: string | null;
     terminalTitle?: string;
     paneCount?: number;
+    tags?: Tag[];
     isActive?: boolean;
     startEditing?: boolean;
     onselect?: (id: string) => void;
@@ -170,6 +174,9 @@
       {#if processBadge}
         <span class="process-badge" title={foregroundProcess}>{processBadge}</span>
       {/if}
+      {#each tags as tag}
+        <span class="tag-badge" style="background: {tag.color}20; color: {tag.color}; border-color: {tag.color}40">{tag.name}</span>
+      {/each}
       {#if paneCount > 0}
         <span class="pane-count" title="{paneCount} pane{paneCount > 1 ? 's' : ''}">
           {paneCount > 1 ? paneCount : ''}
@@ -268,6 +275,15 @@
     overflow: hidden;
     text-overflow: ellipsis;
     max-width: 80px;
+    flex-shrink: 0;
+  }
+
+  .tag-badge {
+    font-size: 9px;
+    padding: 0px 5px;
+    border-radius: 3px;
+    border: 1px solid;
+    white-space: nowrap;
     flex-shrink: 0;
   }
 

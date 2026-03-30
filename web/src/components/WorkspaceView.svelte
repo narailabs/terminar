@@ -16,6 +16,8 @@
   import { getManagerContext, getSessionsContext, getActionsContext, setPaneActionsContext } from '../lib/sessionContext.svelte';
   import type { SessionManager } from '../lib/SessionManager';
   import { sessionCwdStore } from '../lib/sessionCwdStore.svelte';
+  import { settingsStore, getTitleBarFields, setTitleBarFieldVisible, clearTitleBarOverride, hasTitleBarOverride, titleBarOverridesState, TITLE_BAR_FIELD_LABELS, type TitleBarFieldId } from '../lib/settingsStore.svelte';
+  import { tagStore, TAG_COLORS, type Tag } from '../lib/tagStore.svelte';
 
   // Optional prop overrides (for tests that render without context)
   let {
@@ -83,6 +85,9 @@
   let activePaneId = $state<PaneId | null>(null);
   let contextMenu = $state<{ x: number; y: number; paneId: string } | null>(null);
   let clipboardText = $state('');
+  let renameModal = $state<{ sessionId: string; currentName: string } | null>(null);
+  let renameValue = $state('');
+  let renameInputEl: HTMLInputElement | undefined = $state(undefined);
 
   // Handle tab events
   function handleTabSelect(detail: { tabId: TabId }) {
@@ -277,11 +282,25 @@
       if (!pane?.sessionId) { contextMenu = null; return; }
       const session = effectiveAvailableSessions.find(s => s.id === pane.sessionId);
       const currentName = session?.name || '';
-      const newName = prompt('Rename session:', currentName);
-      if (newName !== null && newName !== currentName) {
-        actions.renameTerminal(pane.sessionId, newName);
-      }
+      renameModal = { sessionId: pane.sessionId, currentName };
+      renameValue = currentName;
       contextMenu = null;
+      setTimeout(() => renameInputEl?.select(), 0);
+    }
+  }
+
+  function handleRenameSubmit() {
+    if (renameModal && renameValue.trim() && renameValue.trim() !== renameModal.currentName) {
+      actions.renameTerminal(renameModal.sessionId, renameValue.trim());
+    }
+    renameModal = null;
+  }
+
+  function handleRenameKeydown(event: KeyboardEvent) {
+    if (event.key === 'Enter') {
+      handleRenameSubmit();
+    } else if (event.key === 'Escape') {
+      renameModal = null;
     }
   }
 
@@ -309,6 +328,54 @@
       setTerminalOverride(contextMenu.paneId, themeId);
       contextMenu = null;
     }
+  }
+
+  function handleToggleTitleBarField(fieldId: TitleBarFieldId) {
+    if (!contextMenu) return;
+    const fields = getTitleBarFields(contextMenu.paneId);
+    const field = fields.find(f => f.id === fieldId);
+    if (field) setTitleBarFieldVisible(contextMenu.paneId, fieldId, !field.visible);
+  }
+
+  function handleResetTitleBar() {
+    if (!contextMenu) return;
+    clearTitleBarOverride(contextMenu.paneId);
+    contextMenu = null;
+  }
+
+  // ── Tag management ──────────────────────────────────────────────────────────
+  let tagModal = $state<{ sessionId: string } | null>(null);
+  let tagName = $state('');
+  let tagColor = $state(TAG_COLORS[0]);
+  let tagInputEl: HTMLInputElement | undefined = $state(undefined);
+
+  function handleOpenTagModal() {
+    if (!contextMenu) return;
+    const tab = $workspaceStore.tabs.find(t => t.id === $workspaceStore.activeTabId);
+    if (!tab) { contextMenu = null; return; }
+    const pane = findPane(tab.root, contextMenu.paneId);
+    if (!pane?.sessionId) { contextMenu = null; return; }
+    tagModal = { sessionId: pane.sessionId };
+    tagName = '';
+    tagColor = TAG_COLORS[0];
+    contextMenu = null;
+    setTimeout(() => tagInputEl?.focus(), 0);
+  }
+
+  function handleAddTag() {
+    if (!tagModal || !tagName.trim()) return;
+    tagStore.addTag(tagModal.sessionId, { name: tagName.trim(), color: tagColor });
+    tagName = '';
+    setTimeout(() => tagInputEl?.focus(), 0);
+  }
+
+  function handleTagKeydown(event: KeyboardEvent) {
+    if (event.key === 'Enter') handleAddTag();
+    else if (event.key === 'Escape') tagModal = null;
+  }
+
+  function handleRemoveTagFromMenu(sessionId: string, tagName: string) {
+    tagStore.removeTag(sessionId, tagName);
   }
 
   // Keyboard shortcuts
@@ -361,7 +428,17 @@
   }
 
   // Build context menu items
-  let contextMenuItems = $derived(contextMenu ? [
+  let contextMenuItems = $derived(contextMenu ? (() => {
+    void titleBarOverridesState.value;
+    void settingsStore.value;
+    void tagStore.tags;
+    const fields = contextMenu ? getTitleBarFields(contextMenu.paneId) : [];
+    const hasOverride = contextMenu ? hasTitleBarOverride(contextMenu.paneId) : false;
+    const ctxTab = $workspaceStore.tabs.find(t => t.id === $workspaceStore.activeTabId);
+    const ctxPane = ctxTab && contextMenu ? findPane(ctxTab.root, contextMenu.paneId) : null;
+    const ctxSessionId = ctxPane?.sessionId ?? null;
+    const ctxTags = ctxSessionId ? tagStore.getTags(ctxSessionId) : [];
+    return [
     { label: 'Copy', action: handleCopy, shortcut: 'Cmd+C' },
     { label: 'Paste', action: handlePaste, shortcut: 'Cmd+V' },
     { label: 'Select All', action: handleSelectAll, shortcut: 'Cmd+A' },
@@ -384,6 +461,26 @@
         action: () => handleAssignSession(session.id),
       })),
     ]},
+    { label: 'Title Bar', action: () => {}, children: [
+      ...(fields ?? []).map(f => ({
+        label: `${f.visible ? '\u2713 ' : ''}${TITLE_BAR_FIELD_LABELS[f.id]}`,
+        action: () => handleToggleTitleBarField(f.id),
+      })),
+      ...(hasOverride ? [
+        { type: 'separator' as const },
+        { label: 'Reset to Global', action: handleResetTitleBar },
+      ] : []),
+    ]},
+    { label: 'Tags', action: () => {}, children: [
+      { label: 'Add Tag...', action: handleOpenTagModal },
+      ...(ctxTags.length > 0 ? [
+        { type: 'separator' as const },
+        ...ctxTags.map(t => ({
+          label: `\u2715 ${t.name}`,
+          action: () => ctxSessionId && handleRemoveTagFromMenu(ctxSessionId, t.name),
+        })),
+      ] : []),
+    ]},
     { label: 'Theme', action: () => {}, children: BUILT_IN_TERMINAL_THEMES.map(theme => ({
       label: theme.name,
       action: () => handleSetTerminalTheme(theme.id),
@@ -393,7 +490,8 @@
     { label: 'Close Pane', action: handleClosePane, shortcut: 'Cmd+W' },
     { type: 'separator' as const },
     { label: 'Reset Terminal', action: handleResetTerminal },
-  ] : []);
+  ];
+  })() : []);
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -437,6 +535,66 @@
       items={contextMenuItems}
       onclose={() => handleContextMenuClose()}
     />
+  {/if}
+
+  {#if renameModal}
+    <div class="rename-backdrop" onclick={() => renameModal = null} role="presentation">
+      <div class="rename-modal" onclick={(e) => e.stopPropagation()}>
+        <div class="rename-header">Rename Terminal</div>
+        <input
+          class="rename-input"
+          type="text"
+          bind:value={renameValue}
+          bind:this={renameInputEl}
+          onkeydown={handleRenameKeydown}
+          placeholder="Session name"
+        />
+        <div class="rename-actions">
+          <button class="rename-btn cancel" onclick={() => renameModal = null}>Cancel</button>
+          <button class="rename-btn confirm" onclick={handleRenameSubmit}>Rename</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if tagModal}
+    <div class="rename-backdrop" onclick={() => tagModal = null} role="presentation">
+      <div class="rename-modal" onclick={(e) => e.stopPropagation()}>
+        <div class="rename-header">Add Tag</div>
+        {#if tagStore.getTags(tagModal.sessionId).length > 0}
+          <div class="tag-list">
+            {#each tagStore.getTags(tagModal.sessionId) as tag}
+              <span class="tag-badge-modal" style="background: {tag.color}20; color: {tag.color}; border-color: {tag.color}40">
+                {tag.name}
+                <button class="tag-remove" onclick={() => tagModal && tagStore.removeTag(tagModal.sessionId, tag.name)}>&times;</button>
+              </span>
+            {/each}
+          </div>
+        {/if}
+        <input
+          class="rename-input"
+          type="text"
+          bind:value={tagName}
+          bind:this={tagInputEl}
+          onkeydown={handleTagKeydown}
+          placeholder="Tag name"
+        />
+        <div class="tag-color-picker">
+          {#each TAG_COLORS as color}
+            <button
+              class="tag-color-swatch"
+              class:selected={tagColor === color}
+              style="background: {color}"
+              onclick={() => tagColor = color}
+            ></button>
+          {/each}
+        </div>
+        <div class="rename-actions">
+          <button class="rename-btn cancel" onclick={() => tagModal = null}>Done</button>
+          <button class="rename-btn confirm" onclick={handleAddTag} disabled={!tagName.trim()}>Add</button>
+        </div>
+      </div>
+    </div>
   {/if}
 </div>
 
@@ -484,5 +642,138 @@
 
   .no-tab button:hover {
     background: var(--ui-accent-hover, #1177bb);
+  }
+
+  .rename-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 1100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .rename-modal {
+    background: var(--ui-bg-secondary, #252526);
+    border: 1px solid var(--ui-border, #454545);
+    border-radius: 6px;
+    padding: 16px;
+    min-width: 300px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  }
+
+  .rename-header {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ui-text-primary, #cccccc);
+    margin-bottom: 12px;
+  }
+
+  .rename-input {
+    width: 100%;
+    padding: 6px 8px;
+    background: var(--ui-bg-tertiary, #3c3c3c);
+    border: 1px solid var(--ui-accent, #0e639c);
+    border-radius: 4px;
+    color: var(--ui-text-primary, white);
+    font-size: 13px;
+    outline: none;
+    box-sizing: border-box;
+  }
+
+  .rename-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .rename-btn {
+    padding: 6px 14px;
+    border: none;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .rename-btn.cancel {
+    background: var(--ui-bg-tertiary, #3c3c3c);
+    color: var(--ui-text-primary, #cccccc);
+  }
+
+  .rename-btn.cancel:hover {
+    background: var(--ui-bg-hover, #4a4a4a);
+  }
+
+  .rename-btn.confirm {
+    background: var(--ui-accent, #0e639c);
+    color: white;
+  }
+
+  .rename-btn.confirm:hover {
+    background: var(--ui-accent-hover, #1177bb);
+  }
+
+  .rename-btn.confirm:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .tag-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 8px;
+  }
+
+  .tag-badge-modal {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    border: 1px solid;
+  }
+
+  .tag-remove {
+    background: none;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    padding: 0;
+    opacity: 0.6;
+  }
+
+  .tag-remove:hover {
+    opacity: 1;
+  }
+
+  .tag-color-picker {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin: 8px 0 4px;
+  }
+
+  .tag-color-swatch {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .tag-color-swatch.selected {
+    border-color: white;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3);
+  }
+
+  .tag-color-swatch:hover {
+    transform: scale(1.15);
   }
 </style>

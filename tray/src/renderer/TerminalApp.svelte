@@ -285,25 +285,6 @@
     sidebarOpen = !sidebarOpen;
   }
 
-  function handleSidebarSelect(sessionId: string) {
-    const ws = workspaceStore.get();
-    const tab = ws.tabs.find(t => t.id === ws.activeTabId);
-    if (tab) {
-      function findFirstPane(node: Record<string, unknown>): string | null {
-        if (node.type === 'pane') return node.id as string;
-        for (const child of node.children as Record<string, unknown>[]) {
-          const found = findFirstPane(child);
-          if (found) return found;
-        }
-        return null;
-      }
-      const paneId = findFirstPane(tab.root as unknown as Record<string, unknown>);
-      if (paneId) {
-        workspaceStore.assignSession(paneId, sessionId);
-      }
-    }
-  }
-
   function handleSidebarClose(sessionId: string) {
     closeTerminal(sessionId);
   }
@@ -353,7 +334,6 @@
       isOpen={sidebarOpen}
       broadcastMode={broadcastEnabled.value}
       ontoggle={() => handleSidebarToggle()}
-      onselect={(sessionId) => handleSidebarSelect(sessionId)}
       onclose={(sessionId) => handleSidebarClose(sessionId)}
       onrename={(detail) => handleSidebarRename(detail)}
       oncreate={() => handleSidebarCreate()}

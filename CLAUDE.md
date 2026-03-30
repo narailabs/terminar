@@ -43,6 +43,13 @@ terminar/
 ├── packages/
 │   └── shell-protocol/      # Shared TypeScript protocol (@narai/terminar-protocol)
 │       └── src/             # Zod schemas, ShellClient, BaseWebSocketManager
+├── npm/                     # npm distribution packages
+│   ├── terminar/            # Main CLI package (bin/, lib/, app/)
+│   ├── darwin-arm64/        # @narai/terminar-darwin-arm64 (server binary)
+│   ├── darwin-x64/          # @narai/terminar-darwin-x64
+│   ├── linux-x64/           # @narai/terminar-linux-x64
+│   ├── linux-arm64/         # @narai/terminar-linux-arm64
+│   └── win32-x64/           # @narai/terminar-win32-x64 (deferred)
 ├── docs/                    # API docs, architecture plans
 │   ├── ARCHITECTURE.md      # Detailed architecture reference (READ THIS)
 │   ├── API.md               # Protocol & REST API reference
@@ -160,6 +167,51 @@ pnpm test                    # Mocha tests (requires protocol dist/)
 | `tray/src/main/ServerManager.ts` | Server process lifecycle management |
 | `docs/ARCHITECTURE.md` | Full architecture reference |
 | `docs/API.md` | API reference documentation |
+
+## Releasing
+
+### npm Distribution Structure
+
+The `terminar` CLI is published to npm as a multi-package setup:
+
+- **`terminar`** (`npm/terminar/`) — Main package with CLI (`bin/terminar.js`), lib (`lib/`), and built Electron app (`app/`). Depends on `electron` and platform packages as `optionalDependencies`.
+- **`@narai/terminar-darwin-arm64`** (`npm/darwin-arm64/`) — macOS ARM64 server binary
+- **`@narai/terminar-darwin-x64`** (`npm/darwin-x64/`) — macOS x64 server binary
+- **`@narai/terminar-linux-x64`** (`npm/linux-x64/`) — Linux x64 server binary
+- **`@narai/terminar-linux-arm64`** (`npm/linux-arm64/`) — Linux ARM64 server binary
+- **`@narai/terminar-win32-x64`** (`npm/win32-x64/`) — Windows x64 (deferred)
+
+Users install with `npm install -g terminar`, which pulls the correct platform binary.
+
+### Release Process
+
+Releases are automated via `.github/workflows/release.yml`, triggered by `v*` tags:
+
+1. **Bump versions** in all package.json files + Cargo.toml to the new version
+2. **Commit and push**: `git push origin main`
+3. **Tag and push**: `git tag v0.x.x && git push origin v0.x.x`
+
+The workflow then:
+1. Builds server binaries for all platforms (macOS arm64/x64, Linux x64/arm64)
+2. Builds the tray Electron app (Vite only, not electron-builder)
+3. Assembles npm packages (stamps versions, copies binaries + tray build)
+4. Publishes platform packages to npm, then the main `terminar` package
+5. Creates a GitHub Release with server binaries attached
+
+**Requirements:**
+- `NPM_TOKEN` GitHub secret (granular access token with bypass 2FA, read+write packages + narai org)
+- Token expires every 90 days — regenerate at npmjs.com/settings/narayan-prem/tokens
+
+### Version Locations (all must match for a release)
+
+- `package.json` (root)
+- `server/Cargo.toml`
+- `tray/package.json`
+- `web/package.json`
+- `extension/package.json`
+- `packages/shell-protocol/package.json`
+- `npm/terminar/package.json` + `optionalDependencies` (stamped by CI)
+- `npm/*/package.json` platform packages (stamped by CI)
 
 ## DO NOT MODIFY
 

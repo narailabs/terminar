@@ -6,13 +6,12 @@
   import { foregroundStore } from '../lib/foregroundStore.svelte';
   import { titleStore } from '../lib/titleStore.svelte';
   import { sessionPaneCounts, newSessionIds, workspaceStore } from '../lib/workspaceStore';
-  import { focusedPane } from '../lib/focusStore.svelte';
+  import { tagStore } from '../lib/tagStore.svelte';
 
   let {
     sessions = [],
     activeSessionId = null,
     broadcastMode = false,
-    onselect,
     onclose,
     onrename,
     oncreate,
@@ -22,7 +21,6 @@
     sessions?: SessionInfo[];
     activeSessionId?: string | null;
     broadcastMode?: boolean;
-    onselect?: (sessionId: string) => void;
     onclose?: (sessionId: string) => void;
     onrename?: (detail: { id: string; newName: string }) => void;
     oncreate?: () => void;
@@ -65,14 +63,8 @@
     { label: 'Close', action: 'close' },
   ];
 
-  function handleSelect(sessionId: string) {
-    // Assign clicked session to the currently focused pane instead of switching active terminal
-    const focusedPaneId = focusedPane.id;
-    if (focusedPaneId) {
-      workspaceStore.assignSession(focusedPaneId, sessionId);
-    } else {
-      onselect?.(sessionId);
-    }
+  function handleSelect(_sessionId: string) {
+    // Click on sidebar item is a no-op — sessions are attached via drag-drop or context menu only
   }
 
   // ── Session drag-drop for sidebar reordering ──────────────────────────────
@@ -272,6 +264,7 @@
                 foregroundProcess={foregroundStore.processes.get(session.id) ?? null}
                 terminalTitle={titleStore.titles.get(session.id) ?? ''}
                 paneCount={$sessionPaneCounts.get(session.id) ?? 0}
+                tags={tagStore.getTags(session.id)}
                 isActive={session.id === activeSessionId}
                 startEditing={editingSessionId === session.id}
                 onselect={handleSelect}
@@ -320,6 +313,7 @@
               foregroundProcess={foregroundStore.processes.get(session.id) ?? null}
               terminalTitle={titleStore.titles.get(session.id) ?? ''}
               paneCount={$sessionPaneCounts.get(session.id) ?? 0}
+                tags={tagStore.getTags(session.id)}
               isActive={session.id === activeSessionId}
               startEditing={editingSessionId === session.id}
               onselect={handleSelect}
@@ -367,6 +361,7 @@
               foregroundProcess={foregroundStore.processes.get(session.id) ?? null}
               terminalTitle={titleStore.titles.get(session.id) ?? ''}
               paneCount={$sessionPaneCounts.get(session.id) ?? 0}
+                tags={tagStore.getTags(session.id)}
               isActive={session.id === activeSessionId}
               startEditing={editingSessionId === session.id}
               onselect={handleSelect}

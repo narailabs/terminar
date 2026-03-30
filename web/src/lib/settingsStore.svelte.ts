@@ -1,6 +1,34 @@
 import { themeState, getActiveTerminalTheme } from './themeStore.svelte';
 
 /**
+ * Title bar field configuration — ordered array for display sequence
+ */
+export type TitleBarFieldId = 'sessionName' | 'terminalTitle' | 'shell' | 'cwd' | 'process' | 'tags';
+
+export interface TitleBarFieldEntry {
+  id: TitleBarFieldId;
+  visible: boolean;
+}
+
+export const TITLE_BAR_FIELD_LABELS: Record<TitleBarFieldId, string> = {
+  sessionName: 'Session Name',
+  terminalTitle: 'Terminal Title',
+  shell: 'Shell',
+  cwd: 'Working Directory',
+  process: 'Process',
+  tags: 'Tags',
+};
+
+export const DEFAULT_TITLE_BAR_FIELDS: TitleBarFieldEntry[] = [
+  { id: 'sessionName', visible: true },
+  { id: 'terminalTitle', visible: true },
+  { id: 'shell', visible: true },
+  { id: 'cwd', visible: true },
+  { id: 'process', visible: true },
+  { id: 'tags', visible: true },
+];
+
+/**
  * Terminal settings configuration
  */
 export interface TerminalSettings {
@@ -12,12 +40,13 @@ export interface TerminalSettings {
   showPaneTitleBars: boolean; // default true
   dimInactivePanes: number; // 0.1-1.0 opacity for inactive panes (1.0 = no dim)
   autoScroll: boolean;     // default true — scroll to bottom on new output
+  titleBarFields: TitleBarFieldEntry[];
 }
 
 /**
  * Default terminal settings
  */
-export const DEFAULT_SETTINGS = {
+export const DEFAULT_SETTINGS: TerminalSettings = {
   fontSize: 14,
   fontFamily: 'Menlo',
   cursorStyle: 'block',
@@ -26,7 +55,8 @@ export const DEFAULT_SETTINGS = {
   showPaneTitleBars: true,
   dimInactivePanes: 0.4,
   autoScroll: true,
-} as const satisfies TerminalSettings;
+  titleBarFields: [...DEFAULT_TITLE_BAR_FIELDS],
+};
 
 /**
  * Available font family options
@@ -186,6 +216,48 @@ export const settingsStore = {
     });
     return cleanup;
   },
+};
+
+// ── Per-pane title bar visibility overrides ───────────────────────────────────
+// Overrides only toggle visibility per-pane; order comes from global settings.
+
+let titleBarOverrides = $state<Record<string, Record<string, boolean>>>({});
+
+export function setTitleBarFieldVisible(paneId: string, fieldId: TitleBarFieldId, visible: boolean): void {
+  titleBarOverrides = { ...titleBarOverrides, [paneId]: { ...titleBarOverrides[paneId], [fieldId]: visible } };
+}
+
+export function clearTitleBarOverride(paneId: string): void {
+  const { [paneId]: _, ...rest } = titleBarOverrides;
+  titleBarOverrides = rest;
+}
+
+/**
+ * Ensure the field list is valid — fills in missing fields from defaults.
+ */
+function normalizeFields(fields: TitleBarFieldEntry[]): TitleBarFieldEntry[] {
+  const seen = new Set(fields.map(f => f.id));
+  const missing = DEFAULT_TITLE_BAR_FIELDS.filter(f => !seen.has(f.id));
+  return [...fields, ...missing];
+}
+
+/**
+ * Resolve title bar fields for a pane: global order + per-pane visibility overrides.
+ */
+export function getTitleBarFields(paneId: string): TitleBarFieldEntry[] {
+  const global = normalizeFields(settings.titleBarFields ?? DEFAULT_TITLE_BAR_FIELDS);
+  const override = titleBarOverrides[paneId];
+  if (!override) return global;
+  return global.map(f => (f.id in override) ? { ...f, visible: override[f.id] } : f);
+}
+
+export function hasTitleBarOverride(paneId: string): boolean {
+  return paneId in titleBarOverrides;
+}
+
+/** Access this to establish reactive dependency on overrides */
+export const titleBarOverridesState = {
+  get value() { return titleBarOverrides; },
 };
 
 /**
