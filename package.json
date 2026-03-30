@@ -1,6 +1,6 @@
 {
   "name": "terminar",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "terminar - Persistent terminal sessions (Electron + Rust server)",
   "scripts": {
     "server:build": "cd server && PATH=\"$HOME/.cargo/bin:$PATH\" cargo build --release && ([ \"$(uname)\" = Darwin ] && codesign --force --sign - target/release/terminar-server 2>/dev/null; true)",
