@@ -331,13 +331,11 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
     let api_key = Uuid::new_v4().to_string();
 
     // Restore persisted sessions on startup.
-    // Load session metadata and history, then create new PTY sessions
-    // with the original IDs and scrollback content.
+    // Create new PTY sessions with the original IDs, names, and cwd
+    // but without old scrollback — terminals start fresh after restart.
     let mut initial_name_counter: u64 = 1;
     let base_path = settings::get_settings_dir();
     let session_file = persistence::get_session_file_path(&base_path);
-    let history_dir = persistence::get_history_dir(&base_path);
-    let history_dir_str = history_dir.to_string_lossy().to_string();
     match persistence::load_sessions(&session_file.to_string_lossy()) {
         Ok(data) => {
             let running_sessions: Vec<_> = data
@@ -358,27 +356,6 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
                     {
                         initial_name_counter = num + 1;
                     }
-
-                    // Load history for this session
-                    let history_data = match persistence::load_history_auto(&history_dir_str, &s.id)
-                    {
-                        Ok(Some(data)) => {
-                            info!(
-                                "Loaded {} bytes of history for session {}",
-                                data.len(),
-                                s.id
-                            );
-                            Some(data)
-                        }
-                        Ok(None) => {
-                            info!("No history file for session {}", s.id);
-                            None
-                        }
-                        Err(e) => {
-                            warn!("Failed to load history for session {}: {}", s.id, e);
-                            None
-                        }
-                    };
 
                     // Validate shell and cwd before restoring
                     let shell = terminar_core::engine::resolve_shell(&s.shell_cmd);
@@ -408,7 +385,7 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
                         &HashMap::new(),
                         &sessions,
                         cli.mock_pty.then(|| Arc::new(MockPtyProvider)).as_ref(),
-                        history_data.as_deref(),
+                        None, // Don't replay old buffer — fresh terminal, same cwd
                     ) {
                         Ok(id) => info!("Restored session {} ({})", id, s.name),
                         Err(e) => warn!("Failed to restore session {}: {}", s.id, e),

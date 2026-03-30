@@ -8,7 +8,6 @@
     isOpen = true,
     broadcastMode = false,
     ontoggle,
-    onselect,
     onclose,
     onrename,
     oncreate,
@@ -20,7 +19,6 @@
     isOpen?: boolean;
     broadcastMode?: boolean;
     ontoggle?: () => void;
-    onselect?: (sessionId: string) => void;
     onclose?: (sessionId: string) => void;
     onrename?: (detail: { id: string; newName: string }) => void;
     oncreate?: () => void;
@@ -48,7 +46,6 @@
         {sessions}
         {activeSessionId}
         {broadcastMode}
-        onselect={onselect}
         onclose={onclose}
         onrename={onrename}
         oncreate={oncreate}

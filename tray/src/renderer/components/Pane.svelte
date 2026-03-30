@@ -5,7 +5,7 @@
 
   import type { SessionId, DropZone } from '../lib/workspaceTypes';
   import { workspaceStore } from '../lib/workspaceStore';
-  import { settingsStore } from '../lib/settingsStore.svelte';
+  import { settingsStore, getTitleBarFields, titleBarOverridesState, type TitleBarFieldEntry } from '../lib/settingsStore.svelte';
   import { registerPane, unregisterPane } from '../lib/paneRegistry';
   import { searchStore } from '../lib/searchStore.svelte';
   import { broadcastTargets, broadcastEnabled } from '../lib/broadcastStore.svelte';
@@ -13,6 +13,7 @@
   import { focusedPane } from '../lib/focusStore.svelte';
   import { foregroundStore } from '../lib/foregroundStore.svelte';
   import { titleStore } from '../lib/titleStore.svelte';
+  import { tagStore } from '../lib/tagStore.svelte';
   import { getKeyBindingRegistry } from '../lib/keybindings';
   import { createActionDispatcher } from '../lib/actionDispatcher';
   import { createKeyEventHandler } from '../lib/keyEventHandler';
@@ -101,6 +102,29 @@
     showTitleBar = s.showPaneTitleBars;
     dimInactivePanes = s.dimInactivePanes;
   });
+
+  // Resolve which title bar fields to show, in order (global + per-pane overrides)
+  let titleFields = $derived((() => {
+    void titleBarOverridesState.value;
+    void settingsStore.value;
+    return getTitleBarFields(paneId);
+  })());
+
+  // Tags for current session
+  let sessionTags = $derived(sessionId ? tagStore.getTags(sessionId) : []);
+
+  // Map field IDs to their rendered values (tags returns placeholder — rendered specially)
+  function getFieldValue(field: TitleBarFieldEntry): string {
+    switch (field.id) {
+      case 'sessionName': return sessionName;
+      case 'terminalTitle': return terminalTitle;
+      case 'shell': return sessionShell;
+      case 'cwd': return displayCwd;
+      case 'process': return processBadge ?? '';
+      case 'tags': return sessionTags.length > 0 ? '\x00' : '';
+      default: return '';
+    }
+  }
 
   onDestroy(() => {
     unsubSettings();
@@ -391,7 +415,7 @@
       ondragstart={handleTitleDragStart}
       ondragend={handleTitleDragEnd}
     >
-      <span class="pane-title-text">{sessionName}{#if terminalTitle} · <span class="terminal-title">{terminalTitle}</span>{/if}{#if sessionShell} · {sessionShell}{/if}{#if displayCwd} · {displayCwd}{/if}{#if processBadge} · <span class="process-badge">{processBadge}</span>{/if}</span>
+      <span class="pane-title-text">{#each titleFields as field, i}{#if field.visible && getFieldValue(field)}{@const val = getFieldValue(field)}{#if i > 0 && titleFields.slice(0, i).some(f => f.visible && getFieldValue(f))} · {/if}{#if field.id === 'terminalTitle'}<span class="terminal-title">{val}</span>{:else if field.id === 'process'}<span class="process-badge">{val}</span>{:else if field.id === 'tags'}{#each sessionTags as tag}<span class="title-tag" style="background: {tag.color}25; color: {tag.color}">{tag.name}</span>{/each}{:else}{val}{/if}{/if}{/each}</span>
       {#if sessionExited}<span class="exited-badge">{exitBadgeText}</span>{/if}
       <span class="title-bar-spacer"></span>
       <button
@@ -532,8 +556,11 @@
 
   .pane-title-text {
     flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+    direction: rtl;
+    text-align: left;
   }
 
   .close-btn {
@@ -559,7 +586,7 @@
   }
 
   .title-bar-spacer {
-    flex: 1;
+    flex-shrink: 1000;
   }
 
   .title-bar-icon-btn {
@@ -656,6 +683,13 @@
     border-radius: 3px;
     background: rgba(255, 255, 255, 0.08);
     color: #9a9a9a;
+  }
+
+  .title-tag {
+    font-size: 9px;
+    padding: 0 4px;
+    border-radius: 3px;
+    margin-left: 2px;
   }
 
   .pane.active {

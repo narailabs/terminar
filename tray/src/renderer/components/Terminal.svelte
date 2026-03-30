@@ -209,6 +209,8 @@
   let writeRafId: number | null = null;
   let flushBurstStart = 0; // Timestamp of first flush in current burst
   let lastRefreshTime = 0; // Last time we forced a term.refresh() during sustained output
+  let oldestWriteTime = 0; // When the first in-flight write was sent — used by watchdog to detect stuck writes
+  const STUCK_WRITE_THRESHOLD_MS = 1000; // If a write has been in flight for > 1s, assume callback was lost
   // Independent screen refresh timer — runs during active output regardless of
   // write pipeline state. Without this, if term.write() callback is delayed
   // (xterm defers heavy ANSI parsing, or WebGL context loss recovery), the screen
@@ -367,9 +369,11 @@
 
       const isLastChunk = !writeBuffer;
       writesInFlight++;
+      if (writesInFlight === 1) oldestWriteTime = performance.now();
 
       term.write(chunk, () => {
         writesInFlight--;
+        if (writesInFlight === 0) oldestWriteTime = 0;
 
         if (!term) return;
 
@@ -485,7 +489,21 @@
       // delayed (heavy ANSI parsing deferral, WebGL context loss recovery).
       if (!refreshIntervalId) {
         refreshIntervalId = setInterval(() => {
-          if (term) term.refresh(0, term.rows - 1);
+          if (!term) return;
+          term.refresh(0, term.rows - 1);
+          // Watchdog: detect stuck writesInFlight during active output.
+          // If write callbacks haven't fired for > 1s (lost due to WebGL context
+          // loss or parser error), reset the counter so new data can flow.
+          // Without this, the write pipeline deadlocks: scheduleFlush() can't fire
+          // because writesInFlight >= MAX, and the safety valve in checkQuiet()
+          // never triggers because output keeps arriving (lastOutputTime stays fresh).
+          if (writesInFlight > 0 && oldestWriteTime > 0 &&
+              performance.now() - oldestWriteTime > STUCK_WRITE_THRESHOLD_MS && writeBuffer) {
+            console.warn(`[Terminal:${terminalInstanceId}] Watchdog: writesInFlight=${writesInFlight} stuck for ${Math.round(performance.now() - oldestWriteTime)}ms during active output, resetting`);
+            writesInFlight = 0;
+            oldestWriteTime = 0;
+            scheduleFlush();
+          }
         }, REFRESH_INTERVAL_MS);
       }
     }
@@ -510,6 +528,7 @@
           if (writesInFlight > 0 && term) {
             console.warn(`[Terminal:${terminalInstanceId}] Output quiet but writesInFlight=${writesInFlight} stuck, resetting`);
             writesInFlight = 0;
+            oldestWriteTime = 0;
             requestAnimationFrame(() => {
               if (term) {
                 term.refresh(0, term.rows - 1);
@@ -617,6 +636,10 @@
     if (manager && activeSessionId) {
       manager.resize(activeSessionId, lastCols, lastRows);
     }
+
+    // Immediate repaint after reflow so the screen isn't stale/garbled
+    // during the 100ms gap before the deferred scroll + refresh below.
+    term.refresh(0, term.rows - 1);
 
     // Auto-scroll to bottom after resize so user sees latest output.
     // xterm.js has its own internal render cycle that may not complete within
@@ -901,6 +924,7 @@
           // writesInFlight === 0 gate in flushWriteBuffer's callback blocks
           // the final refresh + scrollToBottom forever.
           writesInFlight = 0;
+          oldestWriteTime = 0;
 
           // Schedule multiple refreshes with increasing delays. The DOM
           // renderer needs time to fully initialize after WebGL disposal.
@@ -1141,6 +1165,7 @@
           if (writesInFlight > 0) {
             console.warn(`[Terminal:${terminalInstanceId}] Visibility restored with stuck writesInFlight=${writesInFlight}, resetting`);
             writesInFlight = 0;
+            oldestWriteTime = 0;
           }
           // Reset stale detection — the refresh below gives a clean slate
           staleSuspected = false;
@@ -1180,6 +1205,7 @@
     if (refreshIntervalId) clearInterval(refreshIntervalId);
     writeBuffer = '';
     writesInFlight = 0;
+    oldestWriteTime = 0;
     if (resizeTimeout) clearTimeout(resizeTimeout);
     if (outputActivityTimeout) clearTimeout(outputActivityTimeout);
     if (staleCheckTimer) clearTimeout(staleCheckTimer);

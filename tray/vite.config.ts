@@ -25,7 +25,7 @@ export default defineConfig({
           build: {
             outDir: 'dist-electron',
             rollupOptions: {
-              output: { entryFileNames: '[name].mjs', format: 'es' },
+              output: { entryFileNames: '[name].js', format: 'cjs' },
             },
           },
         },
@@ -37,7 +37,7 @@ export default defineConfig({
           build: {
             outDir: 'dist-electron',
             rollupOptions: {
-              output: { entryFileNames: '[name].mjs', format: 'es' },
+              output: { entryFileNames: '[name].js', format: 'cjs' },
             },
           },
         },

@@ -14,7 +14,9 @@
   import {
     settingsStore,
     DEFAULT_SETTINGS,
+    TITLE_BAR_FIELD_LABELS,
     type TerminalSettings,
+    type TitleBarFieldEntry,
   } from '../lib/settingsStore.svelte';
   import {
     themeState,
@@ -63,6 +65,50 @@
   function handlePaneTitleBarsChange(event: Event) {
     const target = event.target as HTMLInputElement;
     settingsStore.updateSetting('showPaneTitleBars', target.checked);
+  }
+
+  // Title bar field drag-and-drop reordering
+  let dragFieldIndex: number | null = $state(null);
+  let dragOverFieldIndex: number | null = $state(null);
+
+  function handleFieldDragStart(event: DragEvent, index: number) {
+    dragFieldIndex = index;
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', String(index));
+    }
+  }
+
+  function handleFieldDragOver(event: DragEvent, index: number) {
+    if (dragFieldIndex === null) return;
+    event.preventDefault();
+    dragOverFieldIndex = index;
+  }
+
+  function handleFieldDrop(event: DragEvent, toIndex: number) {
+    event.preventDefault();
+    if (dragFieldIndex === null || dragFieldIndex === toIndex) {
+      dragFieldIndex = null;
+      dragOverFieldIndex = null;
+      return;
+    }
+    const fields = [...(settings.titleBarFields ?? [])];
+    const [moved] = fields.splice(dragFieldIndex, 1);
+    fields.splice(toIndex, 0, moved);
+    settingsStore.updateSetting('titleBarFields', fields);
+    dragFieldIndex = null;
+    dragOverFieldIndex = null;
+  }
+
+  function handleFieldDragEnd() {
+    dragFieldIndex = null;
+    dragOverFieldIndex = null;
+  }
+
+  function handleFieldToggle(index: number) {
+    const fields = [...(settings.titleBarFields ?? [])];
+    fields[index] = { ...fields[index], visible: !fields[index].visible };
+    settingsStore.updateSetting('titleBarFields', fields);
   }
 
   function handleDimInactivePanesChange(event: Event) {
@@ -371,6 +417,39 @@
           </label>
         </div>
 
+        <!-- Title Bar Fields (drag to reorder, toggle visibility) -->
+        {#if settings.showPaneTitleBars && settings.titleBarFields}
+          <div class="setting-group">
+            <label>Title Bar Fields</label>
+            <div class="field-order-list">
+              {#each settings.titleBarFields as field, index (field.id)}
+                <div
+                  class="field-order-item"
+                  class:drag-over={dragOverFieldIndex === index}
+                  class:dragging={dragFieldIndex === index}
+                  draggable="true"
+                  ondragstart={(e) => handleFieldDragStart(e, index)}
+                  ondragover={(e) => handleFieldDragOver(e, index)}
+                  ondragleave={() => { if (dragOverFieldIndex === index) dragOverFieldIndex = null; }}
+                  ondrop={(e) => handleFieldDrop(e, index)}
+                  ondragend={handleFieldDragEnd}
+                  role="listitem"
+                >
+                  <span class="drag-handle">⠿</span>
+                  <label class="field-toggle">
+                    <input
+                      type="checkbox"
+                      checked={field.visible}
+                      onchange={() => handleFieldToggle(index)}
+                    />
+                    <span>{TITLE_BAR_FIELD_LABELS[field.id]}</span>
+                  </label>
+                </div>
+              {/each}
+            </div>
+          </div>
+        {/if}
+
         <!-- Dim Inactive Panes -->
         <div class="setting-group">
           <label for="dimInactivePanes">Dim Inactive Panes {settings.dimInactivePanes >= 1 ? '(off)' : `(${Math.round(settings.dimInactivePanes * 100)}%)`}</label>
@@ -572,6 +651,61 @@
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
+  }
+
+  .field-order-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 4px;
+  }
+
+  .field-order-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+    background: var(--ui-bg-tertiary, #3c3c3c);
+    border-radius: 4px;
+    border: 1px solid transparent;
+    cursor: grab;
+    transition: background 0.1s, border-color 0.1s;
+  }
+
+  .field-order-item:active {
+    cursor: grabbing;
+  }
+
+  .field-order-item.dragging {
+    opacity: 0.4;
+  }
+
+  .field-order-item.drag-over {
+    border-color: var(--ui-accent, #0e639c);
+  }
+
+  .drag-handle {
+    color: var(--ui-text-muted, #666);
+    font-size: 12px;
+    user-select: none;
+    flex-shrink: 0;
+  }
+
+  .field-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--ui-text-primary, #cccccc);
+    cursor: pointer;
+    flex: 1;
+  }
+
+  .field-toggle input[type="checkbox"] {
+    accent-color: var(--ui-accent, #0e639c);
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
   }
 
   .toggle {

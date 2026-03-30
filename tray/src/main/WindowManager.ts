@@ -181,12 +181,12 @@ export class WindowManager {
 
   /** Preload script path for tray windows (install, settings). */
   private preloadPath(): string {
-    return path.join(getAppRoot(), 'dist-electron', 'index.mjs');
+    return path.join(getAppRoot(), 'dist-electron', 'index.js');
   }
 
   /** Preload script path for the terminal window. */
   private terminalPreloadPath(): string {
-    return path.join(getAppRoot(), 'dist-electron', 'terminal.mjs');
+    return path.join(getAppRoot(), 'dist-electron', 'terminal.js');
   }
 
   /** Open http/https links in the system browser instead of inside Electron. */
