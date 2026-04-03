@@ -196,8 +196,8 @@
     align-items: center;
     gap: 4px;
     padding: 4px 8px;
-    background: var(--ui-bg-secondary, #252526);
-    border: 1px solid var(--ui-border, #3c3c3c);
+    background: var(--ui-bg-secondary, #181a1c);
+    border: 1px solid var(--ui-border, #47484a);
     border-top: none;
     border-radius: 0 0 6px 6px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
@@ -212,14 +212,14 @@
   .search-input-wrapper {
     display: flex;
     align-items: center;
-    background: var(--ui-bg-tertiary, #3c3c3c);
+    background: var(--ui-bg-tertiary, #242629);
     border: 1px solid var(--ui-border, #555);
     border-radius: 3px;
     padding: 0 6px;
   }
 
   .search-input-wrapper:focus-within {
-    border-color: var(--ui-accent, #0e639c);
+    border-color: var(--ui-accent, #a0a7ff);
   }
 
   .search-input {
@@ -227,7 +227,7 @@
     padding: 4px 4px;
     background: transparent;
     border: none;
-    color: var(--ui-text-primary, #cccccc);
+    color: var(--ui-text-primary, #fdfbfe);
     font-size: 12px;
     font-family: inherit;
     outline: none;
@@ -239,7 +239,7 @@
 
   .match-count {
     font-size: 11px;
-    color: var(--ui-text-muted, #888);
+    color: var(--ui-text-muted, #757578);
     white-space: nowrap;
     padding: 0 4px;
     min-width: 60px;
@@ -264,7 +264,7 @@
     background: transparent;
     border: 1px solid transparent;
     border-radius: 3px;
-    color: var(--ui-text-muted, #888);
+    color: var(--ui-text-muted, #757578);
     cursor: pointer;
     font-size: 11px;
     font-weight: 600;
@@ -274,14 +274,14 @@
   .search-toggle-btn:hover,
   .search-nav-btn:hover,
   .search-close-btn:hover {
-    background: var(--ui-bg-tertiary, #3c3c3c);
-    color: var(--ui-text-primary, #cccccc);
+    background: var(--ui-bg-tertiary, #242629);
+    color: var(--ui-text-primary, #fdfbfe);
   }
 
   .search-toggle-btn.active {
-    background: var(--ui-accent, #0e639c);
+    background: var(--ui-accent, #a0a7ff);
     color: white;
-    border-color: var(--ui-accent, #0e639c);
+    border-color: var(--ui-accent, #a0a7ff);
   }
 
   .search-nav-btn:disabled,
@@ -291,6 +291,6 @@
   }
 
   .search-close-btn:hover {
-    color: var(--ui-destructive, #f48771);
+    color: var(--ui-destructive, #ff6e84);
   }
 </style>

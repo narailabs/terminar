@@ -9,11 +9,11 @@
 <style>
   :global(body) {
     margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
       "Helvetica Neue", Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
-    background: #1e1e2e;
-    color: #cdd6f4;
+    background: #0d0e10;
+    color: #fdfbfe;
   }
 
   main {

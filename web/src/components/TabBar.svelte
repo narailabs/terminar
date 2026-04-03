@@ -186,9 +186,9 @@
     display: flex;
     align-items: center;
     height: 35px;
-    background: var(--ui-bg-secondary, #252526);
-    border-bottom: 1px solid var(--ui-border, #3c3c3c);
-    padding: 0 4px;
+    background: var(--ui-bg-primary, #0d0e10);
+    border-bottom: 1px solid var(--ui-border, #47484a);
+    padding: 0 8px;
     gap: 4px;
     user-select: none;
   }
@@ -222,23 +222,22 @@
     align-items: center;
     gap: 8px;
     padding: 4px 8px;
-    background: var(--ui-bg-secondary, #2d2d2d);
-    border: 1px solid transparent;
-    border-radius: 4px 4px 0 0;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
     cursor: pointer;
     min-width: 80px;
     max-width: 200px;
-    transition: background 0.15s;
+    transition: border-color 0.15s, color 0.15s;
   }
 
   .tab:hover {
-    background: var(--ui-bg-tertiary, #3c3c3c);
+    background: transparent;
   }
 
   .tab.active {
-    background: var(--ui-bg-primary, #1e1e1e);
-    border-color: var(--ui-border, #3c3c3c);
-    border-bottom-color: var(--ui-bg-primary, #1e1e1e);
+    border-bottom-color: var(--ui-accent, #a0a7ff);
   }
 
   .tab.dragging {
@@ -246,20 +245,26 @@
   }
 
   .tab.drag-over {
-    border-left: 2px solid var(--ui-accent, #0e639c);
+    border-left: 2px solid var(--ui-accent, #a0a7ff);
   }
 
   .tab-name {
     flex: 1;
-    font-size: 12px;
-    color: var(--ui-text-primary, #ccc);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ui-text-secondary, #ababad);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    transition: color 0.15s;
+  }
+
+  .tab:hover .tab-name {
+    color: var(--ui-text-primary, #fdfbfe);
   }
 
   .tab.active .tab-name {
-    color: var(--ui-text-primary, #fff);
+    color: var(--ui-accent, #a0a7ff);
   }
 
   .activity-badge {
@@ -271,7 +276,7 @@
   .exit-badge {
     font-size: 10px;
     line-height: 1;
-    color: var(--ui-text-muted, #888);
+    color: var(--ui-text-muted, #757578);
     flex-shrink: 0;
     white-space: nowrap;
   }
@@ -279,9 +284,9 @@
   .tab-rename-input {
     flex: 1;
     font-size: 12px;
-    color: var(--ui-text-primary, #fff);
-    background: var(--ui-bg-tertiary, #3c3c3c);
-    border: 1px solid var(--ui-accent, #0e639c);
+    color: var(--ui-text-primary, #fdfbfe);
+    background: var(--ui-bg-tertiary, #242629);
+    border: 1px solid var(--ui-accent, #a0a7ff);
     border-radius: 2px;
     padding: 2px 4px;
     outline: none;
@@ -298,7 +303,7 @@
     background: transparent;
     border: none;
     border-radius: 3px;
-    color: var(--ui-text-muted, #888);
+    color: var(--ui-text-muted, #757578);
     cursor: pointer;
     opacity: 0;
     transition: opacity 0.15s, background 0.15s;
@@ -310,7 +315,7 @@
 
   .tab-close:hover {
     background: rgba(255, 255, 255, 0.1);
-    color: var(--ui-text-primary, #fff);
+    color: var(--ui-text-primary, #fdfbfe);
   }
 
   .new-tab-button {
@@ -323,13 +328,13 @@
     background: transparent;
     border: none;
     border-radius: 4px;
-    color: var(--ui-text-muted, #888);
+    color: var(--ui-text-muted, #757578);
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
   }
 
   .new-tab-button:hover {
-    background: var(--ui-bg-tertiary, #3c3c3c);
-    color: var(--ui-text-primary, #fff);
+    background: var(--ui-bg-tertiary, #242629);
+    color: var(--ui-text-primary, #fdfbfe);
   }
 </style>

@@ -93,7 +93,7 @@
   }
 
   .status-text {
-    color: var(--ui-text-primary, #ccc);
+    color: var(--ui-text-primary, #fdfbfe);
   }
 
   .reconnect-button {

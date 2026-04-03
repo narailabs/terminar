@@ -54,7 +54,7 @@
 
   label {
     font-size: 12px;
-    color: var(--ui-text-primary, #ccc);
+    color: var(--ui-text-primary, #fdfbfe);
     font-weight: 500;
   }
 
@@ -86,7 +86,7 @@
   .hex-input {
     flex: 1;
     padding: 6px 10px;
-    background: var(--ui-bg-tertiary, #3c3c3c);
+    background: var(--ui-bg-tertiary, #242629);
     border: 1px solid var(--ui-border, #555);
     border-radius: 4px;
     color: var(--ui-text-primary, white);
@@ -97,6 +97,6 @@
 
   .hex-input:focus {
     outline: none;
-    border-color: var(--ui-accent, #0e639c);
+    border-color: var(--ui-accent, #a0a7ff);
   }
 </style>

@@ -119,24 +119,24 @@
 
   label {
     font-size: 0.85rem;
-    color: #cdd6f4;
+    color: #fdfbfe;
   }
 
   input[type="number"] {
-    background: #313244;
-    border: 1px solid #45475a;
+    background: #181a1c;
+    border: 1px solid #47484a;
     border-radius: 4px;
-    color: #cdd6f4;
+    color: #fdfbfe;
     padding: 0.4rem 0.5rem;
     font-size: 0.9rem;
   }
 
   .error {
-    background: rgba(243, 139, 168, 0.15);
-    border: 1px solid #f38ba8;
+    background: rgba(255, 110, 132, 0.15);
+    border: 1px solid #ff6e84;
     border-radius: 4px;
     padding: 0.5rem;
-    color: #f38ba8;
+    color: #ff6e84;
     font-size: 0.85rem;
     margin-bottom: 1rem;
   }
@@ -147,7 +147,7 @@
     gap: 0.5rem;
     margin-top: 1.5rem;
     padding-top: 1rem;
-    border-top: 1px solid #313244;
+    border-top: 1px solid #242629;
   }
 
   button {
@@ -161,12 +161,12 @@
   }
 
   .primary {
-    background: #89b4fa;
-    color: #1e1e2e;
+    background: #a0a7ff;
+    color: #0d0e10;
   }
 
   .primary:hover {
-    background: #74c7ec;
+    background: #8f97ff;
   }
 
   .primary:disabled {
@@ -175,11 +175,11 @@
   }
 
   .secondary {
-    background: #45475a;
-    color: #cdd6f4;
+    background: #242629;
+    color: #fdfbfe;
   }
 
   .secondary:hover {
-    background: #585b70;
+    background: #47484a;
   }
 </style>

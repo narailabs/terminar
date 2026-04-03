@@ -419,7 +419,7 @@
   }
 
   .list-container.pane-drag-over {
-    border-color: var(--ui-accent, #0e639c);
+    border-color: var(--ui-accent, #a0a7ff);
     border-style: dashed;
   }
 
@@ -455,7 +455,7 @@
   }
 
   .session-row.session-drag-over {
-    outline: 2px solid var(--ui-accent, #0e639c);
+    outline: 2px solid var(--ui-accent, #a0a7ff);
     outline-offset: -2px;
     border-radius: 2px;
   }
@@ -487,7 +487,7 @@
 
   .broadcast-checkbox input[type="checkbox"] {
     cursor: pointer;
-    accent-color: var(--ui-accent, #0e639c);
+    accent-color: var(--ui-accent, #a0a7ff);
     width: 14px;
     height: 14px;
   }
@@ -503,7 +503,7 @@
     text-transform: uppercase;
     letter-spacing: 0.5px;
     color: var(--ui-text-muted, #777);
-    border-bottom: 1px solid var(--ui-border, #3c3c3c);
+    border-bottom: 1px solid var(--ui-border, #47484a);
     cursor: default;
     transition: background 0.1s, border-color 0.1s;
   }
@@ -514,8 +514,8 @@
 
   .tab-group-header.tab-header-drag-over {
     background: rgba(14, 99, 156, 0.15);
-    border-color: var(--ui-accent, #0e639c);
-    color: var(--ui-accent, #0e639c);
+    border-color: var(--ui-accent, #a0a7ff);
+    color: var(--ui-accent, #a0a7ff);
   }
 
   .tab-group-name {
@@ -526,7 +526,7 @@
 
   .tab-drop-hint {
     font-size: 9px;
-    color: var(--ui-accent, #0e639c);
+    color: var(--ui-accent, #a0a7ff);
     flex-shrink: 0;
     margin-left: 4px;
   }
@@ -541,7 +541,7 @@
     gap: 8px;
     margin: 8px 6px 8px 2px;
     padding: 10px 8px 10px 4px;
-    background: var(--ui-bg-secondary, #2d2d2d);
+    background: var(--ui-bg-secondary, #181a1c);
     border: 1px dashed #454545;
     border-radius: 4px;
     color: #808080;
@@ -552,8 +552,8 @@
 
   .new-terminal-btn:hover {
     background: var(--ui-bg-tertiary, #363636);
-    border-color: var(--ui-accent, #0e639c);
-    color: var(--ui-text-primary, #cccccc);
+    border-color: var(--ui-accent, #a0a7ff);
+    color: var(--ui-text-primary, #fdfbfe);
   }
 
   .plus-icon {

@@ -171,7 +171,7 @@
 <style>
   .context-menu {
     position: fixed;
-    background: var(--ui-bg-secondary, #2d2d2d);
+    background: var(--ui-bg-secondary, #181a1c);
     border: 1px solid var(--ui-border, #454545);
     border-radius: 4px;
     padding: 4px 0;
@@ -188,7 +188,7 @@
     padding: 8px 16px;
     background: none;
     border: none;
-    color: var(--ui-text-primary, #cccccc);
+    color: var(--ui-text-primary, #fdfbfe);
     text-align: left;
     cursor: pointer;
     font-size: 13px;
@@ -196,7 +196,7 @@
   }
 
   .menu-item:hover {
-    background: var(--ui-bg-hover, #094771);
+    background: var(--ui-bg-hover, #1e2022);
     color: white;
   }
 
@@ -206,7 +206,7 @@
 
   .menu-shortcut {
     font-size: 11px;
-    color: var(--ui-text-muted, #888);
+    color: var(--ui-text-muted, #757578);
     white-space: nowrap;
   }
 
@@ -224,7 +224,7 @@
 
   .submenu-arrow {
     font-size: 11px;
-    color: var(--ui-text-muted, #888);
+    color: var(--ui-text-muted, #757578);
   }
 
   .menu-item:hover .submenu-arrow {
@@ -235,7 +235,7 @@
     position: absolute;
     left: 100%;
     top: 0;
-    background: var(--ui-bg-secondary, #2d2d2d);
+    background: var(--ui-bg-secondary, #181a1c);
     border: 1px solid var(--ui-border, #454545);
     border-radius: 4px;
     padding: 4px 0;

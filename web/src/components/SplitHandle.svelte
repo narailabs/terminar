@@ -62,7 +62,7 @@
 <style>
   .split-handle {
     flex-shrink: 0;
-    background: var(--ui-border, #3c3c3c);
+    background: transparent;
     transition: background 0.15s;
     z-index: 10;
     touch-action: none;
@@ -70,16 +70,19 @@
 
   .split-handle:hover,
   .split-handle.dragging {
-    background: var(--ui-accent, #0e639c);
+    background: var(--ui-accent, #a0a7ff);
+    border-radius: 2px;
   }
 
   .split-handle.horizontal {
     width: 4px;
+    margin: 0 -2px;
     cursor: col-resize;
   }
 
   .split-handle.vertical {
     height: 4px;
+    margin: -2px 0;
     cursor: row-resize;
   }
 </style>

@@ -105,7 +105,7 @@ describe('themeStore', () => {
   it('should update CSS variables when switching themes', () => {
     themeStore.setActiveUITheme('dark');
     themeStore.applyUIThemeCSS();
-    expect(document.documentElement.style.getPropertyValue('--ui-bg-primary')).toBe('#1e1e1e');
+    expect(document.documentElement.style.getPropertyValue('--ui-bg-primary')).toBe('#0d0e10');
 
     themeStore.setActiveUITheme('light');
     themeStore.applyUIThemeCSS();

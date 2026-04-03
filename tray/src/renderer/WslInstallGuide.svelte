@@ -93,7 +93,7 @@
     font-size: 0.85rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: #a6adc8;
+    color: #ababad;
     margin: 1rem 0 0.5rem;
     font-weight: 600;
   }
@@ -101,44 +101,44 @@
   .description {
     font-size: 0.9rem;
     line-height: 1.5;
-    color: #bac2de;
+    color: #ababad;
     margin-bottom: 1rem;
   }
 
   .code-block {
-    background: #313244;
-    border: 1px solid #45475a;
+    background: #181a1c;
+    border: 1px solid #47484a;
     border-radius: 6px;
     padding: 0.75rem 1rem;
     font-family: "Cascadia Code", "Consolas", monospace;
     font-size: 0.9rem;
-    color: #a6e3a1;
+    color: #23d18b;
     margin: 0.5rem 0;
     user-select: all;
   }
 
   .note {
     font-size: 0.8rem;
-    color: #a6adc8;
+    color: #ababad;
     margin-top: 0.5rem;
   }
 
   .warning {
-    background: rgba(249, 226, 175, 0.15);
-    border: 1px solid #f9e2af;
+    background: rgba(229, 192, 123, 0.15);
+    border: 1px solid #e5c07b;
     border-radius: 4px;
     padding: 0.5rem;
-    color: #f9e2af;
+    color: #e5c07b;
     font-size: 0.85rem;
     margin: 1rem 0;
   }
 
   .error {
-    background: rgba(243, 139, 168, 0.15);
-    border: 1px solid #f38ba8;
+    background: rgba(255, 110, 132, 0.15);
+    border: 1px solid #ff6e84;
     border-radius: 4px;
     padding: 0.5rem;
-    color: #f38ba8;
+    color: #ff6e84;
     font-size: 0.85rem;
     margin: 1rem 0;
   }
@@ -149,7 +149,7 @@
     gap: 1rem;
     margin-top: 1.5rem;
     padding-top: 1rem;
-    border-top: 1px solid #313244;
+    border-top: 1px solid #242629;
   }
 
   button {
@@ -163,12 +163,12 @@
   }
 
   .primary {
-    background: #89b4fa;
-    color: #1e1e2e;
+    background: #a0a7ff;
+    color: #0d0e10;
   }
 
   .primary:hover {
-    background: #74c7ec;
+    background: #8f97ff;
   }
 
   .primary:disabled {
@@ -177,7 +177,7 @@
   }
 
   .link {
-    color: #89b4fa;
+    color: #a0a7ff;
     font-size: 0.85rem;
     text-decoration: none;
   }
