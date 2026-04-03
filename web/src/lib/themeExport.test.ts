@@ -23,7 +23,7 @@ describe('Theme Export', () => {
     expect(exported.name).toBe('Dark');
     expect(exported.type).toBe('ui');
     expect(exported.ui).toBeDefined();
-    expect(exported.ui!.bgPrimary).toBe('#1e1e1e');
+    expect(exported.ui!.bgPrimary).toBe('#0d0e10');
     expect(exported.terminal).toBeUndefined();
   });
 
@@ -34,7 +34,7 @@ describe('Theme Export', () => {
     expect(exported.name).toBe('Dark');
     expect(exported.type).toBe('terminal');
     expect(exported.terminal).toBeDefined();
-    expect(exported.terminal!.foreground).toBe('#cccccc');
+    expect(exported.terminal!.foreground).toBe('#fdfbfe');
     expect(exported.ui).toBeUndefined();
   });
 

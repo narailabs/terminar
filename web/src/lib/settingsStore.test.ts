@@ -25,29 +25,29 @@ Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock });
 const mockTerminalTheme = {
   id: 'dark',
   name: 'Dark',
-  foreground: '#cccccc',
-  background: '#1e1e1e',
-  cursor: '#cccccc',
-  cursorAccent: '#1e1e1e',
-  selectionBackground: '#264f78',
-  selectionForeground: '#ffffff',
-  selectionInactiveBackground: '#3a3d41',
+  foreground: '#fdfbfe',
+  background: '#000000',
+  cursor: '#a0a7ff',
+  cursorAccent: '#000000',
+  selectionBackground: '#2a2d5a',
+  selectionForeground: '#fdfbfe',
+  selectionInactiveBackground: '#242629',
   ansi: {
     black: '#000000',
     red: '#cd3131',
     green: '#0DBC79',
     yellow: '#e5e510',
-    blue: '#2472c8',
+    blue: '#5561ff',
     magenta: '#bc3fbc',
-    cyan: '#11a8cd',
+    cyan: '#47c4ff',
     white: '#e5e5e5',
     brightBlack: '#666666',
     brightRed: '#f14c4c',
     brightGreen: '#23d18b',
     brightYellow: '#f5f543',
-    brightBlue: '#3b8eea',
+    brightBlue: '#a0a7ff',
     brightMagenta: '#d670d6',
-    brightCyan: '#29b8db',
+    brightCyan: '#47c4ff',
     brightWhite: '#e5e5e5',
   },
 };
@@ -302,13 +302,13 @@ describe('settingsStore', () => {
     expect(opts.lineHeight).toBe(1.2);
 
     // Theme colors come from the mocked getActiveTerminalTheme
-    expect(opts.theme.foreground).toBe('#cccccc');
-    expect(opts.theme.background).toBe('#1e1e1e');
-    expect(opts.theme.cursor).toBe('#cccccc');
-    expect(opts.theme.cursorAccent).toBe('#1e1e1e');
-    expect(opts.theme.selectionBackground).toBe('#264f78');
-    expect(opts.theme.selectionForeground).toBe('#ffffff');
-    expect(opts.theme.selectionInactiveBackground).toBe('#3a3d41');
+    expect(opts.theme.foreground).toBe('#fdfbfe');
+    expect(opts.theme.background).toBe('#000000');
+    expect(opts.theme.cursor).toBe('#a0a7ff');
+    expect(opts.theme.cursorAccent).toBe('#000000');
+    expect(opts.theme.selectionBackground).toBe('#2a2d5a');
+    expect(opts.theme.selectionForeground).toBe('#fdfbfe');
+    expect(opts.theme.selectionInactiveBackground).toBe('#242629');
 
     // ANSI colors should be spread into the theme object
     expect(opts.theme.black).toBe('#000000');

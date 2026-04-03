@@ -208,7 +208,7 @@
     margin: 2px 6px 2px 2px;
     border-radius: 4px;
     cursor: pointer;
-    background: var(--ui-bg-secondary, #2d2d2d);
+    background: var(--ui-bg-secondary, #181a1c);
     border: 1px solid transparent;
     transition: background 0.1s, border-color 0.1s;
   }
@@ -219,8 +219,8 @@
   }
 
   .terminal-item.active {
-    background: var(--ui-bg-hover, #094771);
-    border-color: var(--ui-accent, #0e639c);
+    background: var(--ui-bg-hover, #1e2022);
+    border-color: var(--ui-accent, #a0a7ff);
   }
 
   .terminal-item.dragging {
@@ -242,7 +242,7 @@
 
   .name {
     font-size: 13px;
-    color: var(--ui-text-primary, #cccccc);
+    color: var(--ui-text-primary, #fdfbfe);
     font-weight: 500;
     flex: 1;
     overflow: hidden;
@@ -256,8 +256,8 @@
 
   .name-input {
     flex: 1;
-    background: var(--ui-bg-tertiary, #3c3c3c);
-    border: 1px solid var(--ui-accent, #0e639c);
+    background: var(--ui-bg-tertiary, #242629);
+    border: 1px solid var(--ui-accent, #a0a7ff);
     border-radius: 2px;
     padding: 2px 4px;
     color: var(--ui-text-primary, white);
@@ -365,7 +365,7 @@
   }
 
   .terminal-title {
-    color: var(--ui-text-primary, #cccccc);
+    color: var(--ui-text-primary, #fdfbfe);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

@@ -71,7 +71,7 @@
       <span class="badge-dot"></span>
       LOCAL PTY MODE - Main Server Bypassed
     </div>
-  {:else}
+  {:else if connectionState !== 'connected'}
     <ConnectionStatus
       state={connectionState}
       {reconnectAttempt}
@@ -144,8 +144,8 @@
     align-items: center;
     justify-content: space-between;
     padding: 4px 12px;
-    background: var(--ui-bg-primary, #1e1e1e);
-    border-bottom: 1px solid var(--ui-border, #3c3c3c);
+    background: var(--ui-bg-primary, #0d0e10);
+    border-bottom: 1px solid var(--ui-border, #47484a);
     flex-shrink: 0;
   }
 
@@ -169,14 +169,14 @@
     background: transparent;
     border: none;
     border-radius: 4px;
-    color: var(--ui-text-muted, #888);
+    color: var(--ui-text-muted, #757578);
     cursor: pointer;
     transition: all 0.15s;
   }
 
   .shortcuts-btn:hover {
-    background: var(--ui-bg-tertiary, #3c3c3c);
-    color: var(--ui-text-primary, #cccccc);
+    background: var(--ui-bg-tertiary, #242629);
+    color: var(--ui-text-primary, #fdfbfe);
   }
 
   .shortcuts-popup {
@@ -184,8 +184,8 @@
     top: 100%;
     right: 0;
     margin-top: 6px;
-    background: var(--ui-bg-secondary, #252526);
-    border: 1px solid var(--ui-border, #3c3c3c);
+    background: var(--ui-bg-secondary, #181a1c);
+    border: 1px solid var(--ui-border, #47484a);
     border-radius: 6px;
     padding: 10px 14px;
     min-width: 240px;
@@ -207,7 +207,7 @@
     letter-spacing: 0.5px;
     margin-bottom: 8px;
     padding-bottom: 6px;
-    border-bottom: 1px solid var(--ui-border, #3c3c3c);
+    border-bottom: 1px solid var(--ui-border, #47484a);
   }
 
   .shortcut-row {
@@ -216,14 +216,14 @@
     align-items: center;
     padding: 3px 0;
     font-size: 12px;
-    color: var(--ui-text-primary, #ccc);
+    color: var(--ui-text-primary, #fdfbfe);
   }
 
   .shortcut-row kbd {
     font-family: inherit;
     font-size: 11px;
     color: var(--ui-text-primary, #ddd);
-    background: var(--ui-bg-tertiary, #3c3c3c);
+    background: var(--ui-bg-tertiary, #242629);
     border: 1px solid var(--ui-border, #505050);
     border-radius: 3px;
     padding: 1px 6px;
@@ -231,7 +231,7 @@
   }
 
   .shortcut-row span {
-    color: var(--ui-text-muted, #999);
+    color: var(--ui-text-muted, #757578);
     margin-left: 16px;
   }
 
@@ -240,14 +240,14 @@
     background: transparent;
     border: 1px solid var(--ui-border, #555);
     border-radius: 4px;
-    color: var(--ui-text-muted, #888);
+    color: var(--ui-text-muted, #757578);
     cursor: pointer;
     font-size: 12px;
     transition: all 0.15s;
   }
 
   .logout-btn:hover {
-    background: var(--ui-bg-tertiary, #3c3c3c);
+    background: var(--ui-bg-tertiary, #242629);
     color: var(--ui-destructive, #ff6b6b);
     border-color: var(--ui-destructive, #ff6b6b);
   }
@@ -262,18 +262,18 @@
     background: transparent;
     border: none;
     border-radius: 4px;
-    color: var(--ui-text-muted, #888);
+    color: var(--ui-text-muted, #757578);
     cursor: pointer;
     transition: all 0.15s;
   }
 
   .broadcast-btn:hover {
-    background: var(--ui-bg-tertiary, #3c3c3c);
-    color: var(--ui-text-primary, #cccccc);
+    background: var(--ui-bg-tertiary, #242629);
+    color: var(--ui-text-primary, #fdfbfe);
   }
 
   .broadcast-btn.active {
-    color: var(--ui-accent, #0e639c);
+    color: var(--ui-accent, #a0a7ff);
     background: rgba(14, 99, 156, 0.15);
   }
 
@@ -287,14 +287,14 @@
     background: transparent;
     border: none;
     border-radius: 4px;
-    color: var(--ui-text-muted, #888);
+    color: var(--ui-text-muted, #757578);
     cursor: pointer;
     transition: all 0.15s;
   }
 
   .settings-btn:hover {
-    background: var(--ui-bg-tertiary, #3c3c3c);
-    color: var(--ui-text-primary, #cccccc);
+    background: var(--ui-bg-tertiary, #242629);
+    color: var(--ui-text-primary, #fdfbfe);
   }
 
   .settings-btn:active {

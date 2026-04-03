@@ -146,10 +146,10 @@ describe('ThemeEditor', () => {
 
     // Verify the terminal theme has color fields from the base theme (dark defaults)
     const termTheme = themeState.value.customTerminalThemes[0];
-    expect(termTheme.foreground).toBe('#cccccc');
-    expect(termTheme.background).toBe('#1e1e1e');
-    expect(termTheme.cursor).toBe('#cccccc');
-    expect(termTheme.selectionBackground).toBe('#264f78');
+    expect(termTheme.foreground).toBe('#fdfbfe');
+    expect(termTheme.background).toBe('#000000');
+    expect(termTheme.cursor).toBe('#a0a7ff');
+    expect(termTheme.selectionBackground).toBe('#2a2d5a');
   });
 });
 

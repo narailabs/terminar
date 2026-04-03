@@ -524,9 +524,10 @@
     height: 100%;
     min-width: 100px;
     min-height: 50px;
-    background: var(--ui-bg-primary, #1e1e1e);
+    background: var(--ui-bg-secondary, #181a1c);
     box-sizing: border-box;
-    border: 1px solid transparent;
+    border: 1px solid var(--ui-border, #47484a);
+    border-radius: 8px;
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -534,17 +535,18 @@
 
   .pane-title-bar {
     position: relative;
-    height: 22px;
-    min-height: 22px;
-    background: var(--ui-bg-secondary, #2d2d2d);
-    color: var(--ui-text-secondary, #999);
-    font-size: 11px;
-    line-height: 22px;
-    padding: 0 8px;
+    height: 28px;
+    min-height: 28px;
+    background: var(--ui-bg-tertiary, #242629);
+    color: var(--ui-text-secondary, #ababad);
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 28px;
+    padding: 0 10px;
     white-space: nowrap;
     overflow: visible;
     user-select: none;
-    border-bottom: 1px solid var(--ui-border, #3c3c3c);
+    border-bottom: 1px solid var(--ui-border, #47484a);
     display: flex;
     align-items: center;
     cursor: grab;
@@ -569,7 +571,7 @@
     height: 18px;
     border: none;
     background: transparent;
-    color: var(--ui-text-secondary, #999);
+    color: var(--ui-text-secondary, #ababad);
     font-size: 14px;
     line-height: 18px;
     padding: 0;
@@ -581,8 +583,8 @@
   }
 
   .close-btn:hover {
-    background: var(--ui-bg-tertiary, #3c3c3c);
-    color: var(--ui-text-primary, #ccc);
+    background: var(--ui-bg-tertiary, #242629);
+    color: var(--ui-text-primary, #fdfbfe);
   }
 
   .title-bar-spacer {
@@ -599,14 +601,14 @@
     background: transparent;
     border: none;
     border-radius: 3px;
-    color: var(--ui-text-muted, #888);
+    color: var(--ui-text-muted, #757578);
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
   }
 
   .title-bar-icon-btn:hover {
     background: rgba(255, 255, 255, 0.1);
-    color: var(--ui-text-primary, #fff);
+    color: var(--ui-text-primary, #fdfbfe);
   }
 
   .close-popup {
@@ -614,8 +616,8 @@
     top: 22px;
     right: 4px;
     z-index: 200;
-    background: var(--ui-bg-secondary, #252526);
-    border: 1px solid var(--ui-border, #3c3c3c);
+    background: var(--ui-bg-secondary, #181a1c);
+    border: 1px solid var(--ui-border, #47484a);
     border-radius: 4px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
     min-width: 160px;
@@ -629,18 +631,18 @@
     padding: 6px 12px;
     border: none;
     background: transparent;
-    color: var(--ui-text-primary, #ccc);
+    color: var(--ui-text-primary, #fdfbfe);
     cursor: pointer;
     text-align: left;
     font-size: 12px;
   }
 
   .popup-item:hover {
-    background: var(--ui-bg-hover, #094771);
+    background: var(--ui-bg-hover, #1e2022);
   }
 
   .popup-item.destructive:hover {
-    background: var(--ui-destructive-hover, #5a1d1d);
+    background: var(--ui-destructive-hover, #a70138);
   }
 
   .popup-label {
@@ -649,12 +651,12 @@
 
   .popup-desc {
     font-size: 10px;
-    color: var(--ui-text-muted, #888);
+    color: var(--ui-text-muted, #757578);
     margin-top: 1px;
   }
 
   .popup-item.destructive .popup-label {
-    color: var(--ui-destructive, #f48771);
+    color: var(--ui-destructive, #ff6e84);
   }
 
   .pane-content {
@@ -674,7 +676,7 @@
   }
 
   .terminal-title {
-    color: var(--ui-text-primary, #ccc);
+    color: var(--ui-text-primary, #fdfbfe);
   }
 
   .process-badge {
@@ -693,7 +695,7 @@
   }
 
   .pane.active {
-    border-color: var(--ui-accent, #0e639c);
+    border-color: var(--ui-accent, #a0a7ff);
   }
 
   .pane.broadcast-target {
@@ -718,7 +720,7 @@
 
   .empty-pane-btn {
     padding: 6px 16px;
-    background: var(--ui-accent, #0e639c);
+    background: var(--ui-accent, #a0a7ff);
     color: white;
     border: none;
     border-radius: 4px;
@@ -727,13 +729,13 @@
   }
 
   .empty-pane-btn:hover {
-    background: var(--ui-accent-hover, #1177bb);
+    background: var(--ui-accent-hover, #8f97ff);
   }
 
   .empty-pane-select {
     padding: 4px 8px;
-    background: var(--ui-bg-secondary, #2d2d2d);
-    color: var(--ui-text-primary, #ccc);
+    background: var(--ui-bg-secondary, #181a1c);
+    color: var(--ui-text-primary, #fdfbfe);
     border: 1px solid var(--ui-border, #454545);
     border-radius: 4px;
     font-size: 12px;
@@ -750,7 +752,7 @@
   .drop-indicator {
     position: absolute;
     background: rgba(14, 99, 156, 0.3);
-    border: 2px dashed var(--ui-accent, #0e639c);
+    border: 2px dashed var(--ui-accent, #a0a7ff);
     pointer-events: none;
     z-index: 100;
   }

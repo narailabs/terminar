@@ -59,8 +59,8 @@
 <style>
   .sidebar {
     display: flex;
-    background: var(--ui-bg-secondary, #252526);
-    border-left: 1px solid var(--ui-border, #3c3c3c);
+    background: var(--ui-bg-secondary, #181a1c);
+    border-left: 1px solid var(--ui-border, #47484a);
     height: 100%;
     transition: width 0.15s ease;
   }
@@ -89,7 +89,7 @@
 
   .toggle-btn:hover {
     background: var(--ui-bg-secondary, #2a2a2a);
-    color: var(--ui-text-primary, #cccccc);
+    color: var(--ui-text-primary, #fdfbfe);
   }
 
   .chevron {
@@ -110,7 +110,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 12px 12px 12px 6px;
-    border-bottom: 1px solid var(--ui-border, #3c3c3c);
+    border-bottom: 1px solid var(--ui-border, #47484a);
   }
 
   .sidebar-header h3 {
@@ -119,12 +119,12 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    color: var(--ui-text-primary, #cccccc);
+    color: var(--ui-text-primary, #fdfbfe);
   }
 
   .count {
-    background: var(--ui-bg-tertiary, #3c3c3c);
-    color: var(--ui-text-primary, #cccccc);
+    background: var(--ui-bg-tertiary, #242629);
+    color: var(--ui-text-primary, #fdfbfe);
     font-size: 11px;
     padding: 2px 6px;
     border-radius: 10px;

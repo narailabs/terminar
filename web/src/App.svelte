@@ -996,9 +996,9 @@
     margin: 0;
     padding: 0;
     overflow: hidden;
-    background: var(--ui-bg-primary, #1e1e1e);
-    color: var(--ui-text-primary, #cccccc);
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--ui-bg-primary, #0d0e10);
+    color: var(--ui-text-primary, #fdfbfe);
+    font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   }
 
   main {
@@ -1022,12 +1022,13 @@
     flex: 1;
     min-height: 0;
     overflow: hidden;
+    padding: 4px 4px 6px 4px;
   }
 
   .input {
     padding: 10px;
     width: 300px;
-    background: var(--ui-bg-tertiary, #3c3c3c);
+    background: var(--ui-bg-tertiary, #242629);
     border: 1px solid var(--ui-border, #555);
     border-radius: 4px;
     color: var(--ui-text-primary, white);
@@ -1036,13 +1037,13 @@
 
   .input:focus {
     outline: none;
-    border-color: var(--ui-accent, #0e639c);
+    border-color: var(--ui-accent, #a0a7ff);
   }
 
   .btn {
     padding: 10px 20px;
     margin-left: 10px;
-    background: var(--ui-accent, #0e639c);
+    background: var(--ui-accent, #a0a7ff);
     border: none;
     border-radius: 4px;
     color: white;
@@ -1051,7 +1052,7 @@
   }
 
   .btn:hover {
-    background: var(--ui-accent-hover, #1177bb);
+    background: var(--ui-accent-hover, #8f97ff);
   }
 
   .btn:disabled {
@@ -1062,7 +1063,7 @@
   .btn-secondary {
     padding: 8px 16px;
     margin-left: 10px;
-    background: var(--ui-bg-tertiary, #3c3c3c);
+    background: var(--ui-bg-tertiary, #242629);
     border: 1px solid var(--ui-border, #555);
     border-radius: 4px;
     color: var(--ui-text-primary, white);

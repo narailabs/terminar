@@ -56,18 +56,18 @@
     flex-direction: column;
     gap: 4px;
     padding: 8px 12px;
-    background: var(--ui-bg-secondary, #252526);
-    border-top: 2px solid var(--ui-accent, #0e639c);
+    background: var(--ui-bg-secondary, #181a1c);
+    border-top: 2px solid var(--ui-accent, #a0a7ff);
     flex-shrink: 0;
   }
 
   .broadcast-status {
     font-size: 11px;
-    color: var(--ui-text-muted, #888);
+    color: var(--ui-text-muted, #757578);
   }
 
   .target-count {
-    color: var(--ui-accent, #0e639c);
+    color: var(--ui-accent, #a0a7ff);
     font-weight: 500;
   }
 
@@ -85,17 +85,17 @@
   .broadcast-input {
     flex: 1;
     padding: 6px 10px;
-    background: var(--ui-bg-tertiary, #3c3c3c);
+    background: var(--ui-bg-tertiary, #242629);
     border: 1px solid var(--ui-border, #555);
     border-radius: 4px;
-    color: var(--ui-text-primary, #ccc);
+    color: var(--ui-text-primary, #fdfbfe);
     font-size: 13px;
     font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
     outline: none;
   }
 
   .broadcast-input:focus {
-    border-color: var(--ui-accent, #0e639c);
+    border-color: var(--ui-accent, #a0a7ff);
   }
 
   .broadcast-input::placeholder {
@@ -104,7 +104,7 @@
 
   .send-btn {
     padding: 6px 14px;
-    background: var(--ui-accent, #0e639c);
+    background: var(--ui-accent, #a0a7ff);
     border: none;
     border-radius: 4px;
     color: white;
@@ -116,7 +116,7 @@
   }
 
   .send-btn:hover {
-    background: var(--ui-accent-hover, #1177bb);
+    background: var(--ui-accent-hover, #8f97ff);
   }
 
   .send-btn:active {

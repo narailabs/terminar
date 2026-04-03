@@ -331,8 +331,8 @@
   }
 
   .editor-panel {
-    background: var(--ui-bg-secondary, #252526);
-    border: 1px solid var(--ui-border, #3c3c3c);
+    background: var(--ui-bg-secondary, #181a1c);
+    border: 1px solid var(--ui-border, #47484a);
     border-radius: 8px;
     width: 420px;
     max-height: 90vh;
@@ -343,7 +343,7 @@
 
   .panel-header {
     padding: 16px 20px;
-    border-bottom: 1px solid var(--ui-border, #3c3c3c);
+    border-bottom: 1px solid var(--ui-border, #47484a);
     flex-shrink: 0;
   }
 
@@ -368,7 +368,7 @@
     font-size: 13px;
     font-weight: 600;
     color: var(--ui-text-primary, #e0e0e0);
-    border-bottom: 1px solid var(--ui-border, #3c3c3c);
+    border-bottom: 1px solid var(--ui-border, #47484a);
     padding-bottom: 4px;
     margin-top: 4px;
   }
@@ -381,12 +381,12 @@
 
   .field label {
     font-size: 12px;
-    color: var(--ui-text-secondary, #999);
+    color: var(--ui-text-secondary, #ababad);
     font-weight: 500;
   }
 
   .field .value {
-    color: var(--ui-text-primary, #cccccc);
+    color: var(--ui-text-primary, #fdfbfe);
     font-weight: 400;
     margin-left: 4px;
   }
@@ -394,7 +394,7 @@
   .field input[type="text"],
   .field select {
     padding: 8px 12px;
-    background: var(--ui-bg-tertiary, #3c3c3c);
+    background: var(--ui-bg-tertiary, #242629);
     border: 1px solid var(--ui-border, #555);
     border-radius: 4px;
     color: var(--ui-text-primary, white);
@@ -404,7 +404,7 @@
   .field input[type="text"]:focus,
   .field select:focus {
     outline: none;
-    border-color: var(--ui-accent, #0e639c);
+    border-color: var(--ui-accent, #a0a7ff);
   }
 
   .field input[type="range"] {
@@ -412,7 +412,7 @@
     height: 4px;
     -webkit-appearance: none;
     appearance: none;
-    background: var(--ui-bg-tertiary, #3c3c3c);
+    background: var(--ui-bg-tertiary, #242629);
     border-radius: 2px;
     outline: none;
   }
@@ -422,20 +422,20 @@
     appearance: none;
     width: 16px;
     height: 16px;
-    background: var(--ui-accent, #0e639c);
+    background: var(--ui-accent, #a0a7ff);
     border-radius: 50%;
     cursor: pointer;
     transition: background 0.15s;
   }
 
   .field input[type="range"]::-webkit-slider-thumb:hover {
-    background: var(--ui-accent-hover, #1177bb);
+    background: var(--ui-accent-hover, #8f97ff);
   }
 
   .field input[type="range"]::-moz-range-thumb {
     width: 16px;
     height: 16px;
-    background: var(--ui-accent, #0e639c);
+    background: var(--ui-accent, #a0a7ff);
     border-radius: 50%;
     cursor: pointer;
     border: none;
@@ -467,7 +467,7 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background-color: var(--ui-bg-tertiary, #3c3c3c);
+    background-color: var(--ui-bg-tertiary, #242629);
     transition: 0.2s;
     border-radius: 24px;
   }
@@ -485,7 +485,7 @@
   }
 
   .toggle input:checked + .slider {
-    background-color: var(--ui-accent, #0e639c);
+    background-color: var(--ui-accent, #a0a7ff);
   }
 
   .toggle input:checked + .slider:before {
@@ -494,7 +494,7 @@
 
   .panel-footer {
     padding: 16px 20px;
-    border-top: 1px solid var(--ui-border, #3c3c3c);
+    border-top: 1px solid var(--ui-border, #47484a);
     display: flex;
     justify-content: flex-end;
     gap: 8px;
@@ -503,10 +503,10 @@
 
   .btn-cancel {
     padding: 8px 16px;
-    background: var(--ui-bg-tertiary, #3c3c3c);
+    background: var(--ui-bg-tertiary, #242629);
     border: 1px solid var(--ui-border, #555);
     border-radius: 4px;
-    color: var(--ui-text-primary, #ccc);
+    color: var(--ui-text-primary, #fdfbfe);
     font-size: 13px;
     cursor: pointer;
   }
@@ -517,7 +517,7 @@
 
   .btn-save {
     padding: 8px 16px;
-    background: var(--ui-accent, #0e639c);
+    background: var(--ui-accent, #a0a7ff);
     border: none;
     border-radius: 4px;
     color: white;
@@ -526,7 +526,7 @@
   }
 
   .btn-save:hover {
-    background: var(--ui-accent-hover, #1177bb);
+    background: var(--ui-accent-hover, #8f97ff);
   }
 
   .btn-save:disabled {

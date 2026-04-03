@@ -348,9 +348,9 @@
     margin: 0;
     padding: 0;
     overflow: hidden;
-    background: var(--ui-bg-primary, #1e1e1e);
-    color: var(--ui-text-primary, #cccccc);
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--ui-bg-primary, #0d0e10);
+    color: var(--ui-text-primary, #fdfbfe);
+    font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   }
 
   main {
@@ -374,5 +374,6 @@
     flex: 1;
     min-height: 0;
     overflow: hidden;
+    padding: 4px 4px 6px 4px;
   }
 </style>

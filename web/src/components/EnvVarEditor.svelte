@@ -138,7 +138,7 @@
 
   .env-label {
     font-size: 12px;
-    color: var(--ui-text-secondary, #999);
+    color: var(--ui-text-secondary, #ababad);
     font-weight: 500;
   }
 
@@ -156,7 +156,7 @@
 
   .env-input {
     padding: 6px 8px;
-    background: var(--ui-bg-tertiary, #3c3c3c);
+    background: var(--ui-bg-tertiary, #242629);
     border: 1px solid var(--ui-border, #555);
     border-radius: 4px;
     color: var(--ui-text-primary, white);
@@ -166,7 +166,7 @@
 
   .env-input:focus {
     outline: none;
-    border-color: var(--ui-accent, #0e639c);
+    border-color: var(--ui-accent, #a0a7ff);
   }
 
   .env-key-input {
@@ -189,7 +189,7 @@
   .env-delete-btn {
     background: none;
     border: none;
-    color: var(--ui-text-muted, #888);
+    color: var(--ui-text-muted, #757578);
     cursor: pointer;
     font-size: 16px;
     padding: 2px 6px;
@@ -199,13 +199,13 @@
   }
 
   .env-delete-btn:hover {
-    color: var(--ui-destructive, #f48771);
-    background: var(--ui-destructive-hover, #5a1d1d);
+    color: var(--ui-destructive, #ff6e84);
+    background: var(--ui-destructive-hover, #a70138);
   }
 
   .env-error {
     font-size: 11px;
-    color: var(--ui-destructive, #f48771);
+    color: var(--ui-destructive, #ff6e84);
     padding-left: 4px;
     margin-top: -2px;
   }
@@ -220,10 +220,10 @@
   .env-add-btn {
     align-self: flex-start;
     padding: 4px 12px;
-    background: var(--ui-bg-tertiary, #3c3c3c);
+    background: var(--ui-bg-tertiary, #242629);
     border: 1px solid var(--ui-border, #555);
     border-radius: 4px;
-    color: var(--ui-text-primary, #ccc);
+    color: var(--ui-text-primary, #fdfbfe);
     font-size: 12px;
     cursor: pointer;
     transition: all 0.15s;

@@ -611,6 +611,7 @@
     flex: 1;
     overflow: hidden;
     position: relative;
+    padding-bottom: 10px
   }
 
   .focus-backdrop {
@@ -626,13 +627,13 @@
     align-items: center;
     justify-content: center;
     height: 100%;
-    color: var(--ui-text-muted, #888);
+    color: var(--ui-text-muted, #757578);
     gap: 16px;
   }
 
   .no-tab button {
     padding: 8px 16px;
-    background: var(--ui-accent, #0e639c);
+    background: var(--ui-accent, #a0a7ff);
     color: white;
     border: none;
     border-radius: 4px;
@@ -641,7 +642,7 @@
   }
 
   .no-tab button:hover {
-    background: var(--ui-accent-hover, #1177bb);
+    background: var(--ui-accent-hover, #8f97ff);
   }
 
   .rename-backdrop {
@@ -655,7 +656,7 @@
   }
 
   .rename-modal {
-    background: var(--ui-bg-secondary, #252526);
+    background: var(--ui-bg-secondary, #181a1c);
     border: 1px solid var(--ui-border, #454545);
     border-radius: 6px;
     padding: 16px;
@@ -666,15 +667,15 @@
   .rename-header {
     font-size: 14px;
     font-weight: 600;
-    color: var(--ui-text-primary, #cccccc);
+    color: var(--ui-text-primary, #fdfbfe);
     margin-bottom: 12px;
   }
 
   .rename-input {
     width: 100%;
     padding: 6px 8px;
-    background: var(--ui-bg-tertiary, #3c3c3c);
-    border: 1px solid var(--ui-accent, #0e639c);
+    background: var(--ui-bg-tertiary, #242629);
+    border: 1px solid var(--ui-accent, #a0a7ff);
     border-radius: 4px;
     color: var(--ui-text-primary, white);
     font-size: 13px;
@@ -698,8 +699,8 @@
   }
 
   .rename-btn.cancel {
-    background: var(--ui-bg-tertiary, #3c3c3c);
-    color: var(--ui-text-primary, #cccccc);
+    background: var(--ui-bg-tertiary, #242629);
+    color: var(--ui-text-primary, #fdfbfe);
   }
 
   .rename-btn.cancel:hover {
@@ -707,12 +708,12 @@
   }
 
   .rename-btn.confirm {
-    background: var(--ui-accent, #0e639c);
+    background: var(--ui-accent, #a0a7ff);
     color: white;
   }
 
   .rename-btn.confirm:hover {
-    background: var(--ui-accent-hover, #1177bb);
+    background: var(--ui-accent-hover, #8f97ff);
   }
 
   .rename-btn.confirm:disabled {

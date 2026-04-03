@@ -235,14 +235,14 @@
     justify-content: center;
     min-height: 100vh;
     padding: 40px;
-    background: var(--ui-bg-primary, #1e1e1e);
+    background: var(--ui-bg-primary, #0d0e10);
     color: var(--ui-text-primary, #e0e0e0);
   }
 
   h1 {
     font-size: 24px;
     margin-bottom: 24px;
-    color: var(--ui-text-primary, #fff);
+    color: var(--ui-text-primary, #fdfbfe);
   }
 
   .tabs {
@@ -260,14 +260,14 @@
     background: transparent;
     border: none;
     border-bottom: 2px solid transparent;
-    color: var(--ui-text-muted, #888);
+    color: var(--ui-text-muted, #757578);
     cursor: pointer;
     font-size: 14px;
     transition: color 0.2s, border-color 0.2s;
   }
 
   .tab:hover {
-    color: var(--ui-text-primary, #ccc);
+    color: var(--ui-text-primary, #fdfbfe);
   }
 
   .tab.active {
@@ -295,7 +295,7 @@
   .input {
     width: 100%;
     padding: 10px 12px;
-    background: var(--ui-bg-secondary, #2d2d2d);
+    background: var(--ui-bg-secondary, #181a1c);
     border: 1px solid var(--ui-border, #444);
     color: var(--ui-text-primary, #e0e0e0);
     border-radius: 4px;
@@ -415,7 +415,7 @@
   .pairing-instructions {
     margin-top: 20px;
     padding: 16px;
-    background: var(--ui-bg-secondary, #2d2d2d);
+    background: var(--ui-bg-secondary, #181a1c);
     border-radius: 4px;
     font-size: 13px;
   }

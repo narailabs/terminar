@@ -1285,9 +1285,9 @@
     left: 50%;
     transform: translateX(-50%);
     z-index: 10;
-    background: var(--ui-bg-secondary, #252526);
-    color: var(--ui-text-muted, #999);
-    border: 1px solid var(--ui-border, #3c3c3c);
+    background: var(--ui-bg-secondary, #181a1c);
+    color: var(--ui-text-muted, #757578);
+    border: 1px solid var(--ui-border, #47484a);
     border-radius: 12px;
     padding: 4px 14px;
     font-size: 12px;
@@ -1305,7 +1305,7 @@
 
   .scroll-to-bottom-badge.visible:hover {
     opacity: 1;
-    color: var(--ui-text, #ccc);
+    color: var(--ui-text, #fdfbfe);
   }
 
   /* Ensure xterm takes full space and clips partial rows at the bottom.

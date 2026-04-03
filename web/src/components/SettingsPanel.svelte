@@ -542,8 +542,8 @@
   }
 
   .settings-panel {
-    background: var(--ui-bg-secondary, #252526);
-    border: 1px solid var(--ui-border, #3c3c3c);
+    background: var(--ui-bg-secondary, #181a1c);
+    border: 1px solid var(--ui-border, #47484a);
     border-radius: 8px;
     width: 380px;
     max-height: 90vh;
@@ -557,7 +557,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 16px 20px;
-    border-bottom: 1px solid var(--ui-border, #3c3c3c);
+    border-bottom: 1px solid var(--ui-border, #47484a);
     flex-shrink: 0;
   }
 
@@ -571,7 +571,7 @@
   .close-btn {
     background: none;
     border: none;
-    color: var(--ui-text-secondary, #999);
+    color: var(--ui-text-secondary, #ababad);
     font-size: 24px;
     line-height: 1;
     cursor: pointer;
@@ -585,8 +585,8 @@
   }
 
   .close-btn:hover {
-    background: var(--ui-bg-tertiary, #3c3c3c);
-    color: var(--ui-text-primary, #fff);
+    background: var(--ui-bg-tertiary, #242629);
+    color: var(--ui-text-primary, #fdfbfe);
   }
 
   .panel-content {
@@ -607,13 +607,13 @@
 
   .setting-group label {
     font-size: 12px;
-    color: var(--ui-text-secondary, #999);
+    color: var(--ui-text-secondary, #ababad);
     font-weight: 500;
   }
 
   .setting-group select {
     padding: 8px 12px;
-    background: var(--ui-bg-tertiary, #3c3c3c);
+    background: var(--ui-bg-tertiary, #242629);
     border: 1px solid var(--ui-border, #555);
     border-radius: 4px;
     color: var(--ui-text-primary, white);
@@ -623,7 +623,7 @@
 
   .setting-group select:focus {
     outline: none;
-    border-color: var(--ui-accent, #0e639c);
+    border-color: var(--ui-accent, #a0a7ff);
   }
 
   .setting-group input[type="range"] {
@@ -631,7 +631,7 @@
     appearance: none;
     width: 100%;
     height: 6px;
-    background: var(--ui-bg-tertiary, #3c3c3c);
+    background: var(--ui-bg-tertiary, #242629);
     border-radius: 3px;
     outline: none;
     cursor: pointer;
@@ -642,7 +642,7 @@
     appearance: none;
     width: 16px;
     height: 16px;
-    background: var(--ui-accent, #0e639c);
+    background: var(--ui-accent, #a0a7ff);
     border-radius: 50%;
     cursor: pointer;
   }
@@ -665,7 +665,7 @@
     align-items: center;
     gap: 6px;
     padding: 4px 6px;
-    background: var(--ui-bg-tertiary, #3c3c3c);
+    background: var(--ui-bg-tertiary, #242629);
     border-radius: 4px;
     border: 1px solid transparent;
     cursor: grab;
@@ -681,7 +681,7 @@
   }
 
   .field-order-item.drag-over {
-    border-color: var(--ui-accent, #0e639c);
+    border-color: var(--ui-accent, #a0a7ff);
   }
 
   .drag-handle {
@@ -696,13 +696,13 @@
     align-items: center;
     gap: 8px;
     font-size: 13px;
-    color: var(--ui-text-primary, #cccccc);
+    color: var(--ui-text-primary, #fdfbfe);
     cursor: pointer;
     flex: 1;
   }
 
   .field-toggle input[type="checkbox"] {
-    accent-color: var(--ui-accent, #0e639c);
+    accent-color: var(--ui-accent, #a0a7ff);
     width: 14px;
     height: 14px;
     cursor: pointer;
@@ -728,7 +728,7 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background-color: var(--ui-bg-tertiary, #3c3c3c);
+    background-color: var(--ui-bg-tertiary, #242629);
     transition: 0.2s;
     border-radius: 24px;
   }
@@ -746,7 +746,7 @@
   }
 
   .toggle input:checked + .slider {
-    background-color: var(--ui-accent, #0e639c);
+    background-color: var(--ui-accent, #a0a7ff);
   }
 
   .toggle input:checked + .slider:before {
@@ -755,7 +755,7 @@
 
   .panel-footer {
     padding: 16px 20px;
-    border-top: 1px solid var(--ui-border, #3c3c3c);
+    border-top: 1px solid var(--ui-border, #47484a);
     display: flex;
     justify-content: flex-end;
     flex-shrink: 0;
@@ -763,10 +763,10 @@
 
   .reset-btn {
     padding: 8px 16px;
-    background: var(--ui-bg-tertiary, #3c3c3c);
+    background: var(--ui-bg-tertiary, #242629);
     border: 1px solid var(--ui-border, #555);
     border-radius: 4px;
-    color: var(--ui-text-primary, #cccccc);
+    color: var(--ui-text-primary, #fdfbfe);
     font-size: 13px;
     cursor: pointer;
     transition: all 0.15s;
@@ -785,10 +785,10 @@
   .theme-action-btn {
     flex: 1;
     padding: 6px 12px;
-    background: var(--ui-bg-tertiary, #3c3c3c);
+    background: var(--ui-bg-tertiary, #242629);
     border: 1px solid var(--ui-border, #555);
     border-radius: 4px;
-    color: var(--ui-text-primary, #ccc);
+    color: var(--ui-text-primary, #fdfbfe);
     font-size: 12px;
     cursor: pointer;
     transition: all 0.15s;
@@ -809,10 +809,10 @@
     align-items: center;
     justify-content: space-between;
     padding: 4px 8px;
-    background: var(--ui-bg-tertiary, #3c3c3c);
+    background: var(--ui-bg-tertiary, #242629);
     border-radius: 4px;
     font-size: 12px;
-    color: var(--ui-text-primary, #ccc);
+    color: var(--ui-text-primary, #fdfbfe);
   }
 
   .custom-theme-actions {
@@ -824,7 +824,7 @@
   .edit-theme-btn {
     background: none;
     border: none;
-    color: var(--ui-text-muted, #888);
+    color: var(--ui-text-muted, #757578);
     cursor: pointer;
     font-size: 11px;
     padding: 2px 6px;
@@ -832,14 +832,14 @@
   }
 
   .edit-theme-btn:hover {
-    color: var(--ui-accent, #0e639c);
+    color: var(--ui-accent, #a0a7ff);
     background: var(--ui-bg-hover, #4a4a4a);
   }
 
   .delete-theme-btn {
     background: none;
     border: none;
-    color: var(--ui-text-muted, #888);
+    color: var(--ui-text-muted, #757578);
     cursor: pointer;
     font-size: 14px;
     padding: 0 4px;
@@ -847,8 +847,8 @@
   }
 
   .delete-theme-btn:hover {
-    color: var(--ui-destructive, #f48771);
-    background: var(--ui-destructive-hover, #5a1d1d);
+    color: var(--ui-destructive, #ff6e84);
+    background: var(--ui-destructive-hover, #a70138);
   }
 
   .keybinding-list {
@@ -866,7 +866,7 @@
 
   .keybinding-action {
     font-size: 12px;
-    color: var(--ui-text-primary, #ccc);
+    color: var(--ui-text-primary, #fdfbfe);
   }
 
   .keybinding-keys {
@@ -877,10 +877,10 @@
 
   .keybinding-badge {
     padding: 2px 8px;
-    background: var(--ui-bg-tertiary, #3c3c3c);
+    background: var(--ui-bg-tertiary, #242629);
     border: 1px solid var(--ui-border, #555);
     border-radius: 4px;
-    color: var(--ui-text-primary, #ccc);
+    color: var(--ui-text-primary, #fdfbfe);
     font-size: 11px;
     font-family: monospace;
     cursor: pointer;
@@ -889,12 +889,12 @@
 
   .keybinding-badge:hover {
     background: var(--ui-bg-hover, #4a4a4a);
-    border-color: var(--ui-accent, #0e639c);
+    border-color: var(--ui-accent, #a0a7ff);
   }
 
   .keybinding-badge.recording {
-    background: var(--ui-accent, #0e639c);
-    border-color: var(--ui-accent, #0e639c);
+    background: var(--ui-accent, #a0a7ff);
+    border-color: var(--ui-accent, #a0a7ff);
     color: white;
     animation: pulse 1s ease-in-out infinite;
   }
@@ -907,7 +907,7 @@
   .keybinding-reset {
     background: none;
     border: none;
-    color: var(--ui-text-muted, #888);
+    color: var(--ui-text-muted, #757578);
     cursor: pointer;
     font-size: 14px;
     padding: 0 4px;
@@ -915,6 +915,6 @@
   }
 
   .keybinding-reset:hover {
-    color: var(--ui-accent, #0e639c);
+    color: var(--ui-accent, #a0a7ff);
   }
 </style>
