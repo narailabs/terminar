@@ -2,7 +2,7 @@
   "name": "terminar",
   "displayName": "terminar",
   "description": "Persistent terminal sessions backed by a Rust server. Sessions survive VS Code crashes and restarts.",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "publisher": "narai",
   "license": "MIT",
   "repository": {
