@@ -1,6 +1,6 @@
 {
   "name": "terminar",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Persistent terminal sessions that survive crashes and restarts",
   "bin": {
     "terminar": "bin/terminar.js"
