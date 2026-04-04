@@ -76,13 +76,11 @@
 
   .split-handle.horizontal {
     width: 4px;
-    margin: 0 -2px;
     cursor: col-resize;
   }
 
   .split-handle.vertical {
     height: 4px;
-    margin: -2px 0;
     cursor: row-resize;
   }
 </style>
