@@ -141,8 +141,8 @@
         {:else}
           <span class="tab-name">{tab.name}</span>
         {/if}
-        {#if tabExitStates.has(tab.id) && tabExitStates.get(tab.id).exited}
-          <span class="exit-badge" data-testid="exit-badge">{getExitLabel(tabExitStates.get(tab.id))}</span>
+        {#if tabExitStates.has(tab.id) && tabExitStates.get(tab.id)!.exited}
+          <span class="exit-badge" data-testid="exit-badge">{getExitLabel(tabExitStates.get(tab.id)!)}</span>
         {/if}
         <button
           class="tab-close"
