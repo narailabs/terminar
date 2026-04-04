@@ -15,7 +15,7 @@
   import { applyUIThemeCSS, themeState, initAutoMode } from './lib/themeStore.svelte';
   import type { Workspace } from './lib/workspaceTypes';
 
-  import AppToolbar from './components/AppToolbar.svelte';
+  import TitleBar from './components/TitleBar.svelte';
   import BroadcastBar from './components/BroadcastBar.svelte';
   import { broadcastEnabled, clearTargets, setSessionManager } from './lib/broadcastStore.svelte';
   import { getEffectiveEnv } from './lib/envStore.svelte';
@@ -954,7 +954,7 @@
   {:else}
     <div class="app-container">
       <div class="main-area">
-        <AppToolbar
+        <TitleBar
           {connectionState}
           {reconnectAttempt}
           {reconnectDelay}

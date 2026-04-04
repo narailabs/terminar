@@ -1,6 +1,7 @@
 <script lang="ts">
   import TerminalList from './TerminalList.svelte';
   import type { SessionInfo } from '../lib/workspaceTypes';
+  import { sidebarGroupStore } from '../lib/sidebarGroupStore.svelte';
 
   let {
     sessions = [],
@@ -41,6 +42,28 @@
       <div class="sidebar-header">
         <h3>Terminals</h3>
         <span class="count">{sessions.length}</span>
+        <div class="header-actions">
+          <button
+            class="header-icon-btn"
+            title="New Group"
+            onclick={() => {
+              sidebarGroupStore.createGroup('New Group');
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M14 4H9.618l-1-2H2a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1z"/>
+            </svg>
+          </button>
+          <button
+            class="header-icon-btn"
+            title="New Terminal"
+            onclick={() => oncreate?.()}
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 1.5a.5.5 0 0 1 .5.5v5.5H14a.5.5 0 0 1 0 1H8.5V14a.5.5 0 0 1-1 0V8.5H2a.5.5 0 0 1 0-1h5.5V2a.5.5 0 0 1 .5-.5z"/>
+            </svg>
+          </button>
+        </div>
       </div>
       <TerminalList
         {sessions}
@@ -48,7 +71,6 @@
         {broadcastMode}
         onclose={onclose}
         onrename={onrename}
-        oncreate={oncreate}
         onsettings={onsettings}
         onpanedrop={onpanedrop}
       />
@@ -130,5 +152,32 @@
     border-radius: 10px;
     min-width: 18px;
     text-align: center;
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: auto;
+  }
+
+  .header-icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    background: none;
+    border: none;
+    border-radius: 4px;
+    color: var(--ui-text-muted, #808080);
+    cursor: pointer;
+    padding: 0;
+    transition: background 0.1s, color 0.1s;
+  }
+
+  .header-icon-btn:hover {
+    background: var(--ui-bg-tertiary, #363636);
+    color: var(--ui-text-primary, #fdfbfe);
   }
 </style>

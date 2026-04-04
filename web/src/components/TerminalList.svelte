@@ -5,8 +5,9 @@
   import { broadcastTargets, toggleTarget, isTarget } from '../lib/broadcastStore.svelte';
   import { foregroundStore } from '../lib/foregroundStore.svelte';
   import { titleStore } from '../lib/titleStore.svelte';
-  import { sessionPaneCounts, newSessionIds, workspaceStore } from '../lib/workspaceStore';
+  import { sessionPaneCounts, newSessionIds } from '../lib/workspaceStore';
   import { tagStore } from '../lib/tagStore.svelte';
+  import { sidebarGroupStore, type SidebarGroup } from '../lib/sidebarGroupStore.svelte';
 
   let {
     sessions = [],
@@ -14,7 +15,6 @@
     broadcastMode = false,
     onclose,
     onrename,
-    oncreate,
     onsettings,
     onpanedrop,
   }: {
@@ -23,39 +23,30 @@
     broadcastMode?: boolean;
     onclose?: (sessionId: string) => void;
     onrename?: (detail: { id: string; newName: string }) => void;
-    oncreate?: () => void;
     onsettings?: () => void;
     onpanedrop?: (detail: { sourcePaneId: string }) => void;
   } = $props();
 
-  // Reactive workspace subscription for tab grouping
-  let _wsStore = $state(workspaceStore.get());
-  $effect(() => {
-    const unsub = workspaceStore.subscribe((w) => { _wsStore = w; });
-    return unsub;
-  });
+  // Sessions not in any sidebar group
+  let ungroupedSessions = $derived((() => {
+    const grouped = new Set(sidebarGroupStore.groups.flatMap(g => g.sessionIds));
+    return sessions.filter(s => !grouped.has(s.id));
+  })());
 
-  // Group sessions by tab: returns array of { tab, sessions[] } in tab order
-  let tabGroups = $derived((() => {
+  // Resolved sessions per group (filter out sessions that no longer exist)
+  function resolveGroupSessions(group: SidebarGroup): SessionInfo[] {
     const sessionMap = new Map(sessions.map(s => [s.id, s]));
-    return _wsStore.tabs.map(tab => ({
-      tab,
-      sessions: tab.sessionOrder
-        .map(id => sessionMap.get(id))
-        .filter((s): s is SessionInfo => s !== undefined),
-    })).filter(group => group.sessions.length > 0 || _wsStore.tabs.length > 1);
-  })());
+    return group.sessionIds
+      .map(id => sessionMap.get(id))
+      .filter((s): s is SessionInfo => s !== undefined);
+  }
 
-  // Sessions not in any tab's sessionOrder (orphans)
-  let orphanSessions = $derived((() => {
-    const allOrdered = new Set(_wsStore.tabs.flatMap(t => t.sessionOrder));
-    return sessions.filter(s => !allOrdered.has(s.id));
-  })());
-
-  let contextMenu: { x: number; y: number; sessionId: string } | null = $state(null);
+  let contextMenu: { x: number; y: number; sessionId: string; groupId?: string } | null = $state(null);
   let editingSessionId: string | null = $state(null);
+  let editingGroupId: string | null = $state(null);
+  let editingGroupName: string = $state('');
 
-  const contextMenuItems = [
+  const sessionContextMenuItems = [
     { label: 'Rename', action: 'rename' },
     { label: '', action: '', separator: true },
     { label: 'Terminal Settings', action: 'settings' },
@@ -63,112 +54,123 @@
     { label: 'Close', action: 'close' },
   ];
 
+  function getSessionContextMenuItems(sessionId: string) {
+    const group = sidebarGroupStore.getGroupForSession(sessionId);
+    const items = [...sessionContextMenuItems];
+    if (group) {
+      // Insert "Remove from Group" before the last separator+Close
+      items.splice(items.length - 2, 0, { label: 'Remove from Group', action: 'ungroup' });
+    }
+    if (sidebarGroupStore.groups.length > 0) {
+      // Add "Move to Group" submenu entries
+      const groups = sidebarGroupStore.groups.filter(g => g.id !== group?.id);
+      for (const g of groups) {
+        items.splice(items.length - 2, 0, { label: `Move to "${g.name}"`, action: `move-to-group:${g.id}` });
+      }
+    }
+    return items;
+  }
+
+  const emptyContextMenuItems = [
+    { label: 'New Group', action: 'new-group' },
+  ];
+
+  const groupContextMenuItems = [
+    { label: 'Rename Group', action: 'rename-group' },
+    { label: 'Delete Group', action: 'delete-group' },
+  ];
+
   function handleSelect(_sessionId: string) {
     // Click on sidebar item is a no-op — sessions are attached via drag-drop or context menu only
   }
 
   // ── Session drag-drop for sidebar reordering ──────────────────────────────
-  let draggedSessionIndex: number | null = $state(null);
+  let draggedSessionId: string | null = $state(null);
+  let draggedFromGroupId: string | null = $state(null);
   let sessionDragOverIndex: number | null = $state(null);
+  let sessionDragOverGroupId: string | null = $state(null);
 
-  function handleSessionDragStart(event: DragEvent, sessionId: string, index: number) {
-    draggedSessionIndex = index;
+  function handleSessionDragStart(event: DragEvent, sessionId: string, groupId: string | null) {
+    draggedSessionId = sessionId;
+    draggedFromGroupId = groupId;
     event.dataTransfer?.setData('text/plain', sessionId);
     event.dataTransfer?.setData('application/x-terminar-session', sessionId);
   }
 
-  function handleSessionDragOver(event: DragEvent, index: number) {
-    if (draggedSessionIndex === null) return;
+  function handleSessionDragOver(event: DragEvent, index: number, groupId: string | null) {
+    if (draggedSessionId === null) return;
     event.preventDefault();
     sessionDragOverIndex = index;
+    sessionDragOverGroupId = groupId;
   }
 
   function handleSessionDragLeave() {
     sessionDragOverIndex = null;
+    sessionDragOverGroupId = null;
   }
 
-  function handleSessionDrop(event: DragEvent, toIndex: number) {
-    if (draggedSessionIndex === null) return;
+  function handleSessionDrop(event: DragEvent, toIndex: number, toGroupId: string | null) {
+    if (draggedSessionId === null) return;
     event.preventDefault();
     event.stopPropagation();
-    const activeTabId = workspaceStore.get().activeTabId;
-    workspaceStore.reorderSession(activeTabId, draggedSessionIndex, toIndex);
-    draggedSessionIndex = null;
-    sessionDragOverIndex = null;
+
+    if (toGroupId && draggedFromGroupId === toGroupId) {
+      // Reorder within same group
+      const group = sidebarGroupStore.groups.find(g => g.id === toGroupId);
+      if (group) {
+        const fromIndex = group.sessionIds.indexOf(draggedSessionId);
+        if (fromIndex !== -1) {
+          sidebarGroupStore.reorderInGroup(toGroupId, fromIndex, toIndex);
+        }
+      }
+    } else if (toGroupId) {
+      // Move to a different group
+      sidebarGroupStore.addSession(toGroupId, draggedSessionId);
+    } else if (draggedFromGroupId) {
+      // Dragged out of a group to ungrouped
+      sidebarGroupStore.removeSession(draggedSessionId);
+    }
+    // If both null (ungrouped to ungrouped), no-op for now
+
+    resetDragState();
   }
 
   function handleSessionDragEnd() {
-    draggedSessionIndex = null;
+    resetDragState();
+  }
+
+  function resetDragState() {
+    draggedSessionId = null;
+    draggedFromGroupId = null;
     sessionDragOverIndex = null;
+    sessionDragOverGroupId = null;
+    groupHeaderDragOver = {};
   }
 
-  function handleClose(sessionId: string) {
-    onclose?.(sessionId);
-  }
+  // ── Group header drop target ──────────────────────────────────────────────
+  let groupHeaderDragOver = $state<Record<string, boolean>>({});
 
-  function handleRename(detail: { id: string; newName: string }) {
-    onrename?.(detail);
-  }
-
-  function handleContextMenu(detail: { id: string; x: number; y: number }) {
-    contextMenu = {
-      x: detail.x,
-      y: detail.y,
-      sessionId: detail.id,
-    };
-  }
-
-  function handleMenuSelect(action: string) {
-    if (!contextMenu) return;
-
-    const sessionId = contextMenu.sessionId;
-
-    if (action === 'rename') {
-      // Trigger rename mode on the session item
-      editingSessionId = sessionId;
-    } else if (action === 'settings') {
-      onsettings?.();
-    } else if (action === 'close') {
-      onclose?.(sessionId);
-    }
-
-    contextMenu = null;
-  }
-
-  function handleEditEnd() {
-    editingSessionId = null;
-  }
-
-  function handleMenuClose() {
-    contextMenu = null;
-  }
-
-  // Tab header drag-over state: tabId -> boolean
-  let tabHeaderDragOver = $state<Record<string, boolean>>({});
-
-  function handleTabHeaderDragOver(event: DragEvent, tabId: string) {
+  function handleGroupHeaderDragOver(event: DragEvent, groupId: string) {
     if (!event.dataTransfer?.types.includes('application/x-terminar-session')) return;
     event.preventDefault();
-    tabHeaderDragOver = { ...tabHeaderDragOver, [tabId]: true };
+    groupHeaderDragOver = { ...groupHeaderDragOver, [groupId]: true };
   }
 
-  function handleTabHeaderDragLeave(tabId: string) {
-    tabHeaderDragOver = { ...tabHeaderDragOver, [tabId]: false };
+  function handleGroupHeaderDragLeave(groupId: string) {
+    groupHeaderDragOver = { ...groupHeaderDragOver, [groupId]: false };
   }
 
-  function handleTabHeaderDrop(event: DragEvent, toTabId: string) {
-    tabHeaderDragOver = { ...tabHeaderDragOver, [toTabId]: false };
+  function handleGroupHeaderDrop(event: DragEvent, groupId: string) {
+    groupHeaderDragOver = { ...groupHeaderDragOver, [groupId]: false };
     const sessionId = event.dataTransfer?.getData('application/x-terminar-session');
     if (!sessionId) return;
     event.preventDefault();
     event.stopPropagation();
-    const fromTabId = workspaceStore.get().activeTabId;
-    if (fromTabId !== toTabId) {
-      workspaceStore.moveSessionToTab(sessionId, fromTabId, toTabId);
-    }
+    sidebarGroupStore.addSession(groupId, sessionId);
+    resetDragState();
   }
 
-  // Pane drag-to-sidebar drop target
+  // ── Pane drag-to-sidebar drop target ──────────────────────────────────────
   let isPaneDragOver = $state(false);
 
   function handleListDragOver(event: DragEvent) {
@@ -189,12 +191,93 @@
     onpanedrop?.({ sourcePaneId });
   }
 
-  function handleNewTerminal() {
-    oncreate?.();
+  // ── Handlers ──────────────────────────────────────────────────────────────
+
+  function handleClose(sessionId: string) {
+    onclose?.(sessionId);
+  }
+
+  function handleRename(detail: { id: string; newName: string }) {
+    onrename?.(detail);
+  }
+
+  function handleContextMenu(detail: { id: string; x: number; y: number }) {
+    contextMenu = {
+      x: detail.x,
+      y: detail.y,
+      sessionId: detail.id,
+    };
+  }
+
+  function handleGroupContextMenu(event: MouseEvent, groupId: string) {
+    event.preventDefault();
+    event.stopPropagation();
+    contextMenu = {
+      x: event.clientX,
+      y: event.clientY,
+      sessionId: '',
+      groupId,
+    };
+  }
+
+  function handleMenuSelect(action: string) {
+    if (!contextMenu) return;
+
+    const sessionId = contextMenu.sessionId;
+    const groupId = contextMenu.groupId;
+
+    if (action === 'rename') {
+      editingSessionId = sessionId;
+    } else if (action === 'settings') {
+      onsettings?.();
+    } else if (action === 'close') {
+      onclose?.(sessionId);
+    } else if (action === 'new-group') {
+      const id = sidebarGroupStore.createGroup('New Group');
+      editingGroupId = id;
+      editingGroupName = 'New Group';
+    } else if (action === 'rename-group' && groupId) {
+      const group = sidebarGroupStore.groups.find(g => g.id === groupId);
+      if (group) {
+        editingGroupId = groupId;
+        editingGroupName = group.name;
+      }
+    } else if (action === 'delete-group' && groupId) {
+      sidebarGroupStore.deleteGroup(groupId);
+    } else if (action === 'ungroup' && sessionId) {
+      sidebarGroupStore.removeSession(sessionId);
+    } else if (action.startsWith('move-to-group:') && sessionId) {
+      const targetGroupId = action.slice('move-to-group:'.length);
+      sidebarGroupStore.addSession(targetGroupId, sessionId);
+    }
+
+    contextMenu = null;
+  }
+
+  function handleEditEnd() {
+    editingSessionId = null;
+  }
+
+  function handleMenuClose() {
+    contextMenu = null;
+  }
+
+  function handleGroupRenameKeydown(event: KeyboardEvent) {
+    if (event.key === 'Enter') {
+      commitGroupRename();
+    } else if (event.key === 'Escape') {
+      editingGroupId = null;
+    }
+  }
+
+  function commitGroupRename() {
+    if (editingGroupId && editingGroupName.trim()) {
+      sidebarGroupStore.renameGroup(editingGroupId, editingGroupName.trim());
+    }
+    editingGroupId = null;
   }
 
   function handleListContextMenu(event: MouseEvent) {
-    // Only show context menu if clicked on empty space (not on an item)
     const target = event.target as HTMLElement;
     if (target.classList.contains('terminal-list') || target.classList.contains('list-container')) {
       event.preventDefault();
@@ -205,7 +288,58 @@
       };
     }
   }
+
+  function toggleGroupCollapsed(groupId: string) {
+    sidebarGroupStore.toggleCollapsed(groupId);
+  }
 </script>
+
+{#snippet sessionRow(session: SessionInfo, index: number, groupId: string | null)}
+  {@const isAssigned = ($sessionPaneCounts.get(session.id) ?? 0) > 0}
+  <div
+    class="session-row"
+    class:broadcast-mode={broadcastMode}
+    class:session-drag-over={sessionDragOverIndex === index && sessionDragOverGroupId === groupId}
+    draggable="true"
+    ondragstart={(e) => handleSessionDragStart(e, session.id, groupId)}
+    ondragover={(e) => handleSessionDragOver(e, index, groupId)}
+    ondragleave={handleSessionDragLeave}
+    ondrop={(e) => handleSessionDrop(e, index, groupId)}
+    ondragend={handleSessionDragEnd}
+  >
+    {#if broadcastMode}
+      <label class="broadcast-checkbox" aria-label="Toggle broadcast target for {session.name}">
+        <input
+          type="checkbox"
+          checked={broadcastTargets.value.has(session.id)}
+          onchange={() => toggleTarget(session.id)}
+        />
+      </label>
+    {/if}
+    <div class="session-item-wrapper" class:assigned={isAssigned}>
+      <TerminalListItem
+        id={session.id}
+        name={session.name}
+        shell={session.shell}
+        cwd={session.cwd}
+        foregroundProcess={foregroundStore.processes.get(session.id) ?? null}
+        terminalTitle={titleStore.titles.get(session.id) ?? ''}
+        paneCount={$sessionPaneCounts.get(session.id) ?? 0}
+        tags={tagStore.getTags(session.id)}
+        isActive={session.id === activeSessionId}
+        startEditing={editingSessionId === session.id}
+        onselect={handleSelect}
+        onclose={handleClose}
+        onrename={handleRename}
+        oneditend={() => handleEditEnd()}
+        oncontextmenu={handleContextMenu}
+      />
+      {#if $newSessionIds.has(session.id)}
+        <span class="new-badge"> (new)</span>
+      {/if}
+    </div>
+  </div>
+{/snippet}
 
 <div class="terminal-list" oncontextmenu={handleListContextMenu} role="list">
   <div
@@ -215,189 +349,72 @@
     ondragleave={handleListDragLeave}
     ondrop={handleListDrop}
   >
-    {#if tabGroups.length > 1}
-      <!-- Multi-tab view: show sessions grouped by tab with drop targets on headers -->
-      {#each tabGroups as group (group.tab.id)}
+    <!-- Ungrouped sessions (top) -->
+    {#each ungroupedSessions as session, index (session.id)}
+      {@render sessionRow(session, index, null)}
+    {/each}
+
+    <!-- Sidebar groups -->
+    {#each sidebarGroupStore.groups as group, groupIndex (group.id)}
+      {@const groupSessions = resolveGroupSessions(group)}
+      <div class="sidebar-group">
         <div
-          class="tab-group-header"
-          class:tab-header-drag-over={tabHeaderDragOver[group.tab.id]}
-          ondragover={(e) => handleTabHeaderDragOver(e, group.tab.id)}
-          ondragleave={() => handleTabHeaderDragLeave(group.tab.id)}
-          ondrop={(e) => handleTabHeaderDrop(e, group.tab.id)}
+          class="group-header"
+          class:group-header-drag-over={groupHeaderDragOver[group.id]}
+          ondragover={(e) => handleGroupHeaderDragOver(e, group.id)}
+          ondragleave={() => handleGroupHeaderDragLeave(group.id)}
+          ondrop={(e) => handleGroupHeaderDrop(e, group.id)}
+          oncontextmenu={(e) => handleGroupContextMenu(e, group.id)}
           role="heading"
           aria-level={2}
         >
-          <span class="tab-group-name">{group.tab.name}</span>
-          {#if tabHeaderDragOver[group.tab.id]}
-            <span class="tab-drop-hint">Drop here</span>
-          {/if}
-        </div>
-        {#each group.sessions as session, index (session.id)}
-          {@const globalIndex = sessions.findIndex(s => s.id === session.id)}
-          {@const isAssigned = ($sessionPaneCounts.get(session.id) ?? 0) > 0}
-          <div
-            class="session-row"
-            class:broadcast-mode={broadcastMode}
-            class:session-drag-over={sessionDragOverIndex === globalIndex}
-            draggable="true"
-            ondragstart={(e) => handleSessionDragStart(e, session.id, globalIndex)}
-            ondragover={(e) => handleSessionDragOver(e, globalIndex)}
-            ondragleave={handleSessionDragLeave}
-            ondrop={(e) => handleSessionDrop(e, globalIndex)}
-            ondragend={handleSessionDragEnd}
+          <button
+            class="group-collapse-btn"
+            onclick={() => toggleGroupCollapsed(group.id)}
+            aria-label={group.collapsed ? 'Expand group' : 'Collapse group'}
           >
-            {#if broadcastMode}
-              <label class="broadcast-checkbox" aria-label="Toggle broadcast target for {session.name}">
-                <input
-                  type="checkbox"
-                  checked={broadcastTargets.value.has(session.id)}
-                  onchange={() => toggleTarget(session.id)}
-                />
-              </label>
-            {/if}
-            <div class="session-item-wrapper" class:assigned={isAssigned}>
-              <TerminalListItem
-                id={session.id}
-                name={session.name}
-                shell={session.shell}
-                cwd={session.cwd}
-                foregroundProcess={foregroundStore.processes.get(session.id) ?? null}
-                terminalTitle={titleStore.titles.get(session.id) ?? ''}
-                paneCount={$sessionPaneCounts.get(session.id) ?? 0}
-                tags={tagStore.getTags(session.id)}
-                isActive={session.id === activeSessionId}
-                startEditing={editingSessionId === session.id}
-                onselect={handleSelect}
-                onclose={handleClose}
-                onrename={handleRename}
-                oneditend={() => handleEditEnd()}
-                oncontextmenu={handleContextMenu}
-              />
-              {#if $newSessionIds.has(session.id)}
-                <span class="new-badge"> (new)</span>
-              {/if}
-            </div>
-          </div>
-        {/each}
-      {/each}
-      <!-- Orphan sessions (not in any tab) -->
-      {#each orphanSessions as session, index (session.id)}
-        {@const globalIndex = sessions.findIndex(s => s.id === session.id)}
-        {@const isAssigned = ($sessionPaneCounts.get(session.id) ?? 0) > 0}
-        <div
-          class="session-row"
-          class:broadcast-mode={broadcastMode}
-          class:session-drag-over={sessionDragOverIndex === globalIndex}
-          draggable="true"
-          ondragstart={(e) => handleSessionDragStart(e, session.id, globalIndex)}
-          ondragover={(e) => handleSessionDragOver(e, globalIndex)}
-          ondragleave={handleSessionDragLeave}
-          ondrop={(e) => handleSessionDrop(e, globalIndex)}
-          ondragend={handleSessionDragEnd}
-        >
-          {#if broadcastMode}
-            <label class="broadcast-checkbox" aria-label="Toggle broadcast target for {session.name}">
-              <input
-                type="checkbox"
-                checked={broadcastTargets.value.has(session.id)}
-                onchange={() => toggleTarget(session.id)}
-              />
-            </label>
-          {/if}
-          <div class="session-item-wrapper" class:assigned={isAssigned}>
-            <TerminalListItem
-              id={session.id}
-              name={session.name}
-              shell={session.shell}
-              cwd={session.cwd}
-              foregroundProcess={foregroundStore.processes.get(session.id) ?? null}
-              terminalTitle={titleStore.titles.get(session.id) ?? ''}
-              paneCount={$sessionPaneCounts.get(session.id) ?? 0}
-                tags={tagStore.getTags(session.id)}
-              isActive={session.id === activeSessionId}
-              startEditing={editingSessionId === session.id}
-              onselect={handleSelect}
-              onclose={handleClose}
-              onrename={handleRename}
-              oneditend={() => handleEditEnd()}
-              oncontextmenu={handleContextMenu}
+            <span class="collapse-icon" class:collapsed={group.collapsed}>&#9662;</span>
+          </button>
+          {#if editingGroupId === group.id}
+            <input
+              class="group-name-input"
+              type="text"
+              bind:value={editingGroupName}
+              onkeydown={handleGroupRenameKeydown}
+              onblur={commitGroupRename}
+              autofocus
             />
-            {#if $newSessionIds.has(session.id)}
-              <span class="new-badge"> (new)</span>
-            {/if}
-          </div>
-        </div>
-      {/each}
-    {:else}
-      <!-- Single-tab view: flat list -->
-      {#each sessions as session, index (session.id)}
-        {@const isAssigned = ($sessionPaneCounts.get(session.id) ?? 0) > 0}
-        <div
-          class="session-row"
-          class:broadcast-mode={broadcastMode}
-          class:session-drag-over={sessionDragOverIndex === index}
-          draggable="true"
-          ondragstart={(e) => handleSessionDragStart(e, session.id, index)}
-          ondragover={(e) => handleSessionDragOver(e, index)}
-          ondragleave={handleSessionDragLeave}
-          ondrop={(e) => handleSessionDrop(e, index)}
-          ondragend={handleSessionDragEnd}
-        >
-          {#if broadcastMode}
-            <label class="broadcast-checkbox" aria-label="Toggle broadcast target for {session.name}">
-              <input
-                type="checkbox"
-                checked={broadcastTargets.value.has(session.id)}
-                onchange={() => toggleTarget(session.id)}
-              />
-            </label>
+          {:else}
+            <span class="group-name" ondblclick={() => {
+              editingGroupId = group.id;
+              editingGroupName = group.name;
+            }}>{group.name}</span>
           {/if}
-          <div class="session-item-wrapper" class:assigned={isAssigned}>
-            <TerminalListItem
-              id={session.id}
-              name={session.name}
-              shell={session.shell}
-              cwd={session.cwd}
-              foregroundProcess={foregroundStore.processes.get(session.id) ?? null}
-              terminalTitle={titleStore.titles.get(session.id) ?? ''}
-              paneCount={$sessionPaneCounts.get(session.id) ?? 0}
-                tags={tagStore.getTags(session.id)}
-              isActive={session.id === activeSessionId}
-              startEditing={editingSessionId === session.id}
-              onselect={handleSelect}
-              onclose={handleClose}
-              onrename={handleRename}
-              oneditend={() => handleEditEnd()}
-              oncontextmenu={handleContextMenu}
-            />
-            {#if $newSessionIds.has(session.id)}
-              <span class="new-badge"> (new)</span>
-            {/if}
-          </div>
+          <span class="group-count">{groupSessions.length}</span>
+          {#if groupHeaderDragOver[group.id]}
+            <span class="group-drop-hint">Drop here</span>
+          {/if}
         </div>
-      {/each}
-    {/if}
+        {#if !group.collapsed}
+          {#each groupSessions as session, index (session.id)}
+            {@render sessionRow(session, index, group.id)}
+          {/each}
+        {/if}
+      </div>
+    {/each}
   </div>
-
-  <button class="new-terminal-btn" onclick={handleNewTerminal}>
-    <span class="plus-icon">+</span>
-    <span class="btn-text">New Terminal</span>
-  </button>
 </div>
 
 {#if contextMenu}
   <ContextMenu
     x={contextMenu.x}
     y={contextMenu.y}
-    items={contextMenu.sessionId ? contextMenuItems : [{ label: 'New Terminal', action: 'new' }]}
-    onselect={(action) => {
-      if (action === 'new') {
-        handleNewTerminal();
-        contextMenu = null;
-      } else {
-        handleMenuSelect(action);
-      }
-    }}
+    items={contextMenu.groupId
+      ? groupContextMenuItems
+      : contextMenu.sessionId
+        ? getSessionContextMenuItems(contextMenu.sessionId)
+        : emptyContextMenuItems}
+    onselect={(action) => handleMenuSelect(action)}
     onclose={handleMenuClose}
   />
 {/if}
@@ -492,12 +509,22 @@
     height: 14px;
   }
 
-  .tab-group-header {
+  .session-item-wrapper.assigned {
+    opacity: 0.6;
+  }
+
+  /* ── Sidebar groups ────────────────────────────────────────────────── */
+
+  .sidebar-group {
+    margin-bottom: 2px;
+  }
+
+  .group-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 4px 8px 2px 6px;
-    margin-top: 6px;
+    gap: 4px;
+    padding: 4px 8px 4px 2px;
+    margin-top: 2px;
     font-size: 10px;
     font-weight: 600;
     text-transform: uppercase;
@@ -508,62 +535,73 @@
     transition: background 0.1s, border-color 0.1s;
   }
 
-  .tab-group-header:first-child {
+  .sidebar-group:first-child .group-header {
     margin-top: 0;
   }
 
-  .tab-group-header.tab-header-drag-over {
+  .group-header.group-header-drag-over {
     background: rgba(14, 99, 156, 0.15);
     border-color: var(--ui-accent, #a0a7ff);
     color: var(--ui-accent, #a0a7ff);
   }
 
-  .tab-group-name {
+  .group-collapse-btn {
+    background: none;
+    border: none;
+    padding: 0 2px;
+    cursor: pointer;
+    color: inherit;
+    font-size: 10px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+  }
+
+  .collapse-icon {
+    display: inline-block;
+    transition: transform 0.15s;
+  }
+
+  .collapse-icon.collapsed {
+    transform: rotate(-90deg);
+  }
+
+  .group-name {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+    cursor: default;
   }
 
-  .tab-drop-hint {
+  .group-name-input {
+    flex: 1;
+    min-width: 0;
+    background: var(--ui-bg-secondary, #181a1c);
+    border: 1px solid var(--ui-accent, #a0a7ff);
+    border-radius: 2px;
+    color: var(--ui-text-primary, #fdfbfe);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 1px 4px;
+    outline: none;
+  }
+
+  .group-count {
+    color: var(--ui-text-muted, #555);
+    font-size: 9px;
+    font-weight: 400;
+    flex-shrink: 0;
+  }
+
+  .group-drop-hint {
     font-size: 9px;
     color: var(--ui-accent, #a0a7ff);
     flex-shrink: 0;
     margin-left: 4px;
   }
 
-  .session-item-wrapper.assigned {
-    opacity: 0.6;
-  }
-
-  .new-terminal-btn {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin: 8px 6px 8px 2px;
-    padding: 10px 8px 10px 4px;
-    background: var(--ui-bg-secondary, #181a1c);
-    border: 1px dashed #454545;
-    border-radius: 4px;
-    color: #808080;
-    cursor: pointer;
-    font-size: 13px;
-    transition: all 0.1s;
-  }
-
-  .new-terminal-btn:hover {
-    background: var(--ui-bg-tertiary, #363636);
-    border-color: var(--ui-accent, #a0a7ff);
-    color: var(--ui-text-primary, #fdfbfe);
-  }
-
-  .plus-icon {
-    font-size: 18px;
-    font-weight: 300;
-    line-height: 1;
-  }
-
-  .btn-text {
-    flex: 1;
-    text-align: left;
-  }
 </style>

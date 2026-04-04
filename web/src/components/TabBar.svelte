@@ -4,9 +4,7 @@
   let {
     tabs = [],
     activeTabId = null,
-    tabActivities = new Map(),
     tabExitStates = new Map(),
-    tabAgents = new Map(),
     onselect,
     onclose,
     oncreate,
@@ -15,26 +13,14 @@
   }: {
     tabs?: Tab[];
     activeTabId?: TabId | null;
-    /** Map of tabId -> activity type (for background tab activity badges) */
-    tabActivities?: Map<string, string>;
     /** Map of tabId -> { exited: boolean, exitCode: number | null } */
     tabExitStates?: Map<string, { exited: boolean; exitCode: number | null }>;
-    /** @deprecated No longer displayed - kept for prop compat */
-    tabAgents?: Map<string, { icon: string; color: string; displayName: string }>;
     onselect?: (detail: { tabId: TabId }) => void;
     onclose?: (detail: { tabId: TabId }) => void;
     oncreate?: () => void;
     onrename?: (detail: { tabId: TabId; name: string }) => void;
     onreorder?: (detail: { fromIndex: number; toIndex: number }) => void;
   } = $props();
-
-  function getActivityIcon(activityType: string): string {
-    switch (activityType) {
-      case 'bell': return '\u{1F514}'; // 🔔
-      case 'silence': return '\u{1F4A4}'; // 💤
-      default: return '\u{25CF}'; // ● dot
-    }
-  }
 
   function getExitLabel(exitState: { exited: boolean; exitCode: number | null }): string {
     if (!exitState.exited) return '';
@@ -155,9 +141,6 @@
         {:else}
           <span class="tab-name">{tab.name}</span>
         {/if}
-        {#if tabActivities.has(tab.id) && tab.id !== activeTabId}
-          <span class="activity-badge" data-testid="activity-badge">{getActivityIcon(tabActivities.get(tab.id))}</span>
-        {/if}
         {#if tabExitStates.has(tab.id) && tabExitStates.get(tab.id).exited}
           <span class="exit-badge" data-testid="exit-badge">{getExitLabel(tabExitStates.get(tab.id))}</span>
         {/if}
@@ -265,12 +248,6 @@
 
   .tab.active .tab-name {
     color: var(--ui-accent, #a0a7ff);
-  }
-
-  .activity-badge {
-    font-size: 10px;
-    line-height: 1;
-    flex-shrink: 0;
   }
 
   .exit-badge {

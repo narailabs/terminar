@@ -1,15 +1,12 @@
 <script lang="ts">
-  import TabBar from './TabBar.svelte';
   import SplitContainer from './SplitContainer.svelte';
   import ContextMenu from './ContextMenu.svelte';
   import { workspaceStore, activeTab } from '../lib/workspaceStore';
   import { getPane } from '../lib/paneRegistry';
   import { setTerminalOverride } from '../lib/themeStore.svelte';
   import { BUILT_IN_TERMINAL_THEMES } from '../lib/themeTypes';
-  import type { TabId, PaneId, SessionId, SplitNode } from '../lib/workspaceTypes';
+  import type { PaneId, SessionId } from '../lib/workspaceTypes';
   import { findPane } from '../lib/workspaceTypes';
-  import { activityStore } from '../lib/activityStore.svelte';
-  import { exitedSessions } from '../lib/exitedSessionsStore.svelte';
 
   import { fade } from 'svelte/transition';
   import { focusedPane } from '../lib/focusStore.svelte';
@@ -36,79 +33,12 @@
   let effectiveManager = $derived(manager !== undefined ? manager : managerBox.value);
   let effectiveAvailableSessions = $derived(availableSessions !== undefined ? availableSessions : sessionsBox.value.map(s => ({ id: s.id, name: s.name })));
 
-  // Helper: collect all sessionIds from a split tree
-  function collectSessionIds(node: SplitNode): string[] {
-    if (!node) return [];
-    if (node.type === 'pane') {
-      return node.sessionId ? [node.sessionId] : [];
-    }
-    return (node.children || []).flatMap(collectSessionIds);
-  }
-
-  // Compute tab indicator maps from stores (reactive)
-  let tabActivities = $derived((() => {
-    const map = new Map<string, string>();
-    const activities = activityStore.activities;
-    for (const tab of $workspaceStore.tabs) {
-      if (tab.id === $workspaceStore.activeTabId) continue; // skip active tab
-      const sessionIds = collectSessionIds(tab.root);
-      for (const sid of sessionIds) {
-        const activity = activities.get(sid);
-        if (activity) {
-          map.set(tab.id, activity);
-          break; // one indicator per tab is enough
-        }
-      }
-    }
-    return map;
-  })());
-
-  let tabExitStates = $derived((() => {
-    const map = new Map<string, { exited: boolean; exitCode: number | null }>();
-    const exited = exitedSessions.map;
-    for (const tab of $workspaceStore.tabs) {
-      const sessionIds = collectSessionIds(tab.root);
-      for (const sid of sessionIds) {
-        const info = exited.get(sid);
-        if (info) {
-          map.set(tab.id, { exited: true, exitCode: info.exitCode });
-          break;
-        }
-      }
-    }
-    return map;
-  })());
-
-  // tabAgents no longer displayed in tabs -- pass empty map for prop compat
-  let tabAgents = $derived(new Map<string, { icon: string; color: string; displayName: string }>());
-
   let activePaneId = $state<PaneId | null>(null);
   let contextMenu = $state<{ x: number; y: number; paneId: string } | null>(null);
   let clipboardText = $state('');
   let renameModal = $state<{ sessionId: string; currentName: string } | null>(null);
   let renameValue = $state('');
   let renameInputEl: HTMLInputElement | undefined = $state(undefined);
-
-  // Handle tab events
-  function handleTabSelect(detail: { tabId: TabId }) {
-    workspaceStore.setActiveTab(detail.tabId);
-  }
-
-  function handleTabClose(detail: { tabId: TabId }) {
-    workspaceStore.closeTab(detail.tabId);
-  }
-
-  function handleTabCreate() {
-    workspaceStore.createTab();
-  }
-
-  function handleTabRename(detail: { tabId: TabId; name: string }) {
-    workspaceStore.renameTab(detail.tabId, detail.name);
-  }
-
-  function handleTabReorder(detail: { fromIndex: number; toIndex: number }) {
-    workspaceStore.reorderTabs(detail.fromIndex, detail.toIndex);
-  }
 
   // Set up PaneActions context — dispatches from Pane/SplitContainer without prop threading
   setPaneActionsContext({
@@ -497,19 +427,6 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <div class="workspace-view">
-  <TabBar
-    tabs={$workspaceStore.tabs}
-    activeTabId={$workspaceStore.activeTabId}
-    {tabActivities}
-    {tabExitStates}
-    {tabAgents}
-    onselect={(detail) => handleTabSelect(detail)}
-    onclose={(detail) => handleTabClose(detail)}
-    oncreate={() => handleTabCreate()}
-    onrename={(detail) => handleTabRename(detail)}
-    onreorder={(detail) => handleTabReorder(detail)}
-  />
-
   <div class="workspace-content">
     {#if $activeTab}
       <SplitContainer
@@ -519,7 +436,7 @@
     {:else}
       <div class="no-tab">
         <p>No tab selected</p>
-        <button onclick={handleTabCreate}>Create Tab</button>
+        <button onclick={() => workspaceStore.createTab()}>Create Tab</button>
       </div>
     {/if}
 
