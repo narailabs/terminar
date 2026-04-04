@@ -126,6 +126,8 @@ export class WindowManager {
       minWidth: 800,
       minHeight: 600,
       title: 'terminar',
+      titleBarStyle: 'hidden',
+      trafficLightPosition: { x: 12, y: 12 },
       webPreferences: {
         preload: this.terminalPreloadPath(),
         contextIsolation: true,
