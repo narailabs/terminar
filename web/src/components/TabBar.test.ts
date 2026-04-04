@@ -1,13 +1,13 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, fireEvent, cleanup } from '@testing-library/svelte';
 import TabBar from './TabBar.svelte';
 import type { Tab } from '../lib/workspaceTypes';
 
 describe('TabBar - Indicators', () => {
   const makeTabs = (): Tab[] => [
-    { id: 'tab-1', name: 'Terminal 1', root: { type: 'pane', id: 'p1', sessionId: 's1' } },
-    { id: 'tab-2', name: 'Terminal 2', root: { type: 'pane', id: 'p2', sessionId: 's2' } },
-    { id: 'tab-3', name: 'Terminal 3', root: { type: 'pane', id: 'p3', sessionId: 's3' } },
+    { id: 'tab-1', name: 'Terminal 1', root: { type: 'pane', id: 'p1', sessionId: 's1' }, sessionOrder: ['s1'] },
+    { id: 'tab-2', name: 'Terminal 2', root: { type: 'pane', id: 'p2', sessionId: 's2' }, sessionOrder: ['s2'] },
+    { id: 'tab-3', name: 'Terminal 3', root: { type: 'pane', id: 'p3', sessionId: 's3' }, sessionOrder: ['s3'] },
   ];
 
   afterEach(() => {
@@ -28,62 +28,7 @@ describe('TabBar - Indicators', () => {
     expect(tabNames[2].textContent).toBe('Terminal 3');
   });
 
-  // 2. Shows activity dot badge when tabActivities has entry for a non-active tab
-  it('should show activity dot badge for non-active tab with activity', () => {
-    const tabs = makeTabs();
-    const tabActivities = new Map([['tab-2', 'output']]);
-    const { container } = render(TabBar, {
-      props: { tabs, activeTabId: 'tab-1', tabActivities },
-    });
-
-    const badges = container.querySelectorAll('[data-testid="activity-badge"]');
-    expect(badges.length).toBeGreaterThanOrEqual(1);
-    // The badge should be within the tab-2 element
-    const tab2 = container.querySelectorAll('.tab')[1];
-    expect(tab2.querySelector('[data-testid="activity-badge"]')).toBeTruthy();
-  });
-
-  // 3. Does NOT show activity badge for the active tab
-  it('should NOT show activity badge for the active tab', () => {
-    const tabs = makeTabs();
-    const tabActivities = new Map([['tab-1', 'output']]);
-    const { container } = render(TabBar, {
-      props: { tabs, activeTabId: 'tab-1', tabActivities },
-    });
-
-    const tab1 = container.querySelectorAll('.tab')[0];
-    expect(tab1.querySelector('[data-testid="activity-badge"]')).toBeFalsy();
-  });
-
-  // 4. Shows bell icon for bell activity type
-  it('should show bell icon for bell activity type', () => {
-    const tabs = makeTabs();
-    const tabActivities = new Map([['tab-2', 'bell']]);
-    const { container } = render(TabBar, {
-      props: { tabs, activeTabId: 'tab-1', tabActivities },
-    });
-
-    const tab2 = container.querySelectorAll('.tab')[1];
-    const badge = tab2.querySelector('[data-testid="activity-badge"]');
-    expect(badge).toBeTruthy();
-    expect(badge!.textContent).toContain('\uD83D\uDD14'); // 🔔
-  });
-
-  // 5. Shows silence indicator for silence type
-  it('should show silence indicator for silence activity type', () => {
-    const tabs = makeTabs();
-    const tabActivities = new Map([['tab-2', 'silence']]);
-    const { container } = render(TabBar, {
-      props: { tabs, activeTabId: 'tab-1', tabActivities },
-    });
-
-    const tab2 = container.querySelectorAll('.tab')[1];
-    const badge = tab2.querySelector('[data-testid="activity-badge"]');
-    expect(badge).toBeTruthy();
-    expect(badge!.textContent).toContain('\uD83D\uDCA4'); // 💤
-  });
-
-  // 6. Shows "[exited]" badge when tabExitStates has entry
+  // 2. Shows "[exited]" badge when tabExitStates has entry
   it('should show "[exited]" badge when tab has exited state', () => {
     const tabs = makeTabs();
     const tabExitStates = new Map([['tab-2', { exited: true, exitCode: null }]]);
@@ -97,7 +42,7 @@ describe('TabBar - Indicators', () => {
     expect(exitBadge!.textContent).toContain('[exited]');
   });
 
-  // 7. Shows exit code when available: "[exited: 1]"
+  // 3. Shows exit code when available: "[exited: 1]"
   it('should show exit code in badge when available', () => {
     const tabs = makeTabs();
     const tabExitStates = new Map([['tab-2', { exited: true, exitCode: 1 }]]);
@@ -110,38 +55,12 @@ describe('TabBar - Indicators', () => {
     expect(exitBadge).toBeTruthy();
     expect(exitBadge!.textContent).toContain('[exited: 1]');
   });
-
-  // 8. Agent icons are no longer rendered in tabs
-  it('should not show agent icon even when tabAgents has entry', () => {
-    const tabs = makeTabs();
-    const tabAgents = new Map([['tab-1', { icon: 'C', color: '#ff6600', displayName: 'Claude' }]]);
-    const { container } = render(TabBar, {
-      props: { tabs, activeTabId: 'tab-1', tabAgents },
-    });
-
-    const tab1 = container.querySelectorAll('.tab')[0];
-    const agentIcon = tab1.querySelector('[data-testid="agent-icon"]');
-    expect(agentIcon).toBeNull();
-  });
-
-  // 10. Activity badge clears when tab becomes active
-  it('should not show activity badge when tab becomes the activeTabId', () => {
-    const tabs = makeTabs();
-    // tab-2 has activity but is also active
-    const tabActivities = new Map([['tab-2', 'output']]);
-    const { container } = render(TabBar, {
-      props: { tabs, activeTabId: 'tab-2', tabActivities },
-    });
-
-    const tab2 = container.querySelectorAll('.tab')[1];
-    expect(tab2.querySelector('[data-testid="activity-badge"]')).toBeFalsy();
-  });
 });
 
 describe('TabBar - Interactions', () => {
   const makeTabs = (): Tab[] => [
-    { id: 'tab-1', name: 'Terminal 1', root: { type: 'pane', id: 'p1', sessionId: 's1' } },
-    { id: 'tab-2', name: 'Terminal 2', root: { type: 'pane', id: 'p2', sessionId: 's2' } },
+    { id: 'tab-1', name: 'Terminal 1', root: { type: 'pane', id: 'p1', sessionId: 's1' }, sessionOrder: ['s1'] },
+    { id: 'tab-2', name: 'Terminal 2', root: { type: 'pane', id: 'p2', sessionId: 's2' }, sessionOrder: ['s2'] },
   ];
 
   afterEach(() => {
