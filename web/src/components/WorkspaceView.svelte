@@ -611,7 +611,6 @@
     flex: 1;
     overflow: hidden;
     position: relative;
-    padding-bottom: 10px
   }
 
   .focus-backdrop {
