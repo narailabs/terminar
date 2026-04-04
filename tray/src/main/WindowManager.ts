@@ -183,7 +183,7 @@ export class WindowManager {
 
   /** Preload script path for tray windows (install, settings). */
   private preloadPath(): string {
-    return path.join(getAppRoot(), 'dist-electron', 'index.js');
+    return path.join(getAppRoot(), 'dist-electron', 'preload.js');
   }
 
   /** Preload script path for the terminal window. */

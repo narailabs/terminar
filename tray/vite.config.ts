@@ -25,7 +25,7 @@ export default defineConfig({
           build: {
             outDir: 'dist-electron',
             rollupOptions: {
-              output: { entryFileNames: '[name].js', format: 'cjs' },
+              output: { entryFileNames: 'preload.js', format: 'cjs' },
             },
           },
         },
