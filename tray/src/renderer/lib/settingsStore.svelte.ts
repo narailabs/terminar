@@ -3,7 +3,7 @@ import { themeState, getActiveTerminalTheme } from './themeStore.svelte';
 /**
  * Title bar field configuration — ordered array for display sequence
  */
-export type TitleBarFieldId = 'sessionName' | 'terminalTitle' | 'shell' | 'cwd' | 'process' | 'tags';
+export type TitleBarFieldId = 'sessionName' | 'terminalTitle' | 'shell' | 'cwd' | 'process' | 'tags' | 'group';
 
 export interface TitleBarFieldEntry {
   id: TitleBarFieldId;
@@ -17,6 +17,7 @@ export const TITLE_BAR_FIELD_LABELS: Record<TitleBarFieldId, string> = {
   cwd: 'Working Directory',
   process: 'Process',
   tags: 'Tags',
+  group: 'Group',
 };
 
 export const DEFAULT_TITLE_BAR_FIELDS: TitleBarFieldEntry[] = [
@@ -26,6 +27,7 @@ export const DEFAULT_TITLE_BAR_FIELDS: TitleBarFieldEntry[] = [
   { id: 'cwd', visible: true },
   { id: 'process', visible: true },
   { id: 'tags', visible: true },
+  { id: 'group', visible: true },
 ];
 
 /**

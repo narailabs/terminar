@@ -500,8 +500,6 @@
     margin-top: 6px;
     font-size: 10px;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
     color: var(--ui-text-muted, #777);
     border-bottom: 1px solid var(--ui-border, #47484a);
     cursor: default;

@@ -26,6 +26,8 @@
   import { parseSshPrivateKey } from './lib/sshKeyParser';
   import { reactiveBox, setManagerContext, setSessionsContext, setActionsContext, type AppActions } from './lib/sessionContext.svelte';
   import { sessionCwdStore } from './lib/sessionCwdStore.svelte';
+  import { activePaneStore } from './lib/activePaneStore.svelte';
+  import { findPane } from './lib/workspaceTypes';
 
   // Check for local-echo mode via URL parameter or localStorage (for e2e tests)
   const isLocalEchoMode = typeof window !== 'undefined' && (
@@ -69,6 +71,16 @@
   // Session state
   let sessions = $state<SessionInfo[]>([]);
   let sidebarOpen = $state(true);
+
+  let activeSessionId = $derived((() => {
+    const pid = activePaneStore.id;
+    if (!pid) return null;
+    const ws = workspaceStore.get();
+    const tab = ws.tabs.find(t => t.id === ws.activeTabId);
+    if (!tab) return null;
+    const pane = findPane(tab.root, pid);
+    return pane?.sessionId ?? null;
+  })());
   let pendingNewTerminal = $state(false);
   let pendingNewTerminalPaneId = $state<string | null>(null);
 
@@ -974,7 +986,7 @@
       </div>
       <Sidebar
         {sessions}
-        activeSessionId={null}
+        {activeSessionId}
         isOpen={sidebarOpen}
         broadcastMode={broadcastEnabled.value}
         ontoggle={() => handleSidebarToggle()}

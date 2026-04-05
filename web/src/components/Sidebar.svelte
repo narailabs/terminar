@@ -3,6 +3,11 @@
   import type { SessionInfo } from '../lib/workspaceTypes';
   import { sidebarGroupStore } from '../lib/sidebarGroupStore.svelte';
 
+  const MIN_WIDTH = 150;
+  const MAX_WIDTH = 500;
+  const DEFAULT_WIDTH = 250;
+  const COLLAPSE_THRESHOLD = 100;
+
   let {
     sessions = [],
     activeSessionId = null,
@@ -27,22 +32,78 @@
     onpanedrop?: (detail: { sourcePaneId: string }) => void;
   } = $props();
 
-  function toggle() {
-    ontoggle?.();
+  let sidebarWidth = $state(DEFAULT_WIDTH);
+  let isResizing = $state(false);
+
+  function startResize(e: MouseEvent) {
+    if (!isOpen) return;
+    e.preventDefault();
+    isResizing = true;
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+
+    function onMouseMove(e: MouseEvent) {
+      const delta = startX - e.clientX;
+      const newWidth = startWidth + delta;
+      if (newWidth < COLLAPSE_THRESHOLD) {
+        ontoggle?.();
+        onMouseUp();
+        return;
+      }
+      sidebarWidth = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, newWidth));
+    }
+
+    function onMouseUp() {
+      isResizing = false;
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    }
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }
+
+  function handleEdgeDblClick() {
+    if (!isOpen) {
+      ontoggle?.();
+    } else {
+      sidebarWidth = DEFAULT_WIDTH;
+    }
+  }
+
+  function handleEdgeClick() {
+    if (!isOpen) ontoggle?.();
   }
 </script>
 
-<div class="sidebar" class:open={isOpen}>
-  <button class="toggle-btn" onclick={toggle} title={isOpen ? 'Hide sidebar' : 'Show sidebar'}>
-    <span class="chevron">{isOpen ? '›' : '‹'}</span>
-  </button>
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+  class="sidebar"
+  class:open={isOpen}
+  class:resizing={isResizing}
+  style:width={isOpen ? `${sidebarWidth}px` : ''}
+>
+  <div
+    class="resize-handle"
+    onmousedown={startResize}
+    ondblclick={handleEdgeDblClick}
+    role="separator"
+    aria-orientation="vertical"
+    title={isOpen ? 'Drag to resize' : ''}
+  ></div>
+
+  {#if !isOpen}
+    <button class="toggle-btn" onclick={() => ontoggle?.()} title="Show sidebar">
+      <span class="chevron">‹</span>
+    </button>
+  {/if}
 
   {#if isOpen}
     <div class="sidebar-content">
       <div class="sidebar-header">
-        <h3>Terminals</h3>
-        <span class="count">{sessions.length}</span>
+        <h3>terminar</h3>
         <div class="header-actions">
+          <span class="count">{sessions.length}</span>
           <button
             class="header-icon-btn"
             title="New Group"
@@ -81,18 +142,40 @@
 <style>
   .sidebar {
     display: flex;
+    position: relative;
     background: var(--ui-bg-secondary, #181a1c);
     border-left: 1px solid var(--ui-border, #47484a);
     height: 100%;
     transition: width 0.15s ease;
   }
 
+  .sidebar.resizing {
+    transition: none;
+    user-select: none;
+  }
+
   .sidebar:not(.open) {
     width: 16px;
   }
 
-  .sidebar.open {
-    width: 250px;
+  .resize-handle {
+    position: absolute;
+    left: -3px;
+    top: 0;
+    width: 6px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 10;
+  }
+
+  .sidebar:not(.open) .resize-handle {
+    display: none;
+  }
+
+  .resize-handle:hover,
+  .sidebar.resizing .resize-handle {
+    background: var(--ui-accent, #4d9ef5);
+    opacity: 0.5;
   }
 
   .toggle-btn {
@@ -139,7 +222,6 @@
     margin: 0;
     font-size: 11px;
     font-weight: 600;
-    text-transform: uppercase;
     letter-spacing: 0.5px;
     color: var(--ui-text-primary, #fdfbfe);
   }

@@ -10,6 +10,7 @@
 
   import { fade } from 'svelte/transition';
   import { focusedPane } from '../lib/focusStore.svelte';
+  import { activePaneStore } from '../lib/activePaneStore.svelte';
   import { getManagerContext, getSessionsContext, getActionsContext, setPaneActionsContext } from '../lib/sessionContext.svelte';
   import type { SessionManager } from '../lib/SessionManager';
   import { sessionCwdStore } from '../lib/sessionCwdStore.svelte';
@@ -55,7 +56,7 @@
         clipboardText = '';
       });
     },
-    focus(paneId) { activePaneId = paneId; },
+    focus(paneId) { activePaneId = paneId; activePaneStore.id = paneId; },
     detach(paneId) { workspaceStore.closePane(paneId); },
     kill(paneId, sessionId) {
       if (effectiveManager) {

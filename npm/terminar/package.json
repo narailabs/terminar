@@ -5,7 +5,10 @@
   "bin": {
     "terminar": "bin/terminar.js"
   },
-  "files": ["bin/", "lib/", "app/"],
+  "files": ["bin/", "lib/", "app/", "scripts/"],
+  "scripts": {
+    "postinstall": "node scripts/patch-electron.cjs"
+  },
   "dependencies": {
     "electron": "^40.6.0"
   },
