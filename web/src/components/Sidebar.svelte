@@ -92,11 +92,9 @@
     title={isOpen ? 'Drag to resize' : ''}
   ></div>
 
-  {#if !isOpen}
-    <button class="toggle-btn" onclick={() => ontoggle?.()} title="Show sidebar">
-      <span class="chevron">‹</span>
-    </button>
-  {/if}
+  <button class="toggle-btn" onclick={() => ontoggle?.()} title={isOpen ? 'Hide sidebar' : 'Show sidebar'}>
+    <span class="chevron">{isOpen ? '›' : '‹'}</span>
+  </button>
 
   {#if isOpen}
     <div class="sidebar-content">
@@ -183,6 +181,7 @@
     height: 100%;
     background: none;
     border: none;
+    border-right: 1px solid var(--ui-border, #47484a);
     color: var(--ui-text-muted, #808080);
     cursor: pointer;
     display: flex;
@@ -214,7 +213,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 12px 12px 6px;
+    padding: 12px 12px 12px 12px;
     border-bottom: 1px solid var(--ui-border, #47484a);
   }
 
