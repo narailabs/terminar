@@ -14,6 +14,7 @@
   import { foregroundStore } from '../lib/foregroundStore.svelte';
   import { titleStore } from '../lib/titleStore.svelte';
   import { tagStore } from '../lib/tagStore.svelte';
+  import { sidebarGroupStore } from '../lib/sidebarGroupStore.svelte';
   import { getKeyBindingRegistry } from '../lib/keybindings';
   import { createActionDispatcher } from '../lib/actionDispatcher';
   import { createKeyEventHandler } from '../lib/keyEventHandler';
@@ -112,6 +113,7 @@
 
   // Tags for current session
   let sessionTags = $derived(sessionId ? tagStore.getTags(sessionId) : []);
+  let sessionGroup = $derived(sessionId ? sidebarGroupStore.getGroupForSession(sessionId) : null);
 
   // Map field IDs to their rendered values (tags returns placeholder — rendered specially)
   function getFieldValue(field: TitleBarFieldEntry): string {
@@ -122,6 +124,7 @@
       case 'cwd': return displayCwd;
       case 'process': return processBadge ?? '';
       case 'tags': return sessionTags.length > 0 ? '\x00' : ''; // placeholder — rendered as badges
+      case 'group': return sessionGroup?.name ?? '';
       default: return '';
     }
   }
@@ -415,7 +418,7 @@
       ondragstart={handleTitleDragStart}
       ondragend={handleTitleDragEnd}
     >
-      <span class="pane-title-text">{#each titleFields as field, i}{#if field.visible && getFieldValue(field)}{@const val = getFieldValue(field)}{#if i > 0 && titleFields.slice(0, i).some(f => f.visible && getFieldValue(f))} · {/if}{#if field.id === 'terminalTitle'}<span class="terminal-title">{val}</span>{:else if field.id === 'process'}<span class="process-badge">{val}</span>{:else if field.id === 'tags'}{#each sessionTags as tag}<span class="title-tag" style="background: {tag.color}25; color: {tag.color}">{tag.name}</span>{/each}{:else}{val}{/if}{/if}{/each}</span>
+      <span class="pane-title-text">{#each titleFields as field, i}{#if field.visible && getFieldValue(field)}{@const val = getFieldValue(field)}{#if i > 0 && titleFields.slice(0, i).some(f => f.visible && getFieldValue(f))}<span class="field-sep">·</span>{/if}{#if field.id === 'terminalTitle'}<span class="terminal-title">{val}</span>{:else if field.id === 'process'}<span class="process-badge">{val}</span>{:else if field.id === 'group'}<span class="title-group">{val}</span>{:else if field.id === 'tags'}{#each sessionTags as tag}<span class="title-tag" style="background: {tag.color}25; color: {tag.color}">{tag.name}</span>{/each}{:else}{val}{/if}{/if}{/each}</span>
       {#if sessionExited}<span class="exited-badge">{exitBadgeText}</span>{/if}
       <span class="title-bar-spacer"></span>
       <button
@@ -675,6 +678,11 @@
     margin-left: 8px;
   }
 
+  .field-sep {
+    margin: 0 6px;
+    color: var(--ui-text-muted, #757578);
+  }
+
   .terminal-title {
     color: var(--ui-text-primary, #fdfbfe);
   }
@@ -692,6 +700,15 @@
     padding: 0 4px;
     border-radius: 3px;
     margin-left: 2px;
+  }
+
+  .title-group {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: rgba(160, 167, 255, 0.12);
+    color: var(--ui-accent, #a0a7ff);
+    font-weight: 500;
   }
 
   .pane.active {

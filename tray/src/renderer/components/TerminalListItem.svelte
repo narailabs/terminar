@@ -220,7 +220,7 @@
 
   .terminal-item.active {
     background: var(--ui-bg-hover, #1e2022);
-    border-color: var(--ui-accent, #a0a7ff);
+    box-shadow: inset 0 0 8px rgba(160, 167, 255, 0.4);
   }
 
   .terminal-item.dragging {

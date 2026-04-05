@@ -18,6 +18,8 @@
   import { markExited } from './lib/exitedSessionsStore.svelte';
   import { foregroundStore } from './lib/foregroundStore.svelte';
   import { reactiveBox, setManagerContext, setSessionsContext, setActionsContext, type AppActions } from './lib/sessionContext.svelte';
+  import { activePaneStore } from './lib/activePaneStore.svelte';
+  import { findPane } from './lib/workspaceTypes';
 
   interface SessionInfo {
     id: string;
@@ -33,6 +35,16 @@
   // Session state
   let sessions = $state<SessionInfo[]>([]);
   let sidebarOpen = $state(true);
+
+  let activeSessionId = $derived((() => {
+    const pid = activePaneStore.id;
+    if (!pid) return null;
+    const ws = workspaceStore.get();
+    const tab = ws.tabs.find(t => t.id === ws.activeTabId);
+    if (!tab) return null;
+    const pane = findPane(tab.root, pid);
+    return pane?.sessionId ?? null;
+  })());
   let pendingNewTerminal = $state(false);
   let pendingNewTerminalPaneId = $state<string | null>(null);
 
@@ -330,7 +342,7 @@
     </div>
     <Sidebar
       {sessions}
-      activeSessionId={null}
+      {activeSessionId}
       isOpen={sidebarOpen}
       broadcastMode={broadcastEnabled.value}
       ontoggle={() => handleSidebarToggle()}

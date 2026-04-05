@@ -527,8 +527,6 @@
     margin-top: 2px;
     font-size: 10px;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
     color: var(--ui-text-muted, #777);
     border-bottom: 1px solid var(--ui-border, #47484a);
     cursor: default;
@@ -584,8 +582,6 @@
     color: var(--ui-text-primary, #fdfbfe);
     font-size: 10px;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
     padding: 1px 4px;
     outline: none;
   }
