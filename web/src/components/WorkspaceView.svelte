@@ -34,7 +34,7 @@
   let effectiveManager = $derived(manager !== undefined ? manager : managerBox.value);
   let effectiveAvailableSessions = $derived(availableSessions !== undefined ? availableSessions : sessionsBox.value.map(s => ({ id: s.id, name: s.name })));
 
-  let activePaneId = $state<PaneId | null>(null);
+  let activePaneId = $derived(activePaneStore.id);
   let contextMenu = $state<{ x: number; y: number; paneId: string } | null>(null);
   let clipboardText = $state('');
   let renameModal = $state<{ sessionId: string; currentName: string } | null>(null);
@@ -56,7 +56,7 @@
         clipboardText = '';
       });
     },
-    focus(paneId) { activePaneId = paneId; activePaneStore.id = paneId; },
+    focus(paneId) { activePaneStore.id = paneId; },
     detach(paneId) { workspaceStore.closePane(paneId); },
     kill(paneId, sessionId) {
       if (effectiveManager) {

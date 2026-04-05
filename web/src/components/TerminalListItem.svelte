@@ -204,7 +204,7 @@
 
 <style>
   .terminal-item {
-    padding: 8px 8px 8px 4px;
+    padding: 8px 8px 8px 6px;
     margin: 2px 6px 2px 2px;
     border-radius: 4px;
     cursor: pointer;

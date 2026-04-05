@@ -5,9 +5,11 @@
   import { broadcastTargets, toggleTarget, isTarget } from '../lib/broadcastStore.svelte';
   import { foregroundStore } from '../lib/foregroundStore.svelte';
   import { titleStore } from '../lib/titleStore.svelte';
-  import { sessionPaneCounts, newSessionIds } from '../lib/workspaceStore';
+  import { sessionPaneCounts, newSessionIds, activeTab } from '../lib/workspaceStore';
   import { tagStore } from '../lib/tagStore.svelte';
   import { sidebarGroupStore, type SidebarGroup } from '../lib/sidebarGroupStore.svelte';
+  import { getAllPanes } from '../lib/workspaceTypes';
+  import { activePaneStore } from '../lib/activePaneStore.svelte';
 
   let {
     sessions = [],
@@ -80,8 +82,13 @@
     { label: 'Delete Group', action: 'delete-group' },
   ];
 
-  function handleSelect(_sessionId: string) {
-    // Click on sidebar item is a no-op — sessions are attached via drag-drop or context menu only
+  function handleSelect(sessionId: string) {
+    const tab = $activeTab;
+    if (!tab) return;
+    const pane = getAllPanes(tab.root).find(p => p.sessionId === sessionId);
+    if (pane) {
+      activePaneStore.id = pane.id;
+    }
   }
 
   // ── Session drag-drop for sidebar reordering ──────────────────────────────
