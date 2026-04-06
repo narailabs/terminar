@@ -57,6 +57,7 @@
   // Show process badge only for non-shell processes
   const SHELL_NAMES = new Set(['sh', 'bash', 'zsh', 'fish', 'dash', 'ksh', 'csh', 'tcsh', 'ash', 'nu', 'pwsh', 'login']);
   let processBadge = $derived(foregroundProcess && !SHELL_NAMES.has(foregroundProcess) ? foregroundProcess : null);
+  let fullCwd = $derived(cwd && !cwd.startsWith('/') ? '/' + cwd : cwd);
 
   function contrastColor(hex: string): string {
     const r = parseInt(hex.slice(1, 3), 16);
@@ -183,7 +184,7 @@
       {/if}
     </div>
     <div class="line-2">
-      <span class="cwd" title={cwd}>{cwd}</span>
+      <span class="cwd" title={fullCwd}>&#x200E;{fullCwd}</span>
     </div>
   </div>
   {#if !isEditing}

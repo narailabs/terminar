@@ -215,7 +215,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 12px 12px 12px;
+    padding: 8px 12px 8px 12px;
     border-bottom: 1px solid var(--ui-border, #47484a);
   }
 
