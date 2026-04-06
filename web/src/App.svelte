@@ -971,36 +971,38 @@
     />
   {:else}
     <div class="app-container">
-      <div class="main-area">
-        <TitleBar
-          {connectionState}
-          {reconnectAttempt}
-          {reconnectDelay}
-          {isLocalEchoMode}
-          {isLocal}
-          onReconnect={handleReconnect}
-          onLogout={logout}
-        />
-        <div class="workspace-area">
-          <WorkspaceView />
-        </div>
-        {#if showBroadcastBar}
-          <BroadcastBar onClose={closeBroadcastBar} />
-        {/if}
-      </div>
-      <Sidebar
-        {sessions}
-        {activeSessionId}
-        isOpen={sidebarOpen}
-        broadcastMode={broadcastEnabled.value}
-        ontoggle={() => handleSidebarToggle()}
-        onclose={(sessionId) => handleSidebarClose(sessionId)}
-        onrename={(detail) => handleSidebarRename(detail)}
-        oncreate={() => handleSidebarCreate()}
-        onsettings={() => openSettings()}
-        onToggleBroadcast={() => toggleBroadcast()}
-        onpanedrop={(detail) => handleSidebarPaneDrop(detail)}
+      <TitleBar
+        {connectionState}
+        {reconnectAttempt}
+        {reconnectDelay}
+        {isLocalEchoMode}
+        {isLocal}
+        onReconnect={handleReconnect}
+        onLogout={logout}
       />
+      <div class="content-area">
+        <div class="main-area">
+          <div class="workspace-area">
+            <WorkspaceView />
+          </div>
+          {#if showBroadcastBar}
+            <BroadcastBar onClose={closeBroadcastBar} />
+          {/if}
+        </div>
+        <Sidebar
+          {sessions}
+          {activeSessionId}
+          isOpen={sidebarOpen}
+          broadcastMode={broadcastEnabled.value}
+          ontoggle={() => handleSidebarToggle()}
+          onclose={(sessionId) => handleSidebarClose(sessionId)}
+          onrename={(detail) => handleSidebarRename(detail)}
+          oncreate={() => handleSidebarCreate()}
+          onsettings={() => openSettings()}
+          onToggleBroadcast={() => toggleBroadcast()}
+          onpanedrop={(detail) => handleSidebarPaneDrop(detail)}
+        />
+      </div>
     </div>
   {/if}
 
@@ -1025,7 +1027,14 @@
 
   .app-container {
     display: flex;
+    flex-direction: column;
     height: 100%;
+  }
+
+  .content-area {
+    flex: 1;
+    display: flex;
+    min-height: 0;
   }
 
   .main-area {
