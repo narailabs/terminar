@@ -433,7 +433,7 @@
       ondragstart={handleTitleDragStart}
       ondragend={handleTitleDragEnd}
     >
-      <span class="pane-title-text">{#each titleFields as field, i}{#if field.visible && getFieldValue(field)}{@const val = getFieldValue(field)}{#if i > 0 && titleFields.slice(0, i).some(f => f.visible && getFieldValue(f))}<span class="field-sep">·</span>{/if}{#if field.id === 'sessionName'}<span class="session-name">{val}</span>{:else if field.id === 'terminalTitle'}<span class="terminal-title">{val}</span>{:else if field.id === 'process'}<span class="process-badge">{val}</span>{:else if field.id === 'group'}<span class="title-group">{val}</span>{:else if field.id === 'tags'}{#each sessionTags as tag}<span class="title-tag" style="background: {tag.color}; color: {contrastColor(tag.color)}">{tag.name}</span>{/each}{:else}{val}{/if}{/if}{/each}</span>
+      <span class="pane-title-text">{#each titleFields as field, i}{#if field.visible && getFieldValue(field)}{@const val = getFieldValue(field)}{#if i > 0 && titleFields.slice(0, i).some(f => f.visible && getFieldValue(f))}<span class="field-sep">·</span>{/if}{#if field.id === 'sessionName'}<span class="session-name">{val}</span>{:else if field.id === 'terminalTitle'}<span class="terminal-title">{val}</span>{:else if field.id === 'process'}<span class="process-badge">{val}</span>{:else if field.id === 'group'}<span class="title-group" style={sessionGroup?.titlebarBg || sessionGroup?.titlebarFg ? `${sessionGroup.titlebarBg ? `background: ${sessionGroup.titlebarBg};` : ''}${sessionGroup.titlebarFg ? ` color: ${sessionGroup.titlebarFg};` : ''}` : ''}>{val}</span>{:else if field.id === 'tags'}{#each sessionTags as tag}<span class="title-tag" style="background: {tag.color}; color: {contrastColor(tag.color)}">{tag.name}</span>{/each}{:else}{val}{/if}{/if}{/each}</span>
       {#if sessionExited}<span class="exited-badge">{exitBadgeText}</span>{/if}
       <span class="title-bar-spacer"></span>
       <button
@@ -701,6 +701,7 @@
 
   .session-name {
     font-weight: 600;
+    color: #d4d4d4;
   }
 
   .terminal-title {
@@ -726,8 +727,8 @@
     font-size: 11px;
     padding: 1px 6px;
     border-radius: 3px;
-    background: var(--ui-group-label-bg, #fdfbfe);
-    color: var(--ui-group-label-fg, #0d0e10);
+    background: var(--ui-text-primary, #fdfbfe);
+    color: var(--ui-bg-primary, #0d0e10);
     font-weight: 500;
   }
 

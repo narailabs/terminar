@@ -71,8 +71,6 @@ export function importTheme(data: ExportedTheme): {
       tabActive: imported.tabActive ?? imported.accent ?? '#a0a7ff',
       paneBorderActive: imported.paneBorderActive ?? imported.accent ?? '#a0a7ff',
       sidebarActive: imported.sidebarActive ?? imported.accent ?? '#a0a7ff',
-      groupLabelBg: imported.groupLabelBg ?? '#fdfbfe',
-      groupLabelFg: imported.groupLabelFg ?? '#0d0e10',
     };
   }
 

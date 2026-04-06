@@ -8,6 +8,9 @@ export interface SidebarGroup {
   name: string;
   sessionIds: string[];
   collapsed: boolean;
+  sidebarTextColor?: string;
+  titlebarBg?: string;
+  titlebarFg?: string;
 }
 
 const STORAGE_KEY = 'sidebar-groups';
@@ -105,6 +108,11 @@ export const sidebarGroupStore = {
     const [moved] = reordered.splice(fromIndex, 1);
     reordered.splice(toIndex, 0, moved);
     groups = reordered;
+    persist();
+  },
+
+  updateGroupSettings(groupId: string, settings: Partial<Pick<SidebarGroup, 'name' | 'sidebarTextColor' | 'titlebarBg' | 'titlebarFg'>>): void {
+    groups = groups.map(g => g.id === groupId ? { ...g, ...settings } : g);
     persist();
   },
 

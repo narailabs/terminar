@@ -160,12 +160,19 @@
       {:else}
         <span class="name">{name}</span>
       {/if}
-      {#if processBadge}
-        <span class="process-badge" title={foregroundProcess}>{processBadge}</span>
-      {/if}
       {#each tags as tag}
         <span class="tag-badge" style="background: {tag.color}; color: {contrastColor(tag.color)}">{tag.name}</span>
       {/each}
+    </div>
+    {#if terminalTitle}
+      <div class="line-2 terminal-title" title={terminalTitle}>{terminalTitle}</div>
+    {/if}
+    <div class="line-2">
+      <span class="shell">{shellName}</span>
+      {#if processBadge}
+        <span class="separator">·</span>
+        <span class="process-badge" title={foregroundProcess}>{processBadge}</span>
+      {/if}
       {#if paneCount > 0}
         <span class="pane-count" title="{paneCount} pane{paneCount > 1 ? 's' : ''}">
           {paneCount > 1 ? paneCount : ''}
@@ -174,26 +181,22 @@
           </svg>
         </span>
       {/if}
-      {#if !isEditing}
-        <button class="close-btn" class:visible={isHovered} onclick={handleClose} title="Close terminal">
-          ×
-        </button>
-      {/if}
     </div>
-    {#if terminalTitle}
-      <div class="line-2 terminal-title" title={terminalTitle}>{terminalTitle}</div>
-    {/if}
     <div class="line-2">
-      <span class="shell">{shellName}</span>
-      <span class="separator">·</span>
       <span class="cwd" title={cwd}>{cwd}</span>
     </div>
   </div>
+  {#if !isEditing}
+    <button class="close-btn" class:visible={isHovered} onclick={handleClose} title="Close terminal">
+      ×
+    </button>
+  {/if}
 </div>
 
 <style>
   .terminal-item {
-    padding: 8px 8px 8px 6px;
+    position: relative;
+    padding: 8px 28px 8px 6px;
     margin: 2px 6px 2px 2px;
     border-radius: 4px;
     cursor: pointer;
@@ -210,7 +213,7 @@
   .terminal-item.active {
     background: color-mix(in srgb, var(--ui-sidebar-active, #a0a7ff) 10%, var(--ui-bg-secondary, #181a1c));
     border-left: 2px solid var(--ui-sidebar-active, #a0a7ff);
-    padding-left: 4px;
+    padding-left: 5px;
     border-radius: 0 4px 4px 0;
   }
 
@@ -288,6 +291,9 @@
   }
 
   .close-btn {
+    position: absolute;
+    top: 6px;
+    right: 6px;
     width: 20px;
     height: 20px;
     display: flex;
@@ -301,7 +307,6 @@
     font-size: 16px;
     line-height: 1;
     padding: 0;
-    margin-left: auto;
     opacity: 0;
     pointer-events: none;
   }
