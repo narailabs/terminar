@@ -458,7 +458,6 @@
         <div
           class="group-header"
           class:group-header-drag-over={groupHeaderDragOver[group.id]}
-          style={group.sidebarTextColor ? `color: ${group.sidebarTextColor}` : ''}
           ondragover={(e) => handleGroupHeaderDragOver(e, group.id)}
           ondragleave={() => handleGroupHeaderDragLeave(group.id)}
           ondrop={(e) => handleGroupHeaderDrop(e, group.id)}
@@ -483,7 +482,7 @@
               autofocus
             />
           {:else}
-            <span class="group-name" ondblclick={() => {
+            <span class="group-name" style={group.sidebarTextColor ? `color: ${group.sidebarTextColor}` : ''} ondblclick={() => {
               editingGroupId = group.id;
               editingGroupName = group.name;
             }}>{group.name}</span>
@@ -903,7 +902,7 @@
     border: none;
     padding: 2px;
     cursor: pointer;
-    color: inherit;
+    color: var(--ui-text-muted, #777);
     opacity: 0.5;
     display: flex;
     align-items: center;
