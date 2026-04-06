@@ -53,6 +53,7 @@
   let selectionBackground = '';
 
   // UI Chrome color state
+  let accent = '';
   let tabActive = '';
   let paneBorderActive = '';
   let sidebarActive = '';
@@ -80,6 +81,7 @@
     fontSize = baseTerm.fontSize ?? 14;
     fontFamily = baseTerm.fontFamily ?? 'Menlo';
     const baseUI = BUILT_IN_UI_THEMES.find(t => t.id === baseThemeId) ?? BUILT_IN_UI_THEMES[0];
+    accent = baseUI.accent;
     tabActive = baseUI.tabActive;
     paneBorderActive = baseUI.paneBorderActive;
     sidebarActive = baseUI.sidebarActive;
@@ -97,6 +99,7 @@
       selectionBackground = editTerminalTheme.selectionBackground;
       fontSize = editTerminalTheme.fontSize ?? 14;
       fontFamily = editTerminalTheme.fontFamily ?? 'Menlo';
+      accent = editUITheme?.accent ?? '';
       tabActive = editUITheme?.tabActive ?? editUITheme?.accent ?? '';
       paneBorderActive = editUITheme?.paneBorderActive ?? editUITheme?.accent ?? '';
       sidebarActive = editUITheme?.sidebarActive ?? editUITheme?.accent ?? '';
@@ -110,6 +113,7 @@
       selectionBackground = copySourceTerminal.selectionBackground;
       fontSize = copySourceTerminal.fontSize ?? 14;
       fontFamily = copySourceTerminal.fontFamily ?? 'Menlo';
+      accent = copySourceUI?.accent ?? '';
       tabActive = copySourceUI?.tabActive ?? copySourceUI?.accent ?? '';
       paneBorderActive = copySourceUI?.paneBorderActive ?? copySourceUI?.accent ?? '';
       sidebarActive = copySourceUI?.sidebarActive ?? copySourceUI?.accent ?? '';
@@ -128,6 +132,14 @@
     const target = event.target as HTMLSelectElement;
     baseThemeId = target.value;
     initFromBase();
+  }
+
+  function darkenHex(hex: string, amount = 20): string {
+    const h = hex.replace('#', '');
+    const r = Math.max(0, parseInt(h.substring(0, 2), 16) - amount);
+    const g = Math.max(0, parseInt(h.substring(2, 4), 16) - amount);
+    const b = Math.max(0, parseInt(h.substring(4, 6), 16) - amount);
+    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
   }
 
   function generateId(): string {
@@ -153,6 +165,8 @@
         ...editUITheme,
         id: uiOverrideId,
         name: themeName.trim(),
+        accent,
+        accentHover: darkenHex(accent),
         tabActive,
         paneBorderActive,
         sidebarActive,
@@ -179,6 +193,8 @@
       const updatedUI: UITheme = {
         ...editUITheme,
         name: themeName.trim(),
+        accent,
+        accentHover: darkenHex(accent),
         tabActive,
         paneBorderActive,
         sidebarActive,
@@ -209,6 +225,8 @@
         ...baseUI,
         id: generateId(),
         name: themeName.trim(),
+        accent,
+        accentHover: darkenHex(accent),
         tabActive,
         paneBorderActive,
         sidebarActive,
@@ -286,6 +304,10 @@
     selectionBackground = event.detail;
   }
 
+  function handleAccentChange(event: CustomEvent<string>) {
+    accent = event.detail;
+  }
+
   function handleTabActiveChange(event: CustomEvent<string>) {
     tabActive = event.detail;
   }
@@ -320,172 +342,187 @@
       </div>
 
       <div class="panel-content">
-        <div class="field">
-          <label for="themeName">Theme Name</label>
-          <input
-            id="themeName"
-            type="text"
-            bind:value={themeName}
-            placeholder="My Custom Theme"
-            readonly={isBuiltInEdit}
-          />
-        </div>
+        <div class="columns">
+          <div class="column">
+            <div class="field">
+              <label for="themeName">Theme Name</label>
+              <input
+                id="themeName"
+                type="text"
+                bind:value={themeName}
+                placeholder="My Custom Theme"
+                readonly={isBuiltInEdit}
+              />
+            </div>
 
-        {#if !isEditMode && !isCopyMode}
-          <div class="field">
-            <label for="baseTheme">Base Theme</label>
-            <select id="baseTheme" value={baseThemeId} on:change={handleBaseThemeChange}>
-              {#each BUILT_IN_UI_THEMES as theme}
-                <option value={theme.id}>{theme.name}</option>
-              {/each}
-            </select>
+            {#if !isEditMode && !isCopyMode}
+              <div class="field">
+                <label for="baseTheme">Base Theme</label>
+                <select id="baseTheme" value={baseThemeId} on:change={handleBaseThemeChange}>
+                  {#each BUILT_IN_UI_THEMES as theme}
+                    <option value={theme.id}>{theme.name}</option>
+                  {/each}
+                </select>
+              </div>
+            {/if}
+
+            <div class="section-label">Terminal Colors</div>
+
+            <div class="field">
+              <ColorPicker
+                id="themeEditorForeground"
+                label="Foreground"
+                value={foreground}
+                on:change={handleForegroundChange}
+              />
+            </div>
+
+            <div class="field">
+              <ColorPicker
+                id="themeEditorBackground"
+                label="Background"
+                value={background}
+                on:change={handleBackgroundChange}
+              />
+            </div>
+
+            <div class="field">
+              <ColorPicker
+                id="themeEditorCursor"
+                label="Cursor"
+                value={cursor}
+                on:change={handleCursorColorChange}
+              />
+            </div>
+
+            <div class="field">
+              <ColorPicker
+                id="themeEditorSelection"
+                label="Selection Background"
+                value={selectionBackground}
+                on:change={handleSelectionBgChange}
+              />
+            </div>
+
+            <div class="section-label">Font &amp; Cursor</div>
+
+            <div class="field">
+              <label for="themeEditorFontFamily">Font Family</label>
+              <select
+                id="themeEditorFontFamily"
+                value={fontFamily}
+                on:change={handleFontFamilyChange}
+              >
+                {#each FONT_FAMILIES as font}
+                  <option value={font}>{font}</option>
+                {/each}
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="themeEditorFontSize">
+                Font Size: <span class="value">{fontSize}px</span>
+              </label>
+              <input
+                type="range"
+                id="themeEditorFontSize"
+                min="10"
+                max="24"
+                step="1"
+                value={fontSize}
+                on:input={handleFontSizeChange}
+              />
+            </div>
+
+            <div class="field">
+              <label for="themeEditorCursorStyle">Cursor Style</label>
+              <select
+                id="themeEditorCursorStyle"
+                value={cursorStyle}
+                on:change={handleCursorStyleChange}
+              >
+                {#each CURSOR_STYLES as style}
+                  <option value={style}>{style.charAt(0).toUpperCase() + style.slice(1)}</option>
+                {/each}
+              </select>
+            </div>
+
+            <div class="field toggle-field">
+              <label for="themeEditorCursorBlink">Cursor Blink</label>
+              <label class="toggle">
+                <input
+                  type="checkbox"
+                  id="themeEditorCursorBlink"
+                  checked={cursorBlink}
+                  on:change={handleCursorBlinkChange}
+                />
+                <span class="slider"></span>
+              </label>
+            </div>
           </div>
-        {/if}
 
-        <div class="section-label">Terminal Colors</div>
+          <div class="column">
+            <div class="section-label">UI Colors</div>
 
-        <div class="field">
-          <ColorPicker
-            id="themeEditorForeground"
-            label="Foreground"
-            value={foreground}
-            on:change={handleForegroundChange}
-          />
-        </div>
+            <div class="field">
+              <ColorPicker
+                id="themeEditorAccent"
+                label="Accent Color"
+                value={accent}
+                on:change={handleAccentChange}
+              />
+            </div>
 
-        <div class="field">
-          <ColorPicker
-            id="themeEditorBackground"
-            label="Background"
-            value={background}
-            on:change={handleBackgroundChange}
-          />
-        </div>
+            <div class="field">
+              <ColorPicker
+                id="themeEditorTabActive"
+                label="Active Tab"
+                value={tabActive}
+                showOpacity={true}
+                on:change={handleTabActiveChange}
+              />
+            </div>
 
-        <div class="field">
-          <ColorPicker
-            id="themeEditorCursor"
-            label="Cursor"
-            value={cursor}
-            on:change={handleCursorColorChange}
-          />
-        </div>
+            <div class="field">
+              <ColorPicker
+                id="themeEditorPaneBorderActive"
+                label="Active Pane Border"
+                value={paneBorderActive}
+                showOpacity={true}
+                on:change={handlePaneBorderActiveChange}
+              />
+            </div>
 
-        <div class="field">
-          <ColorPicker
-            id="themeEditorSelection"
-            label="Selection Background"
-            value={selectionBackground}
-            on:change={handleSelectionBgChange}
-          />
-        </div>
+            <div class="field">
+              <ColorPicker
+                id="themeEditorSidebarActive"
+                label="Sidebar Active Highlight"
+                value={sidebarActive}
+                showOpacity={true}
+                on:change={handleSidebarActiveChange}
+              />
+            </div>
 
-        <div class="section-label">UI Colors</div>
+            <div class="field">
+              <ColorPicker
+                id="themeEditorGroupLabelBg"
+                label="Group Label Background"
+                value={groupLabelBg}
+                showOpacity={true}
+                on:change={handleGroupLabelBgChange}
+              />
+            </div>
 
-        <div class="field">
-          <ColorPicker
-            id="themeEditorTabActive"
-            label="Active Tab"
-            value={tabActive}
-            showOpacity={true}
-            on:change={handleTabActiveChange}
-          />
-        </div>
-
-        <div class="field">
-          <ColorPicker
-            id="themeEditorPaneBorderActive"
-            label="Active Pane Border"
-            value={paneBorderActive}
-            showOpacity={true}
-            on:change={handlePaneBorderActiveChange}
-          />
-        </div>
-
-        <div class="field">
-          <ColorPicker
-            id="themeEditorSidebarActive"
-            label="Sidebar Active Highlight"
-            value={sidebarActive}
-            showOpacity={true}
-            on:change={handleSidebarActiveChange}
-          />
-        </div>
-
-        <div class="field">
-          <ColorPicker
-            id="themeEditorGroupLabelBg"
-            label="Group Label Background"
-            value={groupLabelBg}
-            showOpacity={true}
-            on:change={handleGroupLabelBgChange}
-          />
-        </div>
-
-        <div class="field">
-          <ColorPicker
-            id="themeEditorGroupLabelFg"
-            label="Group Label Text"
-            value={groupLabelFg}
-            showOpacity={true}
-            on:change={handleGroupLabelFgChange}
-          />
-        </div>
-
-        <div class="section-label">Font &amp; Cursor</div>
-
-        <div class="field">
-          <label for="themeEditorFontFamily">Font Family</label>
-          <select
-            id="themeEditorFontFamily"
-            value={fontFamily}
-            on:change={handleFontFamilyChange}
-          >
-            {#each FONT_FAMILIES as font}
-              <option value={font}>{font}</option>
-            {/each}
-          </select>
-        </div>
-
-        <div class="field">
-          <label for="themeEditorFontSize">
-            Font Size: <span class="value">{fontSize}px</span>
-          </label>
-          <input
-            type="range"
-            id="themeEditorFontSize"
-            min="10"
-            max="24"
-            step="1"
-            value={fontSize}
-            on:input={handleFontSizeChange}
-          />
-        </div>
-
-        <div class="field">
-          <label for="themeEditorCursorStyle">Cursor Style</label>
-          <select
-            id="themeEditorCursorStyle"
-            value={cursorStyle}
-            on:change={handleCursorStyleChange}
-          >
-            {#each CURSOR_STYLES as style}
-              <option value={style}>{style.charAt(0).toUpperCase() + style.slice(1)}</option>
-            {/each}
-          </select>
-        </div>
-
-        <div class="field toggle-field">
-          <label for="themeEditorCursorBlink">Cursor Blink</label>
-          <label class="toggle">
-            <input
-              type="checkbox"
-              id="themeEditorCursorBlink"
-              checked={cursorBlink}
-              on:change={handleCursorBlinkChange}
-            />
-            <span class="slider"></span>
-          </label>
+            <div class="field">
+              <ColorPicker
+                id="themeEditorGroupLabelFg"
+                label="Group Label Text"
+                value={groupLabelFg}
+                showOpacity={true}
+                on:change={handleGroupLabelFgChange}
+              />
+            </div>
+          </div>
         </div>
       </div>
 
@@ -516,7 +553,7 @@
     background: var(--ui-bg-secondary, #181a1c);
     border: 1px solid var(--ui-border, #47484a);
     border-radius: 8px;
-    width: 420px;
+    width: 720px;
     max-height: 90vh;
     display: flex;
     flex-direction: column;
@@ -538,12 +575,21 @@
 
   .panel-content {
     padding: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
     overflow-y: auto;
     flex: 1;
     min-height: 0;
+  }
+
+  .columns {
+    display: flex;
+    gap: 24px;
+  }
+
+  .column {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
   }
 
   .section-label {

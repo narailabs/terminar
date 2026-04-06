@@ -54,26 +54,15 @@
   // Extract shell name from full path (e.g., /bin/zsh -> zsh)
   let shellName = $derived(shell ? (shell.split('/').pop() || shell) : '');
 
-  // Truncate cwd to show last parts if too long
-  let displayCwd = $derived(truncatePath(cwd, 25));
-
   // Show process badge only for non-shell processes
   const SHELL_NAMES = new Set(['sh', 'bash', 'zsh', 'fish', 'dash', 'ksh', 'csh', 'tcsh', 'ash', 'nu', 'pwsh', 'login']);
   let processBadge = $derived(foregroundProcess && !SHELL_NAMES.has(foregroundProcess) ? foregroundProcess : null);
 
-  function truncatePath(path: string, maxLength: number): string {
-    if (!path) return '';
-    if (path.length <= maxLength) return path;
-    const parts = path.split('/');
-    let result = '';
-    for (let i = parts.length - 1; i >= 0; i--) {
-      const newResult = parts.slice(i).join('/');
-      if (newResult.length > maxLength) {
-        return '…/' + result;
-      }
-      result = newResult;
-    }
-    return result;
+  function contrastColor(hex: string): string {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return (r * 299 + g * 587 + b * 114) / 1000 > 128 ? '#000' : '#fff';
   }
 
   function handleClick() {
@@ -175,7 +164,7 @@
         <span class="process-badge" title={foregroundProcess}>{processBadge}</span>
       {/if}
       {#each tags as tag}
-        <span class="tag-badge" style="background: {tag.color}20; color: {tag.color}; border-color: {tag.color}40">{tag.name}</span>
+        <span class="tag-badge" style="background: {tag.color}; color: {contrastColor(tag.color)}">{tag.name}</span>
       {/each}
       {#if paneCount > 0}
         <span class="pane-count" title="{paneCount} pane{paneCount > 1 ? 's' : ''}">
@@ -197,7 +186,7 @@
     <div class="line-2">
       <span class="shell">{shellName}</span>
       <span class="separator">·</span>
-      <span class="cwd" title={cwd}>{displayCwd}</span>
+      <span class="cwd" title={cwd}>{cwd}</span>
     </div>
   </div>
 </div>
@@ -219,8 +208,10 @@
   }
 
   .terminal-item.active {
-    background: var(--ui-bg-hover, #1e2022);
-    box-shadow: inset 0 0 8px color-mix(in srgb, var(--ui-sidebar-active, #a0a7ff) 40%, transparent);
+    background: color-mix(in srgb, var(--ui-sidebar-active, #a0a7ff) 10%, var(--ui-bg-secondary, #181a1c));
+    border-left: 2px solid var(--ui-sidebar-active, #a0a7ff);
+    padding-left: 4px;
+    border-radius: 0 4px 4px 0;
   }
 
   .terminal-item.dragging {
@@ -236,22 +227,18 @@
   .line-1 {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 8px;
+    flex-wrap: wrap;
+    gap: 2px 6px;
   }
 
   .name {
     font-size: 13px;
     color: var(--ui-text-primary, #fdfbfe);
     font-weight: 500;
-    flex: 1;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .terminal-item.active .name {
-    color: var(--ui-text-primary, white);
   }
 
   .name-input {
@@ -274,22 +261,17 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 80px;
-    flex-shrink: 0;
+    max-width: 100%;
   }
 
   .tag-badge {
     font-size: 9px;
-    padding: 0px 5px;
+    padding: 1px 5px;
     border-radius: 3px;
-    border: 1px solid;
     white-space: nowrap;
-    flex-shrink: 0;
-  }
-
-  .terminal-item.active .process-badge {
-    background: rgba(255, 255, 255, 0.12);
-    color: #a0c0e0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .pane-count {
@@ -303,10 +285,6 @@
 
   .pane-count svg {
     opacity: 0.7;
-  }
-
-  .terminal-item.active .pane-count {
-    color: #a0c0e0;
   }
 
   .close-btn {
@@ -323,6 +301,7 @@
     font-size: 16px;
     line-height: 1;
     padding: 0;
+    margin-left: auto;
     opacity: 0;
     pointer-events: none;
   }
@@ -340,13 +319,10 @@
   .line-2 {
     display: flex;
     align-items: center;
-    gap: 4px;
+    flex-wrap: wrap;
+    gap: 2px 6px;
     font-size: 11px;
     color: #808080;
-  }
-
-  .terminal-item.active .line-2 {
-    color: #a0c0e0;
   }
 
   .shell {
@@ -359,9 +335,12 @@
 
   .cwd {
     color: inherit;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    direction: rtl;
+    text-align: left;
   }
 
   .terminal-title {
@@ -371,7 +350,4 @@
     white-space: nowrap;
   }
 
-  .terminal-item.active .terminal-title {
-    color: var(--ui-text-primary, white);
-  }
 </style>

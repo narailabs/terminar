@@ -45,6 +45,13 @@
     settings = value;
   });
 
+  function contrastColor(hex: string): string {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return (r * 299 + g * 587 + b * 114) / 1000 > 128 ? '#000' : '#fff';
+  }
+
   function handleClose() {
     onclose?.();
   }
@@ -602,7 +609,7 @@
                         </div>
                       </div>
                     {:else}
-                      <span class="tag-badge-preview" style="background: {def.color}20; color: {def.color}; border-color: {def.color}40">
+                      <span class="tag-badge-preview" style="background: {def.color}; color: {contrastColor(def.color)}">
                         {def.name}
                       </span>
                       <div class="custom-theme-actions">
@@ -1166,7 +1173,6 @@
     font-size: 11px;
     padding: 1px 7px;
     border-radius: 3px;
-    border: 1px solid;
     white-space: nowrap;
   }
 

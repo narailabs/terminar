@@ -259,6 +259,9 @@ export function applyUIThemeCSS(): void {
   // Apply per-terminal-theme UI overrides (saved with the terminal theme's ID)
   const termUIOverride = state.customUIThemes.find((t) => t.id === state.activeTerminalThemeId);
   if (termUIOverride) {
+    root.style.setProperty('--ui-tab-active', termUIOverride.tabActive);
+    root.style.setProperty('--ui-pane-border-active', termUIOverride.paneBorderActive);
+    root.style.setProperty('--ui-sidebar-active', termUIOverride.sidebarActive);
     root.style.setProperty('--ui-group-label-bg', termUIOverride.groupLabelBg);
     root.style.setProperty('--ui-group-label-fg', termUIOverride.groupLabelFg);
   }
