@@ -835,8 +835,8 @@
   }
 
   .group-header.group-header-drag-over {
-    background: rgba(14, 99, 156, 0.15);
-    border-color: var(--ui-accent, #a0a7ff);
+    background: color-mix(in srgb, var(--ui-accent, #a0a7ff) 20%, transparent);
+    border-color: color-mix(in srgb, var(--ui-accent, #a0a7ff) 50%, transparent);
     color: var(--ui-accent, #a0a7ff);
   }
 
