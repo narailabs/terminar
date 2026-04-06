@@ -12,7 +12,6 @@ import type {
   LayoutTemplate,
   DropZone,
 } from './workspaceTypes';
-import { activityStore } from './activityStore.svelte';
 import {
   createTab,
   createPane,
@@ -232,15 +231,6 @@ function createWorkspaceStore() {
       update((ws) => {
         if (ws.tabs.some((t) => t.id === tabId)) {
           ws.activeTabId = tabId;
-          // Clear activity indicators for all sessions in the newly active tab
-          const tab = ws.tabs.find((t) => t.id === tabId);
-          if (tab) {
-            for (const pane of getAllPanes(tab.root)) {
-              if (pane.sessionId) {
-                activityStore.clearActivity(pane.sessionId);
-              }
-            }
-          }
           scheduleSave(ws);
         }
         return ws;

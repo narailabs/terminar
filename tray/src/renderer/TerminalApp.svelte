@@ -14,7 +14,6 @@
   import { broadcastEnabled, clearTargets, setSessionManager } from './lib/broadcastStore.svelte';
   import { getEffectiveEnv } from './lib/envStore.svelte';
   import { getKeyBindingRegistry } from './lib/keybindings';
-  import { activityStore } from './lib/activityStore.svelte';
   import { markExited } from './lib/exitedSessionsStore.svelte';
   import { foregroundStore } from './lib/foregroundStore.svelte';
   import { reactiveBox, setManagerContext, setSessionsContext, setActionsContext, type AppActions } from './lib/sessionContext.svelte';
@@ -234,10 +233,6 @@
         pendingNewTerminal = false;
         pendingNewTerminalPaneId = null;
       }
-    });
-
-    manager.on('sessionActivity', (sessionId: string, activityType: string) => {
-      activityStore.setActivity(sessionId, activityType as 'activity' | 'bell' | 'silence');
     });
 
     manager.on('sessionExited', (sessionId: string, exitCode: number) => {
