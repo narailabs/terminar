@@ -25,6 +25,11 @@ export interface UITheme {
   destructiveHover: string;
   scrollbarThumb: string;
   scrollbarThumbHover: string;
+  tabActive: string;
+  paneBorderActive: string;
+  sidebarActive: string;
+  groupLabelBg: string;
+  groupLabelFg: string;
 }
 
 // ── Terminal Theme ───────────────────────────────────────────────────────────
@@ -81,6 +86,11 @@ const darkUI: UITheme = {
   destructiveHover: '#a70138',
   scrollbarThumb: 'rgba(117,117,120,0.4)',
   scrollbarThumbHover: 'rgba(117,117,120,0.7)',
+  tabActive: '#a0a7ff',
+  paneBorderActive: '#a0a7ff',
+  sidebarActive: '#a0a7ff',
+  groupLabelBg: '#fdfbfe',
+  groupLabelFg: '#0d0e10',
 };
 
 const lightUI: UITheme = {
@@ -101,6 +111,11 @@ const lightUI: UITheme = {
   destructiveHover: '#fdd',
   scrollbarThumb: 'rgba(100,100,100,0.4)',
   scrollbarThumbHover: 'rgba(100,100,100,0.7)',
+  tabActive: '#0066b8',
+  paneBorderActive: '#0066b8',
+  sidebarActive: '#0066b8',
+  groupLabelBg: '#333333',
+  groupLabelFg: '#ffffff',
 };
 
 export const BUILT_IN_UI_THEMES: readonly UITheme[] = [darkUI, lightUI];
@@ -241,3 +256,6 @@ export const BUILT_IN_TERMINAL_THEMES: readonly TerminalTheme[] = [
   darkGreenTerminal,
   classicBlueTerminal,
 ];
+
+export const BUILT_IN_UI_THEME_IDS = new Set(BUILT_IN_UI_THEMES.map(t => t.id));
+export const BUILT_IN_TERMINAL_THEME_IDS = new Set(BUILT_IN_TERMINAL_THEMES.map(t => t.id));

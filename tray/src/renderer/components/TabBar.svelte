@@ -237,7 +237,7 @@
   }
 
   .tab.active {
-    border-bottom-color: var(--ui-accent, #a0a7ff);
+    border-bottom-color: var(--ui-tab-active, #a0a7ff);
   }
 
   .tab.dragging {
@@ -264,7 +264,7 @@
   }
 
   .tab.active .tab-name {
-    color: var(--ui-accent, #a0a7ff);
+    color: var(--ui-tab-active, #a0a7ff);
   }
 
   .activity-badge {

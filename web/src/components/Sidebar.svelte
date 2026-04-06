@@ -139,6 +139,7 @@
 
 <style>
   .sidebar {
+    zoom: var(--controls-zoom, 1);
     display: flex;
     position: relative;
     background: var(--ui-bg-secondary, #181a1c);

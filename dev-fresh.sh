@@ -25,7 +25,7 @@ trap cleanup EXIT INT TERM
 
 # ── 1. Kill all project processes ─────────────────────────────────────────────
 step "Killing all project processes..."
-pkill -9 -f "$REPO/server/target" 2>/dev/null || true
+pkill -9 -f "terminar-server" 2>/dev/null || true
 pkill -9 -f "$REPO/tray/node_modules" 2>/dev/null || true
 pkill -9 -f "$REPO/web/node_modules" 2>/dev/null || true
 pkill -9 -f "$REPO/node_modules/.bin" 2>/dev/null || true

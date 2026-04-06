@@ -166,6 +166,7 @@
 
 <style>
   .tab-bar {
+    zoom: var(--controls-zoom, 1);
     display: flex;
     align-items: center;
     height: 35px;
@@ -178,9 +179,9 @@
 
   .tabs-container {
     display: flex;
-    flex: 1;
     overflow-x: auto;
     gap: 2px;
+    min-width: 0;
   }
 
   .tabs-container::-webkit-scrollbar {
@@ -220,7 +221,7 @@
   }
 
   .tab.active {
-    border-bottom-color: var(--ui-accent, #a0a7ff);
+    border-bottom-color: var(--ui-tab-active, #a0a7ff);
   }
 
   .tab.dragging {
@@ -247,7 +248,7 @@
   }
 
   .tab.active .tab-name {
-    color: var(--ui-accent, #a0a7ff);
+    color: var(--ui-tab-active, #a0a7ff);
   }
 
   .exit-badge {

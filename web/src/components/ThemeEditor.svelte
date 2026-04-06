@@ -6,13 +6,16 @@
     addCustomTerminalTheme,
     updateCustomUITheme,
     updateCustomTerminalTheme,
+    upsertCustomUITheme,
+    upsertCustomTerminalTheme,
+    setActiveUITheme,
+    setActiveTerminalTheme,
   } from '../lib/themeStore.svelte';
   import {
     settingsStore,
     FONT_FAMILIES,
     CURSOR_STYLES,
     DEFAULT_SETTINGS,
-    type TerminalSettings,
   } from '../lib/settingsStore.svelte';
   import {
     BUILT_IN_UI_THEMES,
@@ -24,10 +27,21 @@
   export let isOpen: boolean = false;
   export let editUITheme: UITheme | null = null;
   export let editTerminalTheme: TerminalTheme | null = null;
+  export let initialBaseThemeId: string | null = null;
+  export let copySourceUI: UITheme | null = null;
+  export let copySourceTerminal: TerminalTheme | null = null;
 
   const dispatch = createEventDispatcher<{ close: void; save: void }>();
 
   $: isEditMode = editUITheme !== null && editTerminalTheme !== null;
+  $: isBuiltInEdit = isEditMode && (
+    (editUITheme !== null && BUILT_IN_UI_THEMES.some(t => t.id === editUITheme!.id)) ||
+    (editTerminalTheme !== null && BUILT_IN_TERMINAL_THEMES.some(t => t.id === editTerminalTheme!.id))
+  );
+  $: isCopyMode = !isEditMode && copySourceTerminal !== null;
+  $: headerText = isEditMode
+    ? (isBuiltInEdit ? 'Edit Theme' : 'Edit Custom Theme')
+    : (isCopyMode ? 'Copy Theme' : 'Create Custom Theme');
 
   let themeName = '';
   let baseThemeId = 'dark';
@@ -38,21 +52,42 @@
   let cursor = '';
   let selectionBackground = '';
 
-  // Font/cursor state from settingsStore
-  let settings: TerminalSettings = DEFAULT_SETTINGS;
+  // UI Chrome color state
+  let tabActive = '';
+  let paneBorderActive = '';
+  let sidebarActive = '';
+  let groupLabelBg = '';
+  let groupLabelFg = '';
+
+  // Font state — per-theme, stored in the terminal theme
+  let fontSize = 14;
+  let fontFamily = 'Menlo';
+
+  // Cursor settings from global settingsStore
+  let cursorStyle: 'block' | 'underline' | 'bar' = DEFAULT_SETTINGS.cursorStyle;
+  let cursorBlink = DEFAULT_SETTINGS.cursorBlink;
   const unsubscribe = settingsStore.subscribe((value) => {
-    settings = value;
+    cursorStyle = value.cursorStyle;
+    cursorBlink = value.cursorBlink;
   });
 
-  function initColorsFromBase() {
+  function initFromBase() {
     const baseTerm = BUILT_IN_TERMINAL_THEMES.find(t => t.id === baseThemeId) ?? BUILT_IN_TERMINAL_THEMES[0];
     foreground = baseTerm.foreground;
     background = baseTerm.background;
     cursor = baseTerm.cursor;
     selectionBackground = baseTerm.selectionBackground;
+    fontSize = baseTerm.fontSize ?? 14;
+    fontFamily = baseTerm.fontFamily ?? 'Menlo';
+    const baseUI = BUILT_IN_UI_THEMES.find(t => t.id === baseThemeId) ?? BUILT_IN_UI_THEMES[0];
+    tabActive = baseUI.tabActive;
+    paneBorderActive = baseUI.paneBorderActive;
+    sidebarActive = baseUI.sidebarActive;
+    groupLabelBg = baseUI.groupLabelBg;
+    groupLabelFg = baseUI.groupLabelFg;
   }
 
-  // Initialize colors when editor opens
+  // Initialize when editor opens
   $: if (isOpen) {
     if (editTerminalTheme) {
       themeName = editTerminalTheme.name;
@@ -60,8 +95,31 @@
       background = editTerminalTheme.background;
       cursor = editTerminalTheme.cursor;
       selectionBackground = editTerminalTheme.selectionBackground;
+      fontSize = editTerminalTheme.fontSize ?? 14;
+      fontFamily = editTerminalTheme.fontFamily ?? 'Menlo';
+      tabActive = editUITheme?.tabActive ?? editUITheme?.accent ?? '';
+      paneBorderActive = editUITheme?.paneBorderActive ?? editUITheme?.accent ?? '';
+      sidebarActive = editUITheme?.sidebarActive ?? editUITheme?.accent ?? '';
+      groupLabelBg = editUITheme?.groupLabelBg ?? '#fdfbfe';
+      groupLabelFg = editUITheme?.groupLabelFg ?? '#0d0e10';
+    } else if (copySourceTerminal) {
+      themeName = copySourceTerminal.name + ' Copy';
+      foreground = copySourceTerminal.foreground;
+      background = copySourceTerminal.background;
+      cursor = copySourceTerminal.cursor;
+      selectionBackground = copySourceTerminal.selectionBackground;
+      fontSize = copySourceTerminal.fontSize ?? 14;
+      fontFamily = copySourceTerminal.fontFamily ?? 'Menlo';
+      tabActive = copySourceUI?.tabActive ?? copySourceUI?.accent ?? '';
+      paneBorderActive = copySourceUI?.paneBorderActive ?? copySourceUI?.accent ?? '';
+      sidebarActive = copySourceUI?.sidebarActive ?? copySourceUI?.accent ?? '';
+      groupLabelBg = copySourceUI?.groupLabelBg ?? '#fdfbfe';
+      groupLabelFg = copySourceUI?.groupLabelFg ?? '#0d0e10';
     } else {
-      initColorsFromBase();
+      if (initialBaseThemeId) {
+        baseThemeId = initialBaseThemeId;
+      }
+      initFromBase();
     }
   }
 
@@ -69,7 +127,7 @@
   function handleBaseThemeChange(event: Event) {
     const target = event.target as HTMLSelectElement;
     baseThemeId = target.value;
-    initColorsFromBase();
+    initFromBase();
   }
 
   function generateId(): string {
@@ -85,10 +143,21 @@
   function handleSave() {
     if (!themeName.trim()) return;
 
-    if (isEditMode && editUITheme && editTerminalTheme) {
+    if (isEditMode && isBuiltInEdit && editUITheme && editTerminalTheme) {
+      // Override built-in theme — save with same IDs
+      // Use terminal theme's ID for UI override to avoid cross-contamination
+      // (e.g., editing dark-green shouldn't affect the dark UI theme)
+      const uiOverrideId = editTerminalTheme.id;
+
       const updatedUI: UITheme = {
         ...editUITheme,
+        id: uiOverrideId,
         name: themeName.trim(),
+        tabActive,
+        paneBorderActive,
+        sidebarActive,
+        groupLabelBg,
+        groupLabelFg,
       };
 
       const updatedTerm: TerminalTheme = {
@@ -99,18 +168,52 @@
         cursor,
         cursorAccent: background,
         selectionBackground,
+        fontSize,
+        fontFamily,
+      };
+
+      upsertCustomUITheme(updatedUI);
+      upsertCustomTerminalTheme(updatedTerm);
+    } else if (isEditMode && !isBuiltInEdit && editUITheme && editTerminalTheme) {
+      // Update existing custom theme
+      const updatedUI: UITheme = {
+        ...editUITheme,
+        name: themeName.trim(),
+        tabActive,
+        paneBorderActive,
+        sidebarActive,
+        groupLabelBg,
+        groupLabelFg,
+      };
+
+      const updatedTerm: TerminalTheme = {
+        ...editTerminalTheme,
+        name: themeName.trim(),
+        foreground,
+        background,
+        cursor,
+        cursorAccent: background,
+        selectionBackground,
+        fontSize,
+        fontFamily,
       };
 
       updateCustomUITheme(editUITheme.id, updatedUI);
       updateCustomTerminalTheme(editTerminalTheme.id, updatedTerm);
     } else {
-      const baseUI = BUILT_IN_UI_THEMES.find(t => t.id === baseThemeId) ?? BUILT_IN_UI_THEMES[0];
-      const baseTerm = BUILT_IN_TERMINAL_THEMES.find(t => t.id === baseThemeId) ?? BUILT_IN_TERMINAL_THEMES[0];
+      // Create new custom theme (from base or copy)
+      const baseUI = copySourceUI ?? (BUILT_IN_UI_THEMES.find(t => t.id === baseThemeId) ?? BUILT_IN_UI_THEMES[0]);
+      const baseTerm = copySourceTerminal ?? (BUILT_IN_TERMINAL_THEMES.find(t => t.id === baseThemeId) ?? BUILT_IN_TERMINAL_THEMES[0]);
 
       const customUI: UITheme = {
         ...baseUI,
         id: generateId(),
         name: themeName.trim(),
+        tabActive,
+        paneBorderActive,
+        sidebarActive,
+        groupLabelBg,
+        groupLabelFg,
       };
 
       const customTerm: TerminalTheme = {
@@ -122,11 +225,15 @@
         cursor,
         cursorAccent: background,
         selectionBackground,
+        fontSize,
+        fontFamily,
         ansi: { ...baseTerm.ansi },
       };
 
       addCustomUITheme(customUI);
       addCustomTerminalTheme(customTerm);
+      setActiveUITheme(customUI.id);
+      setActiveTerminalTheme(customTerm.id);
     }
 
     themeName = '';
@@ -140,17 +247,18 @@
     }
   }
 
-  // Font/cursor handlers — update settingsStore directly (global, not per-theme)
+  // Font handlers — update local per-theme state (saved into the custom theme on Save)
   function handleFontSizeChange(event: Event) {
     const target = event.target as HTMLInputElement;
-    settingsStore.updateSetting('fontSize', parseInt(target.value, 10));
+    fontSize = parseInt(target.value, 10);
   }
 
   function handleFontFamilyChange(event: Event) {
     const target = event.target as HTMLSelectElement;
-    settingsStore.updateSetting('fontFamily', target.value);
+    fontFamily = target.value;
   }
 
+  // Cursor handlers — update settingsStore directly (global, not per-theme)
   function handleCursorStyleChange(event: Event) {
     const target = event.target as HTMLSelectElement;
     settingsStore.updateSetting('cursorStyle', target.value as 'block' | 'underline' | 'bar');
@@ -178,6 +286,26 @@
     selectionBackground = event.detail;
   }
 
+  function handleTabActiveChange(event: CustomEvent<string>) {
+    tabActive = event.detail;
+  }
+
+  function handlePaneBorderActiveChange(event: CustomEvent<string>) {
+    paneBorderActive = event.detail;
+  }
+
+  function handleSidebarActiveChange(event: CustomEvent<string>) {
+    sidebarActive = event.detail;
+  }
+
+  function handleGroupLabelBgChange(event: CustomEvent<string>) {
+    groupLabelBg = event.detail;
+  }
+
+  function handleGroupLabelFgChange(event: CustomEvent<string>) {
+    groupLabelFg = event.detail;
+  }
+
   import { onDestroy } from 'svelte';
   onDestroy(() => {
     unsubscribe();
@@ -188,7 +316,7 @@
   <div class="modal-backdrop" on:click={handleBackdropClick} role="dialog" aria-modal="true">
     <div class="editor-panel">
       <div class="panel-header">
-        <h2>{isEditMode ? 'Edit Custom Theme' : 'Create Custom Theme'}</h2>
+        <h2>{headerText}</h2>
       </div>
 
       <div class="panel-content">
@@ -199,10 +327,11 @@
             type="text"
             bind:value={themeName}
             placeholder="My Custom Theme"
+            readonly={isBuiltInEdit}
           />
         </div>
 
-        {#if !isEditMode}
+        {#if !isEditMode && !isCopyMode}
           <div class="field">
             <label for="baseTheme">Base Theme</label>
             <select id="baseTheme" value={baseThemeId} on:change={handleBaseThemeChange}>
@@ -251,28 +380,65 @@
           />
         </div>
 
-        <div class="section-label">Font &amp; Cursor</div>
+        <div class="section-label">UI Colors</div>
 
         <div class="field">
-          <label for="themeEditorFontSize">
-            Font Size: <span class="value">{settings.fontSize}px</span>
-          </label>
-          <input
-            type="range"
-            id="themeEditorFontSize"
-            min="10"
-            max="24"
-            step="1"
-            value={settings.fontSize}
-            on:input={handleFontSizeChange}
+          <ColorPicker
+            id="themeEditorTabActive"
+            label="Active Tab"
+            value={tabActive}
+            showOpacity={true}
+            on:change={handleTabActiveChange}
           />
         </div>
+
+        <div class="field">
+          <ColorPicker
+            id="themeEditorPaneBorderActive"
+            label="Active Pane Border"
+            value={paneBorderActive}
+            showOpacity={true}
+            on:change={handlePaneBorderActiveChange}
+          />
+        </div>
+
+        <div class="field">
+          <ColorPicker
+            id="themeEditorSidebarActive"
+            label="Sidebar Active Highlight"
+            value={sidebarActive}
+            showOpacity={true}
+            on:change={handleSidebarActiveChange}
+          />
+        </div>
+
+        <div class="field">
+          <ColorPicker
+            id="themeEditorGroupLabelBg"
+            label="Group Label Background"
+            value={groupLabelBg}
+            showOpacity={true}
+            on:change={handleGroupLabelBgChange}
+          />
+        </div>
+
+        <div class="field">
+          <ColorPicker
+            id="themeEditorGroupLabelFg"
+            label="Group Label Text"
+            value={groupLabelFg}
+            showOpacity={true}
+            on:change={handleGroupLabelFgChange}
+          />
+        </div>
+
+        <div class="section-label">Font &amp; Cursor</div>
 
         <div class="field">
           <label for="themeEditorFontFamily">Font Family</label>
           <select
             id="themeEditorFontFamily"
-            value={settings.fontFamily}
+            value={fontFamily}
             on:change={handleFontFamilyChange}
           >
             {#each FONT_FAMILIES as font}
@@ -282,10 +448,25 @@
         </div>
 
         <div class="field">
+          <label for="themeEditorFontSize">
+            Font Size: <span class="value">{fontSize}px</span>
+          </label>
+          <input
+            type="range"
+            id="themeEditorFontSize"
+            min="10"
+            max="24"
+            step="1"
+            value={fontSize}
+            on:input={handleFontSizeChange}
+          />
+        </div>
+
+        <div class="field">
           <label for="themeEditorCursorStyle">Cursor Style</label>
           <select
             id="themeEditorCursorStyle"
-            value={settings.cursorStyle}
+            value={cursorStyle}
             on:change={handleCursorStyleChange}
           >
             {#each CURSOR_STYLES as style}
@@ -300,7 +481,7 @@
             <input
               type="checkbox"
               id="themeEditorCursorBlink"
-              checked={settings.cursorBlink}
+              checked={cursorBlink}
               on:change={handleCursorBlinkChange}
             />
             <span class="slider"></span>
@@ -331,6 +512,7 @@
   }
 
   .editor-panel {
+    zoom: var(--controls-zoom, 1);
     background: var(--ui-bg-secondary, #181a1c);
     border: 1px solid var(--ui-border, #47484a);
     border-radius: 8px;

@@ -72,6 +72,8 @@ describe('Theme Import', () => {
         textPrimary: '#eee', textSecondary: '#ccc', textMuted: '#999',
         border: '#444', accent: '#0ff', accentHover: '#0ee',
         destructive: '#f00', destructiveHover: '#e00',
+        scrollbarThumb: 'rgba(100,100,100,0.4)', scrollbarThumbHover: 'rgba(100,100,100,0.7)',
+        tabActive: '#0ff', paneBorderActive: '#0ff', sidebarActive: '#0ff',
       },
     };
 
@@ -96,6 +98,7 @@ describe('Theme Import', () => {
           brightBlack: '#555', brightRed: '#f55', brightGreen: '#5f5', brightYellow: '#ff5',
           brightBlue: '#55f', brightMagenta: '#f5f', brightCyan: '#5ff', brightWhite: '#fff',
         },
+        fontSize: 14, fontFamily: 'Menlo',
       },
     };
 
@@ -116,6 +119,8 @@ describe('Theme Import', () => {
         textPrimary: '#eee', textSecondary: '#ccc', textMuted: '#999',
         border: '#444', accent: '#0ff', accentHover: '#0ee',
         destructive: '#f00', destructiveHover: '#e00',
+        scrollbarThumb: 'rgba(100,100,100,0.4)', scrollbarThumbHover: 'rgba(100,100,100,0.7)',
+        tabActive: '#0ff', paneBorderActive: '#0ff', sidebarActive: '#0ff',
       },
       terminal: {
         id: 'imp-term', name: 'Imported Both',
@@ -127,6 +132,7 @@ describe('Theme Import', () => {
           brightBlack: '#555', brightRed: '#f55', brightGreen: '#5f5', brightYellow: '#ff5',
           brightBlue: '#55f', brightMagenta: '#f5f', brightCyan: '#5ff', brightWhite: '#fff',
         },
+        fontSize: 14, fontFamily: 'Menlo',
       },
     };
 
@@ -146,6 +152,8 @@ describe('Theme Import', () => {
         textPrimary: '#eee', textSecondary: '#ccc', textMuted: '#999',
         border: '#444', accent: '#0ff', accentHover: '#0ee',
         destructive: '#f00', destructiveHover: '#e00',
+        scrollbarThumb: 'rgba(100,100,100,0.4)', scrollbarThumbHover: 'rgba(100,100,100,0.7)',
+        tabActive: '#0ff', paneBorderActive: '#0ff', sidebarActive: '#0ff',
       },
     };
 

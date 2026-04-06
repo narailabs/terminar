@@ -170,6 +170,7 @@
 
 <style>
   .context-menu {
+    zoom: var(--controls-zoom, 1);
     position: fixed;
     background: var(--ui-bg-secondary, #181a1c);
     border: 1px solid var(--ui-border, #454545);

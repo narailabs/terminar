@@ -112,7 +112,7 @@
   })());
 
   // Tags for current session
-  let sessionTags = $derived(sessionId ? tagStore.getTags(sessionId) : []);
+  let sessionTags = $derived(sessionId ? tagStore.getTagsForSession(sessionId) : []);
   let sessionGroup = $derived(sessionId ? sidebarGroupStore.getGroupForSession(sessionId) : null);
 
   // Map field IDs to their rendered values (tags returns placeholder — rendered specially)
@@ -706,13 +706,13 @@
     font-size: 10px;
     padding: 1px 6px;
     border-radius: 3px;
-    background: rgba(160, 167, 255, 0.12);
-    color: var(--ui-accent, #a0a7ff);
+    background: var(--ui-group-label-bg, #fdfbfe);
+    color: var(--ui-group-label-fg, #0d0e10);
     font-weight: 500;
   }
 
   .pane.active {
-    border-color: var(--ui-accent, #a0a7ff);
+    border-color: var(--ui-pane-border-active, #a0a7ff);
   }
 
   .pane.broadcast-target {

@@ -9,10 +9,13 @@
   import type { ConnectionState, SessionManager } from './lib/SessionManager';
   import { LocalEchoManager } from './lib/LocalEchoManager';
   import { createManager as singletonCreate, destroyManager as singletonDestroy, isActiveManager } from './lib/connectionSingleton';
-  import { settingsStore } from './lib/settingsStore.svelte';
+  import { settingsStore, applyControlsZoom } from './lib/settingsStore.svelte';
   import { initializeSettings } from './lib/settingsApi';
   import { workspaceStore } from './lib/workspaceStore';
-  import { applyUIThemeCSS, themeState, initAutoMode } from './lib/themeStore.svelte';
+  import { applyUIThemeCSS, themeState, initAutoMode, themeStoreApi } from './lib/themeStore.svelte';
+  import { initializeThemes } from './lib/themesApi';
+  import { initializeTags } from './lib/tagsApi';
+  import { tagStoreApi } from './lib/tagStore.svelte';
   import type { Workspace } from './lib/workspaceTypes';
 
   import TitleBar from './components/TitleBar.svelte';
@@ -230,6 +233,12 @@
     }
   });
 
+  // Apply controls zoom whenever settings change
+  $effect(() => {
+    void settingsStore.value;
+    applyControlsZoom();
+  });
+
   // Listen for OS color scheme changes when mode is 'auto'
   initAutoMode();
 
@@ -304,8 +313,10 @@
       return;
     }
 
-    // Initialize settings from server (with localStorage fallback)
+    // Initialize settings and themes from server (with localStorage fallback)
     await initializeSettings(settingsStore, serverHttpUrl);
+    await initializeThemes(themeStoreApi, serverHttpUrl);
+    await initializeTags(tagStoreApi, serverHttpUrl);
 
     if (isLocal) {
       connectLocal();

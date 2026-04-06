@@ -409,17 +409,21 @@ describe('App - Pairing Code Exchange', () => {
   });
 
   it('exchangeCode with valid code fetches /pair/exchange and sets token on success', async () => {
-    // First call: pairing exchange returns token; second call: workspace fetch
-    mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ token: 'paired-token-xyz' }),
-      })
-      .mockResolvedValue({
+    // Route responses by URL — mount-time fetches (settings, themes) get generic OK,
+    // while the pairing exchange gets the token response
+    mockFetch.mockImplementation((url: string) => {
+      if (typeof url === 'string' && url.includes('/pair/exchange')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ token: 'paired-token-xyz' }),
+        });
+      }
+      return Promise.resolve({
         ok: true,
         json: async () => ({ workspace: null }),
       });
+    });
 
     render(App, { props: remoteServerProps });
 

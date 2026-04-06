@@ -8,6 +8,8 @@
     deleteCustomTerminalTheme,
     getActiveUITheme,
     getActiveTerminalTheme,
+    isBuiltInOverridden,
+    resetBuiltInOverride,
   } from '../lib/themeStore.svelte';
   import type { UITheme, TerminalTheme } from '../lib/themeTypes';
   import { exportTheme, importTheme, type ExportedTheme } from '../lib/themeExport';
@@ -24,10 +26,11 @@
     setUIMode,
     type UIMode,
   } from '../lib/themeStore.svelte';
-  import { BUILT_IN_TERMINAL_THEMES } from '../lib/themeTypes';
+  import { BUILT_IN_TERMINAL_THEMES, BUILT_IN_UI_THEMES, BUILT_IN_TERMINAL_THEME_IDS } from '../lib/themeTypes';
   import EnvVarEditor from './EnvVarEditor.svelte';
   import { globalEnvVars, addEnvVar, updateEnvVar, deleteEnvVar } from '../lib/envStore.svelte';
   import { getKeyBindingRegistry, formatBinding, type KeyBinding } from '../lib/keybindings';
+  import { tagStore, TAG_COLORS, type TagDefinition } from '../lib/tagStore.svelte';
 
   let { isOpen = false, onclose }: {
     isOpen?: boolean;
@@ -60,6 +63,16 @@
     if (event.target === event.currentTarget) {
       handleClose();
     }
+  }
+
+  function handleTerminalZoomChange(event: Event) {
+    const target = event.target as HTMLInputElement;
+    settingsStore.updateSetting('terminalZoom', parseFloat(target.value));
+  }
+
+  function handleControlsZoomChange(event: Event) {
+    const target = event.target as HTMLInputElement;
+    settingsStore.updateSetting('controlsZoom', parseFloat(target.value));
   }
 
   function handlePaneTitleBarsChange(event: Event) {
@@ -124,7 +137,14 @@
   // Line height disabled - breaks TUI apps
 
   // All available UI and terminal themes (built-in + custom)
-  let allTerminalThemes = $derived([...BUILT_IN_TERMINAL_THEMES, ...themeState.value.customTerminalThemes]);
+  let allTerminalThemes = $derived((() => {
+    const customById = new Map(themeState.value.customTerminalThemes.map(t => [t.id, t]));
+    const merged = BUILT_IN_TERMINAL_THEMES.map(t => customById.get(t.id) ?? t);
+    const nonOverrides = themeState.value.customTerminalThemes.filter(
+      t => !BUILT_IN_TERMINAL_THEME_IDS.has(t.id)
+    );
+    return [...merged, ...nonOverrides];
+  })());
 
   function handleUIModeChange(event: Event) {
     const target = event.target as HTMLSelectElement;
@@ -139,6 +159,9 @@
   let showThemeEditor = $state(false);
   let editUITheme: UITheme | null = $state(null);
   let editTerminalTheme: TerminalTheme | null = $state(null);
+  let editBaseThemeId: string | null = $state(null);
+  let copySourceUI: UITheme | null = $state(null);
+  let copySourceTerminal: TerminalTheme | null = $state(null);
 
   interface GroupedCustomTheme {
     name: string;
@@ -149,31 +172,47 @@
   let groupedCustomThemes = $derived((() => {
     const groups: GroupedCustomTheme[] = [];
     for (const ui of themeState.value.customUIThemes) {
+      if (BUILT_IN_TERMINAL_THEME_IDS.has(ui.id)) continue;
       const term = themeState.value.customTerminalThemes.find(t => t.name === ui.name);
-      if (term) {
+      if (term && !BUILT_IN_TERMINAL_THEME_IDS.has(term.id)) {
         groups.push({ name: ui.name, uiTheme: ui, terminalTheme: term });
       }
     }
     return groups;
   })());
 
-  // Custom themes that don't have a matching pair (orphaned)
+  // Custom themes that don't have a matching pair (orphaned), excluding built-in overrides
   let orphanedUIThemes = $derived(themeState.value.customUIThemes.filter(
-    ui => !themeState.value.customTerminalThemes.some(t => t.name === ui.name)
+    ui => !BUILT_IN_TERMINAL_THEME_IDS.has(ui.id) && !themeState.value.customTerminalThemes.some(t => t.name === ui.name)
   ));
   let orphanedTerminalThemes = $derived(themeState.value.customTerminalThemes.filter(
-    t => !themeState.value.customUIThemes.some(ui => ui.name === t.name)
+    t => !BUILT_IN_TERMINAL_THEME_IDS.has(t.id) && !themeState.value.customUIThemes.some(ui => ui.name === t.name)
   ));
 
   function handleCreateTheme() {
     editUITheme = null;
     editTerminalTheme = null;
+    editBaseThemeId = null;
+    copySourceUI = null;
+    copySourceTerminal = null;
     showThemeEditor = true;
   }
 
   function handleEditTheme(uiTheme: UITheme, terminalTheme: TerminalTheme) {
     editUITheme = uiTheme;
     editTerminalTheme = terminalTheme;
+    editBaseThemeId = null;
+    copySourceUI = null;
+    copySourceTerminal = null;
+    showThemeEditor = true;
+  }
+
+  function handleCopyTheme(uiTheme: UITheme, terminalTheme: TerminalTheme) {
+    editUITheme = null;
+    editTerminalTheme = null;
+    editBaseThemeId = null;
+    copySourceUI = uiTheme;
+    copySourceTerminal = terminalTheme;
     showThemeEditor = true;
   }
 
@@ -181,12 +220,18 @@
     showThemeEditor = false;
     editUITheme = null;
     editTerminalTheme = null;
+    editBaseThemeId = null;
+    copySourceUI = null;
+    copySourceTerminal = null;
   }
 
   function handleThemeEditorSave() {
     showThemeEditor = false;
     editUITheme = null;
     editTerminalTheme = null;
+    editBaseThemeId = null;
+    copySourceUI = null;
+    copySourceTerminal = null;
   }
 
   function handleExportTheme() {
@@ -308,6 +353,42 @@
     refreshBindings();
   }
 
+  // Tag editor state
+  let editingTagId: string | null = $state(null);
+  let editingTagName: string = $state('');
+  let editingTagColor: string = $state('');
+  let newTagName: string = $state('');
+  let newTagColor: string = $state(TAG_COLORS[0]);
+
+  function handleAddTagDefinition() {
+    if (!newTagName.trim()) return;
+    tagStore.addDefinition(newTagName.trim(), newTagColor);
+    newTagName = '';
+    newTagColor = TAG_COLORS[0];
+  }
+
+  function handleStartEditTag(def: TagDefinition) {
+    editingTagId = def.id;
+    editingTagName = def.name;
+    editingTagColor = def.color;
+  }
+
+  function handleSaveEditTag() {
+    if (!editingTagId || !editingTagName.trim()) return;
+    tagStore.updateDefinition(editingTagId, editingTagName.trim(), editingTagColor);
+    editingTagId = null;
+  }
+
+  function handleDeleteTagDefinition(id: string) {
+    tagStore.deleteDefinition(id);
+    if (editingTagId === id) editingTagId = null;
+  }
+
+  function handleTagEditKeydown(event: KeyboardEvent) {
+    if (event.key === 'Enter') handleSaveEditTag();
+    else if (event.key === 'Escape') editingTagId = null;
+  }
+
   function handleReset() {
     settingsStore.reset();
   }
@@ -334,187 +415,298 @@
       </div>
 
       <div class="panel-content">
-        <!-- Mode (Light / Dark / Auto) -->
-        <div class="setting-group">
-          <label for="uiMode">Mode</label>
-          <select
-            id="uiMode"
-            value={themeState.value.uiMode}
-            onchange={handleUIModeChange}
-          >
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-            <option value="auto">Auto</option>
-          </select>
-        </div>
+        <div class="columns">
+          <!-- Left column: Appearance & Terminal -->
+          <div class="column">
+            <!-- Mode (Light / Dark / Auto) -->
+            <div class="setting-group">
+              <label for="uiMode">Mode</label>
+              <select
+                id="uiMode"
+                value={themeState.value.uiMode}
+                onchange={handleUIModeChange}
+              >
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+                <option value="auto">Auto</option>
+              </select>
+            </div>
 
-        <!-- Terminal Theme -->
-        <div class="setting-group">
-          <label for="terminalTheme">Terminal Theme</label>
-          <select
-            id="terminalTheme"
-            value={themeState.value.activeTerminalThemeId}
-            onchange={handleTerminalThemeChange}
-          >
-            {#each allTerminalThemes as theme}
-              <option value={theme.id}>{theme.name}</option>
-            {/each}
-          </select>
-        </div>
+            <!-- Terminal Theme -->
+            <div class="setting-group">
+              <label for="terminalTheme">Terminal Theme</label>
+              <select
+                id="terminalTheme"
+                value={themeState.value.activeTerminalThemeId}
+                onchange={handleTerminalThemeChange}
+              >
+                {#each allTerminalThemes as theme}
+                  <option value={theme.id}>{theme.name}</option>
+                {/each}
+              </select>
+            </div>
 
-        <!-- Theme Actions -->
-        <div class="theme-actions">
-          <button class="theme-action-btn" onclick={handleCreateTheme}>Create Theme</button>
-          <button class="theme-action-btn" onclick={handleExportTheme}>Export</button>
-          <button class="theme-action-btn" onclick={handleImportTheme}>Import</button>
-        </div>
+            <!-- Theme Actions -->
+            <div class="theme-actions">
+              <button class="theme-action-btn" onclick={handleCreateTheme}>Create Theme</button>
+              <button class="theme-action-btn" onclick={handleExportTheme}>Export</button>
+              <button class="theme-action-btn" onclick={handleImportTheme}>Import</button>
+            </div>
 
-        <!-- Custom Themes -->
-        {#if groupedCustomThemes.length > 0 || orphanedUIThemes.length > 0 || orphanedTerminalThemes.length > 0}
-          <div class="setting-group">
-            <label>Custom Themes</label>
-            <div class="custom-theme-list">
-              {#each groupedCustomThemes as group}
-                <div class="custom-theme-item">
-                  <span>{group.name}</span>
-                  <div class="custom-theme-actions">
-                    <button class="edit-theme-btn" onclick={() => handleEditTheme(group.uiTheme, group.terminalTheme)}>Edit</button>
-                    <button class="delete-theme-btn" onclick={() => { handleDeleteUITheme(group.uiTheme.id); handleDeleteTerminalTheme(group.terminalTheme.id); }}>×</button>
+            <!-- All Themes (built-in + custom) -->
+            <div class="setting-group">
+              <label>Themes</label>
+              <div class="custom-theme-list">
+                {#each BUILT_IN_TERMINAL_THEMES as builtInTheme}
+                  {@const overridden = isBuiltInOverridden(builtInTheme.id)}
+                  {@const displayTerm = overridden
+                    ? themeState.value.customTerminalThemes.find(t => t.id === builtInTheme.id) ?? builtInTheme
+                    : builtInTheme}
+                  {@const builtInUI = BUILT_IN_UI_THEMES.find(u => u.id === builtInTheme.id) ?? BUILT_IN_UI_THEMES[0]}
+                  {@const displayUI = (overridden
+                    ? themeState.value.customUIThemes.find(u => u.id === builtInTheme.id)
+                    : null) ?? builtInUI}
+                  <div class="custom-theme-item">
+                    <span>{displayTerm.name}{#if overridden} <span class="modified-badge">(modified)</span>{/if}</span>
+                    <div class="custom-theme-actions">
+                      <button class="edit-theme-btn" onclick={() => handleEditTheme(displayUI, displayTerm)}>Edit</button>
+                      <button class="edit-theme-btn" onclick={() => handleCopyTheme(displayUI, displayTerm)}>Copy</button>
+                      {#if overridden}
+                        <button class="edit-theme-btn" onclick={() => resetBuiltInOverride(builtInTheme.id)}>Reset</button>
+                      {/if}
+                    </div>
                   </div>
-                </div>
-              {/each}
-              {#each orphanedUIThemes as theme}
-                <div class="custom-theme-item">
-                  <span>{theme.name} (UI)</span>
-                  <div class="custom-theme-actions">
-                    <button class="delete-theme-btn" onclick={() => handleDeleteUITheme(theme.id)}>×</button>
+                {/each}
+                {#each groupedCustomThemes as group}
+                  <div class="custom-theme-item">
+                    <span>{group.name}</span>
+                    <div class="custom-theme-actions">
+                      <button class="edit-theme-btn" onclick={() => handleEditTheme(group.uiTheme, group.terminalTheme)}>Edit</button>
+                      <button class="edit-theme-btn" onclick={() => handleCopyTheme(group.uiTheme, group.terminalTheme)}>Copy</button>
+                      <button class="delete-theme-btn" onclick={() => { handleDeleteUITheme(group.uiTheme.id); handleDeleteTerminalTheme(group.terminalTheme.id); }}>×</button>
+                    </div>
                   </div>
-                </div>
-              {/each}
-              {#each orphanedTerminalThemes as theme}
-                <div class="custom-theme-item">
-                  <span>{theme.name} (Terminal)</span>
-                  <div class="custom-theme-actions">
-                    <button class="delete-theme-btn" onclick={() => handleDeleteTerminalTheme(theme.id)}>×</button>
+                {/each}
+                {#each orphanedUIThemes as theme}
+                  <div class="custom-theme-item">
+                    <span>{theme.name} (UI)</span>
+                    <div class="custom-theme-actions">
+                      <button class="delete-theme-btn" onclick={() => handleDeleteUITheme(theme.id)}>×</button>
+                    </div>
                   </div>
-                </div>
-              {/each}
+                {/each}
+                {#each orphanedTerminalThemes as theme}
+                  <div class="custom-theme-item">
+                    <span>{theme.name} (Terminal)</span>
+                    <div class="custom-theme-actions">
+                      <button class="delete-theme-btn" onclick={() => handleDeleteTerminalTheme(theme.id)}>×</button>
+                    </div>
+                  </div>
+                {/each}
+              </div>
+            </div>
+
+            <!-- Terminal Zoom -->
+            <div class="setting-group">
+              <label for="terminalZoom">Terminal Zoom ({Math.round((settings.terminalZoom ?? 1) * 100)}%)</label>
+              <input
+                type="range"
+                id="terminalZoom"
+                min="0.5"
+                max="2"
+                step="0.05"
+                value={settings.terminalZoom ?? 1}
+                oninput={handleTerminalZoomChange}
+                ondblclick={() => settingsStore.updateSetting('terminalZoom', 1)}
+              />
+            </div>
+
+            <!-- Controls Zoom -->
+            <div class="setting-group">
+              <label for="controlsZoom">Controls Zoom ({Math.round((settings.controlsZoom ?? 1) * 100)}%)</label>
+              <input
+                type="range"
+                id="controlsZoom"
+                min="0.5"
+                max="2"
+                step="0.05"
+                value={settings.controlsZoom ?? 1}
+                oninput={handleControlsZoomChange}
+                ondblclick={() => settingsStore.updateSetting('controlsZoom', 1)}
+              />
+            </div>
+
+            <!-- Environment Variables -->
+            <div class="setting-group" data-testid="env-vars-section">
+              <EnvVarEditor
+                envVars={currentEnvVars}
+                label="Global Environment Variables"
+                onchange={handleEnvChange}
+              />
             </div>
           </div>
-        {/if}
 
-        <!-- Pane Title Bars -->
-        <div class="setting-group toggle-group">
-          <label for="showPaneTitleBars">Pane Title Bars</label>
-          <label class="toggle">
-            <input
-              type="checkbox"
-              id="showPaneTitleBars"
-              checked={settings.showPaneTitleBars}
-              onchange={handlePaneTitleBarsChange}
-            />
-            <span class="slider"></span>
-          </label>
-        </div>
-
-        <!-- Title Bar Fields (drag to reorder, toggle visibility) -->
-        {#if settings.showPaneTitleBars && settings.titleBarFields}
-          <div class="setting-group">
-            <label>Title Bar Fields</label>
-            <div class="field-order-list">
-              {#each settings.titleBarFields as field, index (field.id)}
-                <div
-                  class="field-order-item"
-                  class:drag-over={dragOverFieldIndex === index}
-                  class:dragging={dragFieldIndex === index}
-                  draggable="true"
-                  ondragstart={(e) => handleFieldDragStart(e, index)}
-                  ondragover={(e) => handleFieldDragOver(e, index)}
-                  ondragleave={() => { if (dragOverFieldIndex === index) dragOverFieldIndex = null; }}
-                  ondrop={(e) => handleFieldDrop(e, index)}
-                  ondragend={handleFieldDragEnd}
-                  role="listitem"
-                >
-                  <span class="drag-handle">⠿</span>
-                  <label class="field-toggle">
-                    <input
-                      type="checkbox"
-                      checked={field.visible}
-                      onchange={() => handleFieldToggle(index)}
-                    />
-                    <span>{TITLE_BAR_FIELD_LABELS[field.id]}</span>
-                  </label>
-                </div>
-              {/each}
+          <!-- Right column: Panes & Shortcuts -->
+          <div class="column">
+            <!-- Dim Inactive Panes -->
+            <div class="setting-group">
+              <label for="dimInactivePanes">Dim Inactive Panes {settings.dimInactivePanes >= 1 ? '(off)' : `(${Math.round(settings.dimInactivePanes * 100)}%)`}</label>
+              <input
+                type="range"
+                id="dimInactivePanes"
+                min="0.1"
+                max="1"
+                step="0.1"
+                value={settings.dimInactivePanes}
+                oninput={handleDimInactivePanesChange}
+              />
             </div>
-          </div>
-        {/if}
 
-        <!-- Dim Inactive Panes -->
-        <div class="setting-group">
-          <label for="dimInactivePanes">Dim Inactive Panes {settings.dimInactivePanes >= 1 ? '(off)' : `(${Math.round(settings.dimInactivePanes * 100)}%)`}</label>
-          <input
-            type="range"
-            id="dimInactivePanes"
-            min="0.1"
-            max="1"
-            step="0.1"
-            value={settings.dimInactivePanes}
-            oninput={handleDimInactivePanesChange}
-          />
-        </div>
+            <!-- Auto-Scroll -->
+            <div class="setting-group toggle-group">
+              <label for="autoScroll">Auto-Scroll on Output</label>
+              <label class="toggle">
+                <input
+                  type="checkbox"
+                  id="autoScroll"
+                  checked={settings.autoScroll}
+                  onchange={handleAutoScrollChange}
+                />
+                <span class="slider"></span>
+              </label>
+            </div>
 
-        <!-- Auto-Scroll -->
-        <div class="setting-group toggle-group">
-          <label for="autoScroll">Auto-Scroll on Output</label>
-          <label class="toggle">
-            <input
-              type="checkbox"
-              id="autoScroll"
-              checked={settings.autoScroll}
-              onchange={handleAutoScrollChange}
-            />
-            <span class="slider"></span>
-          </label>
-        </div>
+            <!-- Tags -->
+            <div class="setting-group">
+              <label>Tags</label>
+              <div class="custom-theme-list">
+                {#each tagStore.definitions as def (def.id)}
+                  <div class="custom-theme-item">
+                    {#if editingTagId === def.id}
+                      <div class="tag-edit-row">
+                        <div class="tag-color-picker">
+                          {#each TAG_COLORS as color}
+                            <button
+                              class="tag-color-swatch"
+                              class:selected={editingTagColor === color}
+                              style="background: {color}"
+                              onclick={() => editingTagColor = color}
+                            ></button>
+                          {/each}
+                        </div>
+                        <input type="text" class="tag-name-input" bind:value={editingTagName}
+                               onkeydown={handleTagEditKeydown} />
+                        <div class="custom-theme-actions">
+                          <button class="edit-theme-btn" onclick={handleSaveEditTag}>Save</button>
+                          <button class="edit-theme-btn" onclick={() => editingTagId = null}>Cancel</button>
+                        </div>
+                      </div>
+                    {:else}
+                      <span class="tag-badge-preview" style="background: {def.color}20; color: {def.color}; border-color: {def.color}40">
+                        {def.name}
+                      </span>
+                      <div class="custom-theme-actions">
+                        <button class="edit-theme-btn" onclick={() => handleStartEditTag(def)}>Edit</button>
+                        <button class="delete-theme-btn" onclick={() => handleDeleteTagDefinition(def.id)}>&times;</button>
+                      </div>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+              <div class="tag-add-row">
+                <div class="tag-color-picker">
+                  {#each TAG_COLORS as color}
+                    <button
+                      class="tag-color-swatch"
+                      class:selected={newTagColor === color}
+                      style="background: {color}"
+                      onclick={() => newTagColor = color}
+                    ></button>
+                  {/each}
+                </div>
+                <input type="text" class="tag-name-input" placeholder="New tag name"
+                       bind:value={newTagName}
+                       onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && handleAddTagDefinition()} />
+                <button class="theme-action-btn" onclick={handleAddTagDefinition}
+                        disabled={!newTagName.trim()}>Add</button>
+              </div>
+            </div>
 
-        <!-- Line Height disabled - breaks TUI apps like vim, Claude Code -->
+            <!-- Pane Title Bars -->
+            <div class="setting-group toggle-group">
+              <label for="showPaneTitleBars">Pane Title Bars</label>
+              <label class="toggle">
+                <input
+                  type="checkbox"
+                  id="showPaneTitleBars"
+                  checked={settings.showPaneTitleBars}
+                  onchange={handlePaneTitleBarsChange}
+                />
+                <span class="slider"></span>
+              </label>
+            </div>
 
-        <!-- Keyboard Shortcuts -->
-        <div class="setting-group">
-          <label>Keyboard Shortcuts</label>
-          <div class="keybinding-list">
-            {#each effectiveBindings as { action, label, bindings, isOverridden }}
-              <div class="keybinding-row">
-                <span class="keybinding-action">{label}</span>
-                <div class="keybinding-keys">
-                  {#if recordingAction === action}
-                    <span class="keybinding-badge recording">Press keys...</span>
-                  {:else}
-                    {#each bindings as binding}
-                      <button class="keybinding-badge" onclick={() => startRecording(action)}>
-                        {formatBinding(binding)}
-                      </button>
-                    {/each}
-                  {/if}
-                  {#if isOverridden}
-                    <button class="keybinding-reset" onclick={() => handleClearOverride(action)} title="Reset to default">
-                      &#8617;
-                    </button>
-                  {/if}
+            <!-- Title Bar Fields (drag to reorder, toggle visibility) -->
+            {#if settings.showPaneTitleBars && settings.titleBarFields}
+              <div class="setting-group">
+                <label>Title Bar Fields</label>
+                <div class="field-order-list">
+                  {#each settings.titleBarFields as field, index (field.id)}
+                    <div
+                      class="field-order-item"
+                      class:drag-over={dragOverFieldIndex === index}
+                      class:dragging={dragFieldIndex === index}
+                      draggable="true"
+                      ondragstart={(e) => handleFieldDragStart(e, index)}
+                      ondragover={(e) => handleFieldDragOver(e, index)}
+                      ondragleave={() => { if (dragOverFieldIndex === index) dragOverFieldIndex = null; }}
+                      ondrop={(e) => handleFieldDrop(e, index)}
+                      ondragend={handleFieldDragEnd}
+                      role="listitem"
+                    >
+                      <span class="drag-handle">⠿</span>
+                      <label class="field-toggle">
+                        <input
+                          type="checkbox"
+                          checked={field.visible}
+                          onchange={() => handleFieldToggle(index)}
+                        />
+                        <span>{TITLE_BAR_FIELD_LABELS[field.id]}</span>
+                      </label>
+                    </div>
+                  {/each}
                 </div>
               </div>
-            {/each}
-          </div>
-        </div>
+            {/if}
 
-        <!-- Environment Variables -->
-        <div class="setting-group" data-testid="env-vars-section">
-          <EnvVarEditor
-            envVars={currentEnvVars}
-            label="Global Environment Variables"
-            onchange={handleEnvChange}
-          />
+            <!-- Keyboard Shortcuts -->
+            <div class="setting-group">
+              <label>Keyboard Shortcuts</label>
+              <div class="keybinding-list">
+                {#each effectiveBindings as { action, label, bindings, isOverridden }}
+                  <div class="keybinding-row">
+                    <span class="keybinding-action">{label}</span>
+                    <div class="keybinding-keys">
+                      {#if recordingAction === action}
+                        <span class="keybinding-badge recording">Press keys...</span>
+                      {:else}
+                        {#each bindings as binding}
+                          <button class="keybinding-badge" onclick={() => startRecording(action)}>
+                            {formatBinding(binding)}
+                          </button>
+                        {/each}
+                      {/if}
+                      {#if isOverridden}
+                        <button class="keybinding-reset" onclick={() => handleClearOverride(action)} title="Reset to default">
+                          &#8617;
+                        </button>
+                      {/if}
+                    </div>
+                  </div>
+                {/each}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -525,7 +717,7 @@
   </div>
 {/if}
 
-<ThemeEditor isOpen={showThemeEditor} {editUITheme} {editTerminalTheme} on:close={handleThemeEditorClose} on:save={handleThemeEditorSave} />
+<ThemeEditor isOpen={showThemeEditor} {editUITheme} {editTerminalTheme} initialBaseThemeId={editBaseThemeId} {copySourceUI} {copySourceTerminal} on:close={handleThemeEditorClose} on:save={handleThemeEditorSave} />
 
 <style>
   .modal-backdrop {
@@ -542,10 +734,11 @@
   }
 
   .settings-panel {
+    zoom: var(--controls-zoom, 1);
     background: var(--ui-bg-secondary, #181a1c);
     border: 1px solid var(--ui-border, #47484a);
     border-radius: 8px;
-    width: 380px;
+    width: 720px;
     max-height: 90vh;
     display: flex;
     flex-direction: column;
@@ -597,6 +790,19 @@
     overflow-y: auto;
     flex: 1;
     min-height: 0;
+  }
+
+  .columns {
+    display: flex;
+    gap: 24px;
+  }
+
+  .column {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    min-width: 0;
   }
 
   .setting-group {
@@ -851,6 +1057,12 @@
     background: var(--ui-destructive-hover, #a70138);
   }
 
+  .modified-badge {
+    color: var(--ui-text-muted, #757578);
+    font-size: 11px;
+    font-style: italic;
+  }
+
   .keybinding-list {
     display: flex;
     flex-direction: column;
@@ -916,5 +1128,70 @@
 
   .keybinding-reset:hover {
     color: var(--ui-accent, #a0a7ff);
+  }
+
+  .tag-name-input {
+    flex: 1;
+    min-width: 0;
+    padding: 4px 8px;
+    background: var(--ui-bg-tertiary, #242629);
+    border: 1px solid var(--ui-border, #555);
+    border-radius: 4px;
+    color: var(--ui-text-primary, #fdfbfe);
+    font-size: 12px;
+  }
+
+  .tag-name-input:focus {
+    outline: none;
+    border-color: var(--ui-accent, #a0a7ff);
+  }
+
+  .tag-add-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
+    flex-wrap: wrap;
+  }
+
+  .tag-edit-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    flex-wrap: wrap;
+  }
+
+  .tag-badge-preview {
+    font-size: 11px;
+    padding: 1px 7px;
+    border-radius: 3px;
+    border: 1px solid;
+    white-space: nowrap;
+  }
+
+  .tag-color-picker {
+    display: flex;
+    gap: 3px;
+    flex-wrap: wrap;
+  }
+
+  .tag-color-swatch {
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: transform 0.1s;
+    padding: 0;
+  }
+
+  .tag-color-swatch.selected {
+    border-color: white;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3);
+  }
+
+  .tag-color-swatch:hover {
+    transform: scale(1.15);
   }
 </style>

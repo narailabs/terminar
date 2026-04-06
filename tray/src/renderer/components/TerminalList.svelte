@@ -264,7 +264,7 @@
                 foregroundProcess={foregroundStore.processes.get(session.id) ?? null}
                 terminalTitle={titleStore.titles.get(session.id) ?? ''}
                 paneCount={$sessionPaneCounts.get(session.id) ?? 0}
-                tags={tagStore.getTags(session.id)}
+                tags={tagStore.getTagsForSession(session.id)}
                 isActive={session.id === activeSessionId}
                 startEditing={editingSessionId === session.id}
                 onselect={handleSelect}
@@ -313,7 +313,7 @@
               foregroundProcess={foregroundStore.processes.get(session.id) ?? null}
               terminalTitle={titleStore.titles.get(session.id) ?? ''}
               paneCount={$sessionPaneCounts.get(session.id) ?? 0}
-                tags={tagStore.getTags(session.id)}
+                tags={tagStore.getTagsForSession(session.id)}
               isActive={session.id === activeSessionId}
               startEditing={editingSessionId === session.id}
               onselect={handleSelect}
@@ -361,7 +361,7 @@
               foregroundProcess={foregroundStore.processes.get(session.id) ?? null}
               terminalTitle={titleStore.titles.get(session.id) ?? ''}
               paneCount={$sessionPaneCounts.get(session.id) ?? 0}
-                tags={tagStore.getTags(session.id)}
+                tags={tagStore.getTagsForSession(session.id)}
               isActive={session.id === activeSessionId}
               startEditing={editingSessionId === session.id}
               onselect={handleSelect}
