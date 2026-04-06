@@ -21,6 +21,7 @@
   import TitleBar from './components/TitleBar.svelte';
   import BroadcastBar from './components/BroadcastBar.svelte';
   import { broadcastEnabled, clearTargets, setSessionManager } from './lib/broadcastStore.svelte';
+  import { sidebarPositionStore } from './lib/sidebarPositionStore.svelte';
   import { getEffectiveEnv } from './lib/envStore.svelte';
   import { getKeyBindingRegistry } from './lib/keybindings';
   import { markExited } from './lib/exitedSessionsStore.svelte';
@@ -981,7 +982,7 @@
         onLogout={logout}
       />
       <div class="content-area">
-        <div class="main-area">
+        <div class="main-area" style:order={sidebarPositionStore.value === 'left' ? 2 : 0}>
           <div class="workspace-area">
             <WorkspaceView />
           </div>

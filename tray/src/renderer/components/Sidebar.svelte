@@ -2,11 +2,13 @@
   import TerminalList from './TerminalList.svelte';
   import type { SessionInfo } from '../lib/workspaceTypes';
   import { broadcastEnabled } from '../lib/broadcastStore.svelte';
+  import { sidebarPositionStore } from '../lib/sidebarPositionStore.svelte';
 
   const MIN_WIDTH = 150;
   const MAX_WIDTH = 500;
   const DEFAULT_WIDTH = 250;
   const COLLAPSE_THRESHOLD = 100;
+  const DRAG_THRESHOLD = 20;
 
   let {
     sessions = [],
@@ -33,6 +35,15 @@
     onpanedrop?: (detail: { sourcePaneId: string }) => void;
     onToggleBroadcast?: () => void;
   } = $props();
+
+  let position = $derived(sidebarPositionStore.value);
+  let isLeft = $derived(position === 'left');
+
+  let chevronChar = $derived(
+    isLeft
+      ? (isOpen ? '‹' : '›')
+      : (isOpen ? '›' : '‹')
+  );
 
   // Shortcuts popup
   let showShortcutsPopup = $state(false);
@@ -70,6 +81,8 @@
     }
   }
 
+  // --- Resize ---
+
   let sidebarWidth = $state(DEFAULT_WIDTH);
   let isResizing = $state(false);
 
@@ -81,7 +94,9 @@
     const startWidth = sidebarWidth;
 
     function onMouseMove(e: MouseEvent) {
-      const delta = startX - e.clientX;
+      const delta = isLeft
+        ? (e.clientX - startX)
+        : (startX - e.clientX);
       const newWidth = startWidth + delta;
       if (newWidth < COLLAPSE_THRESHOLD) {
         ontoggle?.();
@@ -112,6 +127,80 @@
   function handleEdgeClick() {
     if (!isOpen) ontoggle?.();
   }
+
+  // --- Sidebar drag (reposition left/right) ---
+
+  let isDraggingSidebar = $state(false);
+  let dragTarget = $state<'left' | 'right'>(position);
+
+  function startSidebarDrag(e: MouseEvent) {
+    isDraggingSidebar = true;
+    dragTarget = position;
+    const startX = e.clientX;
+    document.body.style.cursor = 'grabbing';
+
+    function onMouseMove(e: MouseEvent) {
+      const midX = window.innerWidth / 2;
+      dragTarget = e.clientX < midX ? 'left' : 'right';
+    }
+
+    function onMouseUp(e: MouseEvent) {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      isDraggingSidebar = false;
+
+      const movedEnough = Math.abs(e.clientX - startX) > DRAG_THRESHOLD;
+      if (movedEnough && dragTarget !== position) {
+        sidebarPositionStore.set(dragTarget);
+      }
+    }
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }
+
+  // --- Sidebar header drag ---
+
+  function handleHeaderMouseDown(e: MouseEvent) {
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest('button')) return;
+    e.preventDefault();
+    startSidebarDrag(e);
+  }
+
+  // --- Toggle-btn dual behavior (click vs long-press drag) ---
+
+  let toggleBtnTimer: ReturnType<typeof setTimeout> | null = null;
+  let toggleBtnDragActivated = false;
+
+  function handleToggleBtnDown(e: MouseEvent) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    toggleBtnDragActivated = false;
+
+    toggleBtnTimer = setTimeout(() => {
+      toggleBtnDragActivated = true;
+      startSidebarDrag(e);
+    }, 1000);
+  }
+
+  function handleToggleBtnUp() {
+    if (toggleBtnTimer) {
+      clearTimeout(toggleBtnTimer);
+      toggleBtnTimer = null;
+    }
+    if (!toggleBtnDragActivated) {
+      ontoggle?.();
+    }
+  }
+
+  function handleToggleBtnLeave() {
+    if (toggleBtnTimer && !toggleBtnDragActivated) {
+      clearTimeout(toggleBtnTimer);
+      toggleBtnTimer = null;
+    }
+  }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -119,6 +208,9 @@
   class="sidebar"
   class:open={isOpen}
   class:resizing={isResizing}
+  class:dragging-sidebar={isDraggingSidebar}
+  class:position-left={isLeft}
+  class:position-right={!isLeft}
   style:width={isOpen ? `${sidebarWidth}px` : ''}
 >
   <div
@@ -130,15 +222,20 @@
     title={isOpen ? 'Drag to resize' : ''}
   ></div>
 
-  {#if !isOpen}
-    <button class="toggle-btn" onclick={() => ontoggle?.()} title="Show sidebar">
-      <span class="chevron">‹</span>
-    </button>
-  {/if}
+  <button
+    class="toggle-btn"
+    onmousedown={handleToggleBtnDown}
+    onmouseup={handleToggleBtnUp}
+    onmouseleave={handleToggleBtnLeave}
+    title={isOpen ? 'Hide sidebar' : 'Show sidebar'}
+  >
+    <span class="chevron">{chevronChar}</span>
+  </button>
 
   {#if isOpen}
     <div class="sidebar-content">
-      <div class="sidebar-header">
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="sidebar-header" onmousedown={handleHeaderMouseDown}>
         <div class="header-icons">
           <div class="shortcuts-wrapper">
             <button
@@ -204,19 +301,40 @@
   {/if}
 </div>
 
+{#if isDraggingSidebar}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="drag-overlay">
+    <div class="drop-zone drop-left" class:active={dragTarget === 'left'} style:width="{sidebarWidth}px"></div>
+    <div class="drop-spacer"></div>
+    <div class="drop-zone drop-right" class:active={dragTarget === 'right'} style:width="{sidebarWidth}px"></div>
+  </div>
+{/if}
+
 <style>
   .sidebar {
     display: flex;
     position: relative;
     background: var(--ui-bg-secondary, #181a1c);
-    border-left: 1px solid var(--ui-border, #47484a);
     height: 100%;
     transition: width 0.15s ease;
+  }
+
+  .sidebar.position-right {
+    border-left: 1px solid var(--ui-border, #47484a);
+  }
+
+  .sidebar.position-left {
+    border-right: 1px solid var(--ui-border, #47484a);
   }
 
   .sidebar.resizing {
     transition: none;
     user-select: none;
+  }
+
+  .sidebar.dragging-sidebar {
+    opacity: 0.6;
+    pointer-events: none;
   }
 
   .sidebar:not(.open) {
@@ -225,12 +343,20 @@
 
   .resize-handle {
     position: absolute;
-    left: -3px;
     top: 0;
     width: 6px;
     height: 100%;
     cursor: col-resize;
     z-index: 10;
+  }
+
+  .sidebar.position-right .resize-handle {
+    left: -3px;
+  }
+
+  .sidebar.position-left .resize-handle {
+    right: -3px;
+    left: auto;
   }
 
   .sidebar:not(.open) .resize-handle {
@@ -257,6 +383,16 @@
     transition: background 0.1s;
   }
 
+  .sidebar.position-right .toggle-btn {
+    border-right: 1px solid var(--ui-border, #47484a);
+    order: 0;
+  }
+
+  .sidebar.position-left .toggle-btn {
+    border-left: 1px solid var(--ui-border, #47484a);
+    order: 2;
+  }
+
   .toggle-btn:hover {
     background: var(--ui-bg-secondary, #2a2a2a);
     color: var(--ui-text-primary, #fdfbfe);
@@ -281,6 +417,11 @@
     justify-content: space-between;
     padding: 10px 12px 10px 6px;
     border-bottom: 1px solid var(--ui-border, #47484a);
+    cursor: grab;
+  }
+
+  .sidebar.dragging-sidebar .sidebar-header {
+    cursor: grabbing;
   }
 
   .header-icons {
@@ -382,5 +523,32 @@
     border-radius: 10px;
     min-width: 18px;
     text-align: center;
+  }
+
+  /* Drag overlay */
+  .drag-overlay {
+    position: fixed;
+    top: 38px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    z-index: 9999;
+    pointer-events: none;
+  }
+
+  .drop-zone {
+    flex-shrink: 0;
+    border: 2px dashed transparent;
+    transition: background 0.15s, border-color 0.15s;
+  }
+
+  .drop-spacer {
+    flex: 1;
+  }
+
+  .drop-zone.active {
+    background: color-mix(in srgb, var(--ui-accent, #a0a7ff) 20%, transparent);
+    border-color: color-mix(in srgb, var(--ui-accent, #a0a7ff) 50%, transparent);
   }
 </style>

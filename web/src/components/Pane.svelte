@@ -797,8 +797,8 @@
   /* Drop zone indicators */
   .drop-indicator {
     position: absolute;
-    background: rgba(14, 99, 156, 0.3);
-    border: 2px dashed var(--ui-accent, #a0a7ff);
+    background: color-mix(in srgb, var(--ui-accent, #a0a7ff) 20%, transparent);
+    border: 2px dashed color-mix(in srgb, var(--ui-accent, #a0a7ff) 50%, transparent);
     pointer-events: none;
     z-index: 100;
   }
