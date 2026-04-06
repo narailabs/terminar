@@ -1,27 +1,24 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { TerminalSettings } from './settingsStore.svelte';
+import type { ThemeState } from './themeStore.svelte';
 import {
-  setSettingsApiBaseUrl,
-  fetchSettings,
-  saveSettings,
-  initializeSettings,
-} from './settingsApi';
+  setThemesApiBaseUrl,
+  fetchThemes,
+  saveThemes,
+  initializeThemes,
+} from './themesApi';
 
-const mockSettings: TerminalSettings = {
-  cursorStyle: 'block',
-  cursorBlink: true,
-  lineHeight: 1.2,
-  showPaneTitleBars: true,
-  autoScroll: true,
-  dimInactivePanes: 0.4,
-  titleBarFields: [],
-  terminalZoom: 1.0,
-  controlsZoom: 1.0,
+const mockThemeState: ThemeState = {
+  uiMode: 'dark',
+  activeUIThemeId: 'dark',
+  activeTerminalThemeId: 'dark',
+  terminalOverrides: {},
+  customUIThemes: [],
+  customTerminalThemes: [],
 };
 
-describe('settingsApi', () => {
+describe('themesApi', () => {
   beforeEach(() => {
-    setSettingsApiBaseUrl('http://localhost:6749');
+    setThemesApiBaseUrl('http://localhost:6749');
     vi.stubGlobal('fetch', vi.fn());
     vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
@@ -30,38 +27,47 @@ describe('settingsApi', () => {
     vi.restoreAllMocks();
   });
 
-  describe('setSettingsApiBaseUrl', () => {
+  describe('setThemesApiBaseUrl', () => {
     it('changes the base URL used in subsequent fetches', async () => {
       vi.mocked(fetch).mockResolvedValue(
-        new Response(JSON.stringify(mockSettings), { status: 200 })
+        new Response(JSON.stringify(mockThemeState), { status: 200 })
       );
 
-      setSettingsApiBaseUrl('http://custom-host:9999');
-      await fetchSettings();
+      setThemesApiBaseUrl('http://custom-host:9999');
+      await fetchThemes();
 
-      expect(fetch).toHaveBeenCalledWith('http://custom-host:9999/settings', {
+      expect(fetch).toHaveBeenCalledWith('http://custom-host:9999/themes', {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       });
     });
   });
 
-  describe('fetchSettings', () => {
-    it('returns parsed settings on success', async () => {
+  describe('fetchThemes', () => {
+    it('returns parsed themes on success', async () => {
       vi.mocked(fetch).mockResolvedValue(
-        new Response(JSON.stringify(mockSettings), {
+        new Response(JSON.stringify(mockThemeState), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         })
       );
 
-      const result = await fetchSettings();
+      const result = await fetchThemes();
 
-      expect(fetch).toHaveBeenCalledWith('http://localhost:6749/settings', {
+      expect(fetch).toHaveBeenCalledWith('http://localhost:6749/themes', {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       });
-      expect(result).toEqual(mockSettings);
+      expect(result).toEqual(mockThemeState);
+    });
+
+    it('returns null on 204 No Content (first run)', async () => {
+      vi.mocked(fetch).mockResolvedValue(
+        new Response(null, { status: 204 })
+      );
+
+      const result = await fetchThemes();
+      expect(result).toBeNull();
     });
 
     it('returns null on non-OK response', async () => {
@@ -69,11 +75,11 @@ describe('settingsApi', () => {
         new Response('Internal Server Error', { status: 500 })
       );
 
-      const result = await fetchSettings();
+      const result = await fetchThemes();
 
       expect(result).toBeNull();
       expect(console.warn).toHaveBeenCalledWith(
-        '[SettingsAPI] Server returned non-OK status:',
+        '[ThemesAPI] Server returned non-OK status:',
         500
       );
     });
@@ -81,26 +87,26 @@ describe('settingsApi', () => {
     it('returns null on network error', async () => {
       vi.mocked(fetch).mockRejectedValue(new TypeError('Failed to fetch'));
 
-      const result = await fetchSettings();
+      const result = await fetchThemes();
 
       expect(result).toBeNull();
       expect(console.warn).toHaveBeenCalledWith(
-        '[SettingsAPI] Failed to fetch settings from server:',
+        '[ThemesAPI] Failed to fetch themes from server:',
         expect.any(TypeError)
       );
     });
   });
 
-  describe('saveSettings', () => {
+  describe('saveThemes', () => {
     it('resolves on success', async () => {
       vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 200 }));
 
-      await expect(saveSettings(mockSettings)).resolves.toBeUndefined();
+      await expect(saveThemes(mockThemeState)).resolves.toBeUndefined();
 
-      expect(fetch).toHaveBeenCalledWith('http://localhost:6749/settings', {
+      expect(fetch).toHaveBeenCalledWith('http://localhost:6749/themes', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(mockSettings),
+        body: JSON.stringify(mockThemeState),
       });
     });
 
@@ -109,22 +115,22 @@ describe('settingsApi', () => {
         new Response('Validation failed', { status: 400 })
       );
 
-      await expect(saveSettings(mockSettings)).rejects.toThrow(
-        'Failed to save settings: 400 - Validation failed'
+      await expect(saveThemes(mockThemeState)).rejects.toThrow(
+        'Failed to save themes: 400 - Validation failed'
       );
     });
 
     it('throws on network error', async () => {
       vi.mocked(fetch).mockRejectedValue(new TypeError('Network error'));
 
-      await expect(saveSettings(mockSettings)).rejects.toThrow('Network error');
+      await expect(saveThemes(mockThemeState)).rejects.toThrow('Network error');
     });
   });
 
-  describe('initializeSettings', () => {
+  describe('initializeThemes', () => {
     it('sets the base URL, wires save callback, fetches and initializes store', async () => {
       vi.mocked(fetch).mockResolvedValue(
-        new Response(JSON.stringify(mockSettings), {
+        new Response(JSON.stringify(mockThemeState), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         })
@@ -135,24 +141,19 @@ describe('settingsApi', () => {
         setSaveCallback: vi.fn(),
       };
 
-      await initializeSettings(store, 'http://myhost:4000');
+      await initializeThemes(store, 'http://myhost:4000');
 
-      // Verify base URL was updated by checking the fetch call
-      expect(fetch).toHaveBeenCalledWith('http://myhost:4000/settings', {
+      expect(fetch).toHaveBeenCalledWith('http://myhost:4000/themes', {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       });
-
-      // Verify save callback was wired
-      expect(store.setSaveCallback).toHaveBeenCalledWith(saveSettings);
-
-      // Verify store was initialized with fetched settings
-      expect(store.initialize).toHaveBeenCalledWith(mockSettings);
+      expect(store.setSaveCallback).toHaveBeenCalledWith(saveThemes);
+      expect(store.initialize).toHaveBeenCalledWith(mockThemeState);
     });
 
-    it('initializes store with null when fetch returns non-OK', async () => {
+    it('initializes store with null when server returns 204', async () => {
       vi.mocked(fetch).mockResolvedValue(
-        new Response('Not Found', { status: 404 })
+        new Response(null, { status: 204 })
       );
 
       const store = {
@@ -160,9 +161,9 @@ describe('settingsApi', () => {
         setSaveCallback: vi.fn(),
       };
 
-      await initializeSettings(store, 'http://localhost:6749');
+      await initializeThemes(store, 'http://localhost:6749');
 
-      expect(store.setSaveCallback).toHaveBeenCalledWith(saveSettings);
+      expect(store.setSaveCallback).toHaveBeenCalledWith(saveThemes);
       expect(store.initialize).toHaveBeenCalledWith(null);
     });
 
@@ -174,9 +175,9 @@ describe('settingsApi', () => {
         setSaveCallback: vi.fn(),
       };
 
-      await initializeSettings(store, 'http://localhost:6749');
+      await initializeThemes(store, 'http://localhost:6749');
 
-      expect(store.setSaveCallback).toHaveBeenCalledWith(saveSettings);
+      expect(store.setSaveCallback).toHaveBeenCalledWith(saveThemes);
       expect(store.initialize).toHaveBeenCalledWith(null);
     });
   });

@@ -15,6 +15,8 @@ pub mod logging;
 pub mod messages;
 pub mod settings;
 pub mod shell_init;
+pub mod tags;
+pub mod themes;
 pub mod workspace;
 
 // Re-export core modules from terminar_core for backward compatibility.
@@ -468,6 +470,10 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
         .route("/settings", put(put_settings_handler))
         .route("/workspace", get(get_workspace_handler))
         .route("/workspace", put(put_workspace_handler))
+        .route("/themes", get(get_themes_handler))
+        .route("/themes", put(put_themes_handler))
+        .route("/tags", get(get_tags_handler))
+        .route("/tags", put(put_tags_handler))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
@@ -861,6 +867,52 @@ async fn put_workspace_handler(Json(state): Json<workspace::WorkspaceState>) -> 
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Failed to save workspace: {}", e),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// GET /themes - Retrieve theme state (opaque JSON)
+async fn get_themes_handler() -> impl IntoResponse {
+    match themes::load_themes() {
+        Some(value) => Json(value).into_response(),
+        None => StatusCode::NO_CONTENT.into_response(),
+    }
+}
+
+/// PUT /themes - Save theme state (opaque JSON)
+async fn put_themes_handler(Json(value): Json<serde_json::Value>) -> impl IntoResponse {
+    match themes::save_themes(&value) {
+        Ok(()) => StatusCode::OK.into_response(),
+        Err(e) => {
+            error!("Failed to save themes: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to save themes: {}", e),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// GET /tags - Retrieve tag state (opaque JSON)
+async fn get_tags_handler() -> impl IntoResponse {
+    match tags::load_tags() {
+        Some(value) => Json(value).into_response(),
+        None => StatusCode::NO_CONTENT.into_response(),
+    }
+}
+
+/// PUT /tags - Save tag state (opaque JSON)
+async fn put_tags_handler(Json(value): Json<serde_json::Value>) -> impl IntoResponse {
+    match tags::save_tags(&value) {
+        Ok(()) => StatusCode::OK.into_response(),
+        Err(e) => {
+            error!("Failed to save tags: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to save tags: {}", e),
             )
                 .into_response()
         }

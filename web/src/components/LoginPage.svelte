@@ -229,6 +229,7 @@
 
 <style>
   .login-container {
+    zoom: var(--controls-zoom, 1);
     display: flex;
     flex-direction: column;
     align-items: center;

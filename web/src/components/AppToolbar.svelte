@@ -140,6 +140,7 @@
 
 <style>
   .status-bar {
+    zoom: var(--controls-zoom, 1);
     display: flex;
     align-items: center;
     justify-content: space-between;

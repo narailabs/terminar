@@ -25,6 +25,11 @@ export interface UITheme {
   destructiveHover: string;
   scrollbarThumb: string;
   scrollbarThumbHover: string;
+  tabActive: string;
+  paneBorderActive: string;
+  sidebarActive: string;
+  groupLabelBg: string;
+  groupLabelFg: string;
 }
 
 // ── Terminal Theme ───────────────────────────────────────────────────────────
@@ -59,6 +64,8 @@ export interface TerminalTheme {
   selectionForeground: string;
   selectionInactiveBackground: string;
   ansi: AnsiColors;
+  fontSize: number;
+  fontFamily: string;
 }
 
 // ── Built-in UI Themes ───────────────────────────────────────────────────────
@@ -81,6 +88,11 @@ const darkUI: UITheme = {
   destructiveHover: '#a70138',
   scrollbarThumb: 'rgba(117,117,120,0.4)',
   scrollbarThumbHover: 'rgba(117,117,120,0.7)',
+  tabActive: '#a0a7ff',
+  paneBorderActive: '#a0a7ff',
+  sidebarActive: '#a0a7ff',
+  groupLabelBg: '#fdfbfe',
+  groupLabelFg: '#0d0e10',
 };
 
 const lightUI: UITheme = {
@@ -101,6 +113,11 @@ const lightUI: UITheme = {
   destructiveHover: '#fdd',
   scrollbarThumb: 'rgba(100,100,100,0.4)',
   scrollbarThumbHover: 'rgba(100,100,100,0.7)',
+  tabActive: '#0066b8',
+  paneBorderActive: '#0066b8',
+  sidebarActive: '#0066b8',
+  groupLabelBg: '#333333',
+  groupLabelFg: '#ffffff',
 };
 
 export const BUILT_IN_UI_THEMES: readonly UITheme[] = [darkUI, lightUI];
@@ -175,6 +192,8 @@ const darkTerminal: TerminalTheme = {
   selectionForeground: '#fdfbfe',
   selectionInactiveBackground: '#242629',
   ansi: ANSI_DARK,
+  fontSize: 14,
+  fontFamily: 'Menlo',
 };
 
 const lightTerminal: TerminalTheme = {
@@ -188,6 +207,8 @@ const lightTerminal: TerminalTheme = {
   selectionForeground: '#000000',
   selectionInactiveBackground: '#d6ebff',
   ansi: ANSI_LIGHT,
+  fontSize: 14,
+  fontFamily: 'Menlo',
 };
 
 const darkGreenTerminal: TerminalTheme = {
@@ -201,6 +222,8 @@ const darkGreenTerminal: TerminalTheme = {
   selectionForeground: '#33ff33',
   selectionInactiveBackground: '#1a2a1a',
   ansi: ANSI_GREEN,
+  fontSize: 14,
+  fontFamily: 'Menlo',
 };
 
 const ANSI_BLUE: AnsiColors = {
@@ -233,6 +256,8 @@ const classicBlueTerminal: TerminalTheme = {
   selectionForeground: '#ffffff',
   selectionInactiveBackground: '#2222aa',
   ansi: ANSI_BLUE,
+  fontSize: 14,
+  fontFamily: 'Menlo',
 };
 
 export const BUILT_IN_TERMINAL_THEMES: readonly TerminalTheme[] = [
@@ -241,3 +266,6 @@ export const BUILT_IN_TERMINAL_THEMES: readonly TerminalTheme[] = [
   darkGreenTerminal,
   classicBlueTerminal,
 ];
+
+export const BUILT_IN_UI_THEME_IDS = new Set(BUILT_IN_UI_THEMES.map(t => t.id));
+export const BUILT_IN_TERMINAL_THEME_IDS = new Set(BUILT_IN_TERMINAL_THEMES.map(t => t.id));

@@ -18,7 +18,7 @@
   import type { SessionManager } from '../lib/SessionManager';
   import { sessionCwdStore } from '../lib/sessionCwdStore.svelte';
   import { settingsStore, getTitleBarFields, setTitleBarFieldVisible, clearTitleBarOverride, hasTitleBarOverride, titleBarOverridesState, TITLE_BAR_FIELD_LABELS, type TitleBarFieldId } from '../lib/settingsStore.svelte';
-  import { tagStore, TAG_COLORS, type Tag } from '../lib/tagStore.svelte';
+  import { tagStore, TAG_COLORS } from '../lib/tagStore.svelte';
 
   // Optional prop overrides (for tests that render without context)
   let {
@@ -344,39 +344,35 @@
     contextMenu = null;
   }
 
-  // ── Tag management ──────────────────────────────────────────────────────────
-  let tagModal = $state<{ sessionId: string } | null>(null);
-  let tagName = $state('');
-  let tagColor = $state(TAG_COLORS[0]);
-  let tagInputEl: HTMLInputElement | undefined = $state(undefined);
+  // ── New tag creation from context menu ──────────────────────────────────────
+  let newTagModal = $state<{ sessionId: string } | null>(null);
+  let newTagName = $state('');
+  let newTagColor = $state(TAG_COLORS[0]);
+  let newTagInputEl: HTMLInputElement | undefined = $state(undefined);
 
-  function handleOpenTagModal() {
+  function handleOpenNewTagModal() {
     if (!contextMenu) return;
     const tab = $workspaceStore.tabs.find(t => t.id === $workspaceStore.activeTabId);
     if (!tab) { contextMenu = null; return; }
     const pane = findPane(tab.root, contextMenu.paneId);
     if (!pane?.sessionId) { contextMenu = null; return; }
-    tagModal = { sessionId: pane.sessionId };
-    tagName = '';
-    tagColor = TAG_COLORS[0];
+    newTagModal = { sessionId: pane.sessionId };
+    newTagName = '';
+    newTagColor = TAG_COLORS[0];
     contextMenu = null;
-    setTimeout(() => tagInputEl?.focus(), 0);
+    setTimeout(() => newTagInputEl?.focus(), 0);
   }
 
-  function handleAddTag() {
-    if (!tagModal || !tagName.trim()) return;
-    tagStore.addTag(tagModal.sessionId, { name: tagName.trim(), color: tagColor });
-    tagName = '';
-    setTimeout(() => tagInputEl?.focus(), 0);
+  function handleCreateAndAssignTag() {
+    if (!newTagModal || !newTagName.trim()) return;
+    const def = tagStore.addDefinition(newTagName.trim(), newTagColor);
+    tagStore.toggleTagAssignment(newTagModal.sessionId, def.id);
+    newTagModal = null;
   }
 
-  function handleTagKeydown(event: KeyboardEvent) {
-    if (event.key === 'Enter') handleAddTag();
-    else if (event.key === 'Escape') tagModal = null;
-  }
-
-  function handleRemoveTagFromMenu(sessionId: string, tagName: string) {
-    tagStore.removeTag(sessionId, tagName);
+  function handleNewTagKeydown(event: KeyboardEvent) {
+    if (event.key === 'Enter') handleCreateAndAssignTag();
+    else if (event.key === 'Escape') newTagModal = null;
   }
 
   // Keyboard shortcuts
@@ -432,13 +428,12 @@
   let contextMenuItems = $derived(contextMenu ? (() => {
     void titleBarOverridesState.value;
     void settingsStore.value;
-    void tagStore.tags;
+    void tagStore.state;
     const fields = contextMenu ? getTitleBarFields(contextMenu.paneId) : [];
     const hasOverride = contextMenu ? hasTitleBarOverride(contextMenu.paneId) : false;
     const ctxTab = $workspaceStore.tabs.find(t => t.id === $workspaceStore.activeTabId);
     const ctxPane = ctxTab && contextMenu ? findPane(ctxTab.root, contextMenu.paneId) : null;
     const ctxSessionId = ctxPane?.sessionId ?? null;
-    const ctxTags = ctxSessionId ? tagStore.getTags(ctxSessionId) : [];
     return [
     { label: 'Copy', action: handleCopy, shortcut: 'Cmd+C' },
     { label: 'Paste', action: handlePaste, shortcut: 'Cmd+V' },
@@ -473,14 +468,12 @@
       ] : []),
     ]},
     { label: 'Tags', action: () => {}, children: [
-      { label: 'Add Tag...', action: handleOpenTagModal },
-      ...(ctxTags.length > 0 ? [
-        { type: 'separator' as const },
-        ...ctxTags.map(t => ({
-          label: `\u2715 ${t.name}`,
-          action: () => ctxSessionId && handleRemoveTagFromMenu(ctxSessionId, t.name),
-        })),
-      ] : []),
+      ...(tagStore.definitions.map(def => ({
+        label: `${ctxSessionId && tagStore.isTagAssigned(ctxSessionId, def.id) ? '\u2713 ' : '  '}${def.name}`,
+        action: () => ctxSessionId && tagStore.toggleTagAssignment(ctxSessionId, def.id),
+      }))),
+      ...(tagStore.definitions.length > 0 ? [{ type: 'separator' as const }] : []),
+      { label: 'New Tag...', action: handleOpenNewTagModal },
     ]},
     { label: 'Theme', action: () => {}, children: BUILT_IN_TERMINAL_THEMES.map(theme => ({
       label: theme.name,
@@ -558,45 +551,36 @@
     </div>
   {/if}
 
-  {#if tagModal}
-    <div class="rename-backdrop" onclick={() => tagModal = null} role="presentation">
+  {#if newTagModal}
+    <div class="rename-backdrop" onclick={() => newTagModal = null} role="presentation">
       <div class="rename-modal" onclick={(e) => e.stopPropagation()}>
-        <div class="rename-header">Add Tag</div>
-        {#if tagStore.getTags(tagModal.sessionId).length > 0}
-          <div class="tag-list">
-            {#each tagStore.getTags(tagModal.sessionId) as tag}
-              <span class="tag-badge-modal" style="background: {tag.color}20; color: {tag.color}; border-color: {tag.color}40">
-                {tag.name}
-                <button class="tag-remove" onclick={() => tagModal && tagStore.removeTag(tagModal.sessionId, tag.name)}>&times;</button>
-              </span>
-            {/each}
-          </div>
-        {/if}
+        <div class="rename-header">New Tag</div>
         <input
           class="rename-input"
           type="text"
-          bind:value={tagName}
-          bind:this={tagInputEl}
-          onkeydown={handleTagKeydown}
+          bind:value={newTagName}
+          bind:this={newTagInputEl}
+          onkeydown={handleNewTagKeydown}
           placeholder="Tag name"
         />
         <div class="tag-color-picker">
           {#each TAG_COLORS as color}
             <button
               class="tag-color-swatch"
-              class:selected={tagColor === color}
+              class:selected={newTagColor === color}
               style="background: {color}"
-              onclick={() => tagColor = color}
+              onclick={() => newTagColor = color}
             ></button>
           {/each}
         </div>
         <div class="rename-actions">
-          <button class="rename-btn cancel" onclick={() => tagModal = null}>Done</button>
-          <button class="rename-btn confirm" onclick={handleAddTag} disabled={!tagName.trim()}>Add</button>
+          <button class="rename-btn cancel" onclick={() => newTagModal = null}>Cancel</button>
+          <button class="rename-btn confirm" onclick={handleCreateAndAssignTag} disabled={!newTagName.trim()}>Create</button>
         </div>
       </div>
     </div>
   {/if}
+
 </div>
 
 <style>
@@ -721,38 +705,6 @@
     cursor: not-allowed;
   }
 
-  .tag-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    margin-bottom: 8px;
-  }
-
-  .tag-badge-modal {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 11px;
-    padding: 2px 6px;
-    border-radius: 3px;
-    border: 1px solid;
-  }
-
-  .tag-remove {
-    background: none;
-    border: none;
-    color: inherit;
-    cursor: pointer;
-    font-size: 13px;
-    line-height: 1;
-    padding: 0;
-    opacity: 0.6;
-  }
-
-  .tag-remove:hover {
-    opacity: 1;
-  }
-
   .tag-color-picker {
     display: flex;
     gap: 4px;
@@ -777,4 +729,5 @@
   .tag-color-swatch:hover {
     transform: scale(1.15);
   }
+
 </style>

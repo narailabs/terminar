@@ -188,6 +188,7 @@
 
 <style>
   .search-bar {
+    zoom: var(--controls-zoom, 1);
     position: absolute;
     top: 0;
     right: 16px;

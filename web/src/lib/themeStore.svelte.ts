@@ -9,6 +9,8 @@
 import {
   BUILT_IN_UI_THEMES,
   BUILT_IN_TERMINAL_THEMES,
+  BUILT_IN_UI_THEME_IDS,
+  BUILT_IN_TERMINAL_THEME_IDS,
   type UITheme,
   type TerminalTheme,
 } from './themeTypes';
@@ -52,12 +54,25 @@ function loadState(): ThemeState {
         state.activeUIThemeId = 'dark';
         state.uiMode = 'dark';
       }
-      return state;
+      return migrateCustomThemes(state);
     }
   } catch {
     // ignore
   }
   return { ...DEFAULT_STATE };
+}
+
+function migrateCustomThemes(s: ThemeState): ThemeState {
+  const migratedUI = s.customUIThemes.map((custom) => {
+    const base = BUILT_IN_UI_THEMES.find((b) => b.id === custom.id) ?? BUILT_IN_UI_THEMES[0];
+    return { ...base, ...custom };
+  });
+  const migratedTerminal = s.customTerminalThemes.map((custom) => {
+    const base =
+      BUILT_IN_TERMINAL_THEMES.find((b) => b.id === custom.id) ?? BUILT_IN_TERMINAL_THEMES[0];
+    return { ...base, ...custom, ansi: { ...base.ansi, ...(custom.ansi ?? {}) } };
+  });
+  return { ...s, customUIThemes: migratedUI, customTerminalThemes: migratedTerminal };
 }
 
 function saveState(state: ThemeState): void {
@@ -69,10 +84,32 @@ function saveState(state: ThemeState): void {
 }
 
 let state = $state<ThemeState>(loadState());
+let serverSaveCallback: ((themes: ThemeState) => Promise<void>) | null = null;
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleSave(s: ThemeState): void {
+  // Always save to localStorage immediately (cache)
+  saveState(s);
+
+  // Debounce server save
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+  }
+  saveTimer = setTimeout(async () => {
+    if (serverSaveCallback) {
+      try {
+        await serverSaveCallback(s);
+      } catch (e) {
+        console.error('[ThemeStore] Failed to save to server:', e);
+      }
+    }
+    saveTimer = null;
+  }, 500);
+}
 
 function updateState(newState: ThemeState): void {
   state = newState;
-  saveState(newState);
+  scheduleSave(newState);
 }
 
 export const themeState = {
@@ -85,15 +122,15 @@ export const themeState = {
 
 function findUITheme(id: string, s: ThemeState): UITheme | undefined {
   return (
-    BUILT_IN_UI_THEMES.find((t) => t.id === id) ??
-    s.customUIThemes.find((t) => t.id === id)
+    s.customUIThemes.find((t) => t.id === id) ??
+    BUILT_IN_UI_THEMES.find((t) => t.id === id)
   );
 }
 
 function findTerminalTheme(id: string, s: ThemeState): TerminalTheme | undefined {
   return (
-    BUILT_IN_TERMINAL_THEMES.find((t) => t.id === id) ??
-    s.customTerminalThemes.find((t) => t.id === id)
+    s.customTerminalThemes.find((t) => t.id === id) ??
+    BUILT_IN_TERMINAL_THEMES.find((t) => t.id === id)
   );
 }
 
@@ -195,6 +232,11 @@ const UI_CSS_MAP: Record<string, keyof UITheme> = {
   '--ui-destructive-hover': 'destructiveHover',
   '--ui-scrollbar-thumb': 'scrollbarThumb',
   '--ui-scrollbar-thumb-hover': 'scrollbarThumbHover',
+  '--ui-tab-active': 'tabActive',
+  '--ui-pane-border-active': 'paneBorderActive',
+  '--ui-sidebar-active': 'sidebarActive',
+  '--ui-group-label-bg': 'groupLabelBg',
+  '--ui-group-label-fg': 'groupLabelFg',
 };
 
 export function applyUIThemeCSS(): void {
@@ -204,6 +246,21 @@ export function applyUIThemeCSS(): void {
   const root = document.documentElement;
   for (const [cssVar, themeKey] of Object.entries(UI_CSS_MAP)) {
     root.style.setProperty(cssVar, theme[themeKey]);
+  }
+
+  // Override UI accent colors from the active terminal theme's cursor color
+  const termTheme = findTerminalTheme(state.activeTerminalThemeId, state);
+  if (termTheme) {
+    root.style.setProperty('--ui-tab-active', termTheme.cursor);
+    root.style.setProperty('--ui-pane-border-active', termTheme.cursor);
+    root.style.setProperty('--ui-sidebar-active', termTheme.cursor);
+  }
+
+  // Apply per-terminal-theme UI overrides (saved with the terminal theme's ID)
+  const termUIOverride = state.customUIThemes.find((t) => t.id === state.activeTerminalThemeId);
+  if (termUIOverride) {
+    root.style.setProperty('--ui-group-label-bg', termUIOverride.groupLabelBg);
+    root.style.setProperty('--ui-group-label-fg', termUIOverride.groupLabelFg);
   }
 }
 
@@ -234,6 +291,39 @@ export function updateCustomTerminalTheme(id: string, theme: TerminalTheme): voi
   updateState({
     ...state,
     customTerminalThemes: state.customTerminalThemes.map((t) => (t.id === id ? theme : t)),
+  });
+}
+
+export function upsertCustomUITheme(theme: UITheme): void {
+  const exists = state.customUIThemes.some((t) => t.id === theme.id);
+  if (exists) {
+    updateCustomUITheme(theme.id, theme);
+  } else {
+    addCustomUITheme(theme);
+  }
+}
+
+export function upsertCustomTerminalTheme(theme: TerminalTheme): void {
+  const exists = state.customTerminalThemes.some((t) => t.id === theme.id);
+  if (exists) {
+    updateCustomTerminalTheme(theme.id, theme);
+  } else {
+    addCustomTerminalTheme(theme);
+  }
+}
+
+export function isBuiltInOverridden(id: string): boolean {
+  return (
+    (BUILT_IN_UI_THEME_IDS.has(id) && state.customUIThemes.some((t) => t.id === id)) ||
+    (BUILT_IN_TERMINAL_THEME_IDS.has(id) && state.customTerminalThemes.some((t) => t.id === id))
+  );
+}
+
+export function resetBuiltInOverride(id: string): void {
+  updateState({
+    ...state,
+    customUIThemes: state.customUIThemes.filter((t) => t.id !== id),
+    customTerminalThemes: state.customTerminalThemes.filter((t) => t.id !== id),
   });
 }
 
@@ -268,3 +358,22 @@ export function deleteCustomTerminalTheme(id: string): void {
   }
   updateState(newState);
 }
+
+// ── Server sync API ─────────────────────────────────────────────────────────
+
+export function setSaveCallback(callback: (themes: ThemeState) => Promise<void>): void {
+  serverSaveCallback = callback;
+}
+
+export function initializeFromServer(serverThemes: ThemeState | null): void {
+  if (serverThemes) {
+    const merged = migrateCustomThemes({ ...DEFAULT_STATE, ...serverThemes });
+    state = merged;
+    saveState(merged);
+  }
+}
+
+export const themeStoreApi = {
+  initialize: initializeFromServer,
+  setSaveCallback,
+};

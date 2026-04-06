@@ -52,6 +52,7 @@
 
 <style>
   .broadcast-bar {
+    zoom: var(--controls-zoom, 1);
     display: flex;
     flex-direction: column;
     gap: 4px;

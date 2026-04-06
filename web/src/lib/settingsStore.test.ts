@@ -50,6 +50,8 @@ const mockTerminalTheme = {
     brightCyan: '#47c4ff',
     brightWhite: '#e5e5e5',
   },
+  fontSize: 14,
+  fontFamily: 'Menlo',
 };
 
 const { mockThemeStateWritable } = vi.hoisted(() => {
@@ -115,8 +117,8 @@ describe('settingsStore', () => {
     // was already created. Instead, verify that initialize() + saveToCache round-trips.
     const customSettings: TerminalSettings = {
       ...DEFAULT_SETTINGS,
-      fontSize: 18,
-      fontFamily: 'Monaco',
+      terminalZoom: 1.5,
+      controlsZoom: 0.8,
     };
     settingsStore.initialize(customSettings);
 
@@ -126,21 +128,21 @@ describe('settingsStore', () => {
       expect.any(String)
     );
     const stored = JSON.parse(localStorageMock._getStore()['terminal-settings']);
-    expect(stored.fontSize).toBe(18);
-    expect(stored.fontFamily).toBe('Monaco');
+    expect(stored.terminalZoom).toBe(1.5);
+    expect(stored.controlsZoom).toBe(0.8);
   });
 
   // ── 3. initialize() with server settings merges with defaults ───────────
 
   it('initialize() should merge server settings with defaults', () => {
-    const partial = { fontSize: 20, cursorBlink: false } as TerminalSettings;
+    const partial = { terminalZoom: 1.5, cursorBlink: false } as TerminalSettings;
     settingsStore.initialize(partial);
 
     const current = settingsStore.value;
-    expect(current.fontSize).toBe(20);
+    expect(current.terminalZoom).toBe(1.5);
     expect(current.cursorBlink).toBe(false);
     // Other fields should remain as defaults
-    expect(current.fontFamily).toBe(DEFAULT_SETTINGS.fontFamily);
+    expect(current.controlsZoom).toBe(DEFAULT_SETTINGS.controlsZoom);
     expect(current.lineHeight).toBe(DEFAULT_SETTINGS.lineHeight);
     expect(current.showPaneTitleBars).toBe(DEFAULT_SETTINGS.showPaneTitleBars);
   });
@@ -157,11 +159,11 @@ describe('settingsStore', () => {
   // ── 5. updateSetting() updates a single key ────────────────────────────
 
   it('updateSetting() should update a single key', () => {
-    settingsStore.updateSetting('fontSize', 22);
+    settingsStore.updateSetting('terminalZoom', 1.5);
     const current = settingsStore.value;
-    expect(current.fontSize).toBe(22);
+    expect(current.terminalZoom).toBe(1.5);
     // Other keys remain unchanged
-    expect(current.fontFamily).toBe(DEFAULT_SETTINGS.fontFamily);
+    expect(current.controlsZoom).toBe(DEFAULT_SETTINGS.controlsZoom);
   });
 
   // ── 6. updateSetting() saves to localStorage ───────────────────────────
@@ -181,14 +183,14 @@ describe('settingsStore', () => {
 
   it('updateSettings() should update multiple keys at once', () => {
     settingsStore.updateSettings({
-      fontSize: 16,
-      fontFamily: 'Fira Code',
+      terminalZoom: 1.5,
+      controlsZoom: 0.8,
       cursorBlink: false,
     });
 
     const current = settingsStore.value;
-    expect(current.fontSize).toBe(16);
-    expect(current.fontFamily).toBe('Fira Code');
+    expect(current.terminalZoom).toBe(1.5);
+    expect(current.controlsZoom).toBe(0.8);
     expect(current.cursorBlink).toBe(false);
     // Untouched keys remain default
     expect(current.lineHeight).toBe(DEFAULT_SETTINGS.lineHeight);
@@ -197,7 +199,7 @@ describe('settingsStore', () => {
   // ── 8. reset() returns to DEFAULT_SETTINGS ─────────────────────────────
 
   it('reset() should return all settings to defaults', () => {
-    settingsStore.updateSettings({ fontSize: 24, fontFamily: 'Consolas' });
+    settingsStore.updateSettings({ terminalZoom: 2.0, controlsZoom: 0.5 });
     settingsStore.reset();
 
     const current = settingsStore.value;
@@ -207,7 +209,7 @@ describe('settingsStore', () => {
   // ── 9. reset() saves defaults to localStorage ──────────────────────────
 
   it('reset() should save DEFAULT_SETTINGS to localStorage', () => {
-    settingsStore.updateSettings({ fontSize: 24 });
+    settingsStore.updateSettings({ terminalZoom: 2.0 });
     vi.clearAllMocks();
 
     settingsStore.reset();
@@ -224,7 +226,7 @@ describe('settingsStore', () => {
     const saveCallback = vi.fn().mockResolvedValue(undefined);
     settingsStore.setSaveCallback(saveCallback);
 
-    settingsStore.updateSetting('fontSize', 18);
+    settingsStore.updateSetting('terminalZoom', 1.5);
 
     // Not called immediately
     expect(saveCallback).not.toHaveBeenCalled();
@@ -237,7 +239,7 @@ describe('settingsStore', () => {
 
     expect(saveCallback).toHaveBeenCalledTimes(1);
     expect(saveCallback).toHaveBeenCalledWith(
-      expect.objectContaining({ fontSize: 18 })
+      expect.objectContaining({ terminalZoom: 1.5 })
     );
 
     // Clean up
@@ -250,11 +252,11 @@ describe('settingsStore', () => {
     const saveCallback = vi.fn().mockResolvedValue(undefined);
     settingsStore.setSaveCallback(saveCallback);
 
-    settingsStore.updateSetting('fontSize', 16);
+    settingsStore.updateSetting('terminalZoom', 1.2);
     vi.advanceTimersByTime(100);
-    settingsStore.updateSetting('fontSize', 18);
+    settingsStore.updateSetting('terminalZoom', 1.5);
     vi.advanceTimersByTime(100);
-    settingsStore.updateSetting('fontSize', 20);
+    settingsStore.updateSetting('terminalZoom', 2.0);
 
     // Not yet called (timer keeps resetting)
     expect(saveCallback).not.toHaveBeenCalled();
@@ -266,7 +268,7 @@ describe('settingsStore', () => {
     expect(saveCallback).toHaveBeenCalledTimes(1);
     // Should be called with the final value
     expect(saveCallback).toHaveBeenCalledWith(
-      expect.objectContaining({ fontSize: 20 })
+      expect.objectContaining({ terminalZoom: 2.0 })
     );
 
     // Clean up
@@ -276,18 +278,18 @@ describe('settingsStore', () => {
   // ── 12. get() returns current settings synchronously ────────────────────
 
   it('get() should return current settings synchronously', () => {
-    settingsStore.updateSetting('fontSize', 12);
+    settingsStore.updateSetting('terminalZoom', 1.2);
     const result = settingsStore.get();
-    expect(result.fontSize).toBe(12);
+    expect(result.terminalZoom).toBe(1.2);
     expect(result).toEqual(settingsStore.value);
   });
 
   // ── 13. xtermOptions derived store maps settings correctly ──────────────
 
   it('xtermOptions should derive correct xterm options from settings and theme', () => {
+    // Font comes from the theme (mockTerminalTheme.fontSize=14, fontFamily='Menlo')
+    // Zoom defaults to 1.0, so effective fontSize = 14 * 1.0 / 1.0 = 14
     settingsStore.updateSettings({
-      fontSize: 16,
-      fontFamily: 'Fira Code',
       cursorStyle: 'bar',
       cursorBlink: false,
       lineHeight: 1.2,
@@ -295,8 +297,8 @@ describe('settingsStore', () => {
 
     const opts = xtermOptions.value;
 
-    expect(opts.fontSize).toBe(16);
-    expect(opts.fontFamily).toBe('Fira Code, Monaco, "Courier New", monospace');
+    expect(opts.fontSize).toBe(14); // theme's base font size at zoom 1.0
+    expect(opts.fontFamily).toBe('Menlo, Monaco, "Courier New", monospace');
     expect(opts.cursorStyle).toBe('bar');
     expect(opts.cursorBlink).toBe(false);
     expect(opts.lineHeight).toBe(1.2);
@@ -314,6 +316,16 @@ describe('settingsStore', () => {
     expect(opts.theme.black).toBe('#000000');
     expect(opts.theme.red).toBe('#cd3131');
     expect(opts.theme.green).toBe('#0DBC79');
+  });
+
+  it('xtermOptions should apply terminal zoom to theme font size', () => {
+    settingsStore.updateSettings({
+      terminalZoom: 1.5,
+    });
+
+    const opts = xtermOptions.value;
+    // effectiveFontSize = Math.round(14 * 1.5) = 21
+    expect(opts.fontSize).toBe(21);
   });
 
   // ── 14. FONT_FAMILIES export ────────────────────────────────────────────

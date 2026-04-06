@@ -6,7 +6,7 @@
   import { foregroundStore } from '../lib/foregroundStore.svelte';
   import { titleStore } from '../lib/titleStore.svelte';
   import { sessionPaneCounts, newSessionIds, activeTab } from '../lib/workspaceStore';
-  import { tagStore } from '../lib/tagStore.svelte';
+  import { tagStore, TAG_COLORS } from '../lib/tagStore.svelte';
   import { sidebarGroupStore, type SidebarGroup } from '../lib/sidebarGroupStore.svelte';
   import { getAllPanes } from '../lib/workspaceTypes';
   import { activePaneStore } from '../lib/activePaneStore.svelte';
@@ -48,6 +48,24 @@
   let editingGroupId: string | null = $state(null);
   let editingGroupName: string = $state('');
 
+  // New tag modal
+  let newTagModal = $state<{ sessionId: string } | null>(null);
+  let newTagName = $state('');
+  let newTagColor = $state(TAG_COLORS[0]);
+  let newTagInputEl: HTMLInputElement | undefined = $state(undefined);
+
+  function handleCreateAndAssignTag() {
+    if (!newTagModal || !newTagName.trim()) return;
+    const def = tagStore.addDefinition(newTagName.trim(), newTagColor);
+    tagStore.toggleTagAssignment(newTagModal.sessionId, def.id);
+    newTagModal = null;
+  }
+
+  function handleNewTagKeydown(event: KeyboardEvent) {
+    if (event.key === 'Enter') handleCreateAndAssignTag();
+    else if (event.key === 'Escape') newTagModal = null;
+  }
+
   const sessionContextMenuItems = [
     { label: 'Rename', action: 'rename' },
     { label: '', action: '', separator: true },
@@ -58,7 +76,7 @@
 
   function getSessionContextMenuItems(sessionId: string) {
     const group = sidebarGroupStore.getGroupForSession(sessionId);
-    const items = [...sessionContextMenuItems];
+    const items: any[] = [...sessionContextMenuItems];
     if (group) {
       // Insert "Remove from Group" before the last separator+Close
       items.splice(items.length - 2, 0, { label: 'Remove from Group', action: 'ungroup' });
@@ -70,6 +88,18 @@
         items.splice(items.length - 2, 0, { label: `Move to "${g.name}"`, action: `move-to-group:${g.id}` });
       }
     }
+    // Add Tags submenu
+    const assignedIds = new Set(tagStore.getAssignedIds(sessionId));
+    items.splice(items.length - 2, 0, {
+      label: 'Tags', action: '', children: [
+        ...tagStore.definitions.map(def => ({
+          label: `${assignedIds.has(def.id) ? '\u2713 ' : '  '}${def.name}`,
+          action: `toggle-tag:${def.id}`,
+        })),
+        ...(tagStore.definitions.length > 0 ? [{ type: 'separator' as const }] : []),
+        { label: 'New Tag...', action: 'new-tag' },
+      ],
+    });
     return items;
   }
 
@@ -256,6 +286,14 @@
     } else if (action.startsWith('move-to-group:') && sessionId) {
       const targetGroupId = action.slice('move-to-group:'.length);
       sidebarGroupStore.addSession(targetGroupId, sessionId);
+    } else if (action.startsWith('toggle-tag:') && sessionId) {
+      const tagId = action.slice('toggle-tag:'.length);
+      tagStore.toggleTagAssignment(sessionId, tagId);
+    } else if (action === 'new-tag' && sessionId) {
+      newTagModal = { sessionId };
+      newTagName = '';
+      newTagColor = TAG_COLORS[0];
+      setTimeout(() => newTagInputEl?.focus(), 0);
     }
 
     contextMenu = null;
@@ -332,7 +370,7 @@
         foregroundProcess={foregroundStore.processes.get(session.id) ?? null}
         terminalTitle={titleStore.titles.get(session.id) ?? ''}
         paneCount={$sessionPaneCounts.get(session.id) ?? 0}
-        tags={tagStore.getTags(session.id)}
+        tags={tagStore.getTagsForSession(session.id)}
         isActive={session.id === activeSessionId}
         startEditing={editingSessionId === session.id}
         onselect={handleSelect}
@@ -424,6 +462,36 @@
     onselect={(action) => handleMenuSelect(action)}
     onclose={handleMenuClose}
   />
+{/if}
+
+{#if newTagModal}
+  <div class="new-tag-backdrop" onclick={() => newTagModal = null} role="presentation">
+    <div class="new-tag-modal" onclick={(e) => e.stopPropagation()}>
+      <div class="new-tag-header">New Tag</div>
+      <input
+        class="new-tag-input"
+        type="text"
+        bind:value={newTagName}
+        bind:this={newTagInputEl}
+        onkeydown={handleNewTagKeydown}
+        placeholder="Tag name"
+      />
+      <div class="new-tag-color-picker">
+        {#each TAG_COLORS as color}
+          <button
+            class="new-tag-color-swatch"
+            class:selected={newTagColor === color}
+            style="background: {color}"
+            onclick={() => newTagColor = color}
+          ></button>
+        {/each}
+      </div>
+      <div class="new-tag-actions">
+        <button class="new-tag-btn cancel" onclick={() => newTagModal = null}>Cancel</button>
+        <button class="new-tag-btn confirm" onclick={handleCreateAndAssignTag} disabled={!newTagName.trim()}>Create</button>
+      </div>
+    </div>
+  </div>
 {/if}
 
 <style>
@@ -518,6 +586,117 @@
 
   .session-item-wrapper.assigned {
     opacity: 0.6;
+  }
+
+  /* ── New tag modal ─────────────────────────────────────────────────── */
+
+  .new-tag-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1100;
+  }
+
+  .new-tag-modal {
+    background: var(--ui-bg-secondary, #181a1c);
+    border: 1px solid var(--ui-border, #454545);
+    border-radius: 6px;
+    padding: 16px;
+    min-width: 280px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  }
+
+  .new-tag-header {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--ui-text-primary, #fdfbfe);
+    margin-bottom: 12px;
+  }
+
+  .new-tag-input {
+    width: 100%;
+    padding: 8px 10px;
+    background: var(--ui-bg-tertiary, #242629);
+    border: 1px solid var(--ui-border, #555);
+    border-radius: 4px;
+    color: var(--ui-text-primary, #fdfbfe);
+    font-size: 13px;
+    box-sizing: border-box;
+  }
+
+  .new-tag-input:focus {
+    outline: none;
+    border-color: var(--ui-accent, #a0a7ff);
+  }
+
+  .new-tag-color-picker {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin: 8px 0 4px;
+  }
+
+  .new-tag-color-swatch {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .new-tag-color-swatch.selected {
+    border-color: white;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3);
+  }
+
+  .new-tag-color-swatch:hover {
+    transform: scale(1.15);
+  }
+
+  .new-tag-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .new-tag-btn {
+    padding: 6px 14px;
+    border: 1px solid var(--ui-border, #555);
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .new-tag-btn.cancel {
+    background: var(--ui-bg-tertiary, #242629);
+    color: var(--ui-text-primary, #fdfbfe);
+  }
+
+  .new-tag-btn.cancel:hover {
+    background: var(--ui-bg-hover, #4a4a4a);
+  }
+
+  .new-tag-btn.confirm {
+    background: var(--ui-accent, #a0a7ff);
+    color: white;
+    border-color: var(--ui-accent, #a0a7ff);
+  }
+
+  .new-tag-btn.confirm:hover {
+    filter: brightness(1.1);
+  }
+
+  .new-tag-btn.confirm:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
 
   /* ── Sidebar groups ────────────────────────────────────────────────── */

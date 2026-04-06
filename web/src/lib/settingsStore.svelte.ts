@@ -34,8 +34,6 @@ export const DEFAULT_TITLE_BAR_FIELDS: TitleBarFieldEntry[] = [
  * Terminal settings configuration
  */
 export interface TerminalSettings {
-  fontSize: number;        // 10-24px, default 14
-  fontFamily: string;      // Menlo, Monaco, Consolas, Fira Code, JetBrains Mono
   cursorStyle: 'block' | 'underline' | 'bar';
   cursorBlink: boolean;    // default true
   lineHeight: number;      // 1.0-2.0, default 1.0
@@ -43,14 +41,14 @@ export interface TerminalSettings {
   dimInactivePanes: number; // 0.1-1.0 opacity for inactive panes (1.0 = no dim)
   autoScroll: boolean;     // default true — scroll to bottom on new output
   titleBarFields: TitleBarFieldEntry[];
+  terminalZoom: number;    // 0.5-2.0, default 1.0 — multiplier for terminal font size
+  controlsZoom: number;    // 0.5-2.0, default 1.0 — multiplier for all non-terminal UI
 }
 
 /**
  * Default terminal settings
  */
 export const DEFAULT_SETTINGS: TerminalSettings = {
-  fontSize: 14,
-  fontFamily: 'Menlo',
   cursorStyle: 'block',
   cursorBlink: true,
   lineHeight: 1.0,
@@ -58,6 +56,8 @@ export const DEFAULT_SETTINGS: TerminalSettings = {
   dimInactivePanes: 0.4,
   autoScroll: true,
   titleBarFields: [...DEFAULT_TITLE_BAR_FIELDS],
+  terminalZoom: 1.0,
+  controlsZoom: 1.0,
 };
 
 /**
@@ -220,6 +220,16 @@ export const settingsStore = {
   },
 };
 
+/**
+ * Apply controls zoom as a CSS variable. Individual UI chrome components
+ * apply `zoom: var(--controls-zoom, 1)` in their own styles, leaving
+ * terminals untouched.
+ */
+export function applyControlsZoom(): void {
+  const zoom = settings.controlsZoom || 1;
+  document.documentElement.style.setProperty('--controls-zoom', String(zoom));
+}
+
 // ── Per-pane title bar visibility overrides ───────────────────────────────────
 // Overrides only toggle visibility per-pane; order comes from global settings.
 
@@ -274,9 +284,17 @@ export const xtermOptions = {
     void themeState.value;
     const termTheme = getActiveTerminalTheme();
 
+    // Font comes from the active terminal theme.
+    // Terminal zoom scales the theme's base font size.
+    // Controls zoom is applied via CSS zoom on UI chrome only — terminals are unaffected.
+    const terminalZoom = s.terminalZoom || 1;
+    const baseFontSize = termTheme.fontSize ?? 14;
+    const fontFamily = termTheme.fontFamily ?? 'Menlo';
+    const effectiveFontSize = Math.round(baseFontSize * terminalZoom);
+
     return {
-      fontSize: s.fontSize,
-      fontFamily: `${s.fontFamily}, Monaco, "Courier New", monospace`,
+      fontSize: effectiveFontSize,
+      fontFamily: `${fontFamily}, Monaco, "Courier New", monospace`,
       cursorStyle: s.cursorStyle,
       cursorBlink: s.cursorBlink,
       lineHeight: s.lineHeight,

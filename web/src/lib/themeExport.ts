@@ -61,21 +61,30 @@ export function importTheme(data: ExportedTheme): {
   const result: { ui?: UITheme; terminal?: TerminalTheme } = {};
 
   if (data.ui) {
+    const imported = data.ui as Partial<UITheme> & Record<string, unknown>;
     result.ui = {
-      scrollbarThumb: 'rgba(121,121,121,0.4)',
-      scrollbarThumbHover: 'rgba(121,121,121,0.7)',
       ...data.ui,
       id: generateId(),
       name: data.ui.name || data.name,
+      scrollbarThumb: imported.scrollbarThumb ?? 'rgba(121,121,121,0.4)',
+      scrollbarThumbHover: imported.scrollbarThumbHover ?? 'rgba(121,121,121,0.7)',
+      tabActive: imported.tabActive ?? imported.accent ?? '#a0a7ff',
+      paneBorderActive: imported.paneBorderActive ?? imported.accent ?? '#a0a7ff',
+      sidebarActive: imported.sidebarActive ?? imported.accent ?? '#a0a7ff',
+      groupLabelBg: imported.groupLabelBg ?? '#fdfbfe',
+      groupLabelFg: imported.groupLabelFg ?? '#0d0e10',
     };
   }
 
   if (data.terminal) {
+    const imported = data.terminal as Partial<TerminalTheme> & Record<string, unknown>;
     result.terminal = {
       ...data.terminal,
       id: generateId(),
       name: data.terminal.name || data.name,
       ansi: { ...data.terminal.ansi },
+      fontSize: imported.fontSize ?? 14,
+      fontFamily: imported.fontFamily ?? 'Menlo',
     };
   }
 

@@ -446,6 +446,7 @@
 
 <style>
   .title-bar {
+    zoom: var(--controls-zoom, 1);
     display: flex;
     align-items: center;
     height: 38px;
@@ -491,7 +492,6 @@
     display: flex;
     overflow: hidden;
     gap: 2px;
-    flex: 1;
     min-width: 0;
   }
 
@@ -516,7 +516,7 @@
   }
 
   .tab.active {
-    border-bottom-color: var(--ui-accent, #a0a7ff);
+    border-bottom-color: var(--ui-tab-active, #a0a7ff);
   }
 
   .tab.dragging {
@@ -543,7 +543,7 @@
   }
 
   .tab.active .tab-name {
-    color: var(--ui-accent, #a0a7ff);
+    color: var(--ui-tab-active, #a0a7ff);
   }
 
   .activity-badge {
@@ -724,7 +724,7 @@
 
   /* Draggable spacer between tabs and toolbar */
   .drag-spacer {
-    flex: 0 0 auto;
+    flex: 1 1 auto;
     min-width: 16px;
   }
 

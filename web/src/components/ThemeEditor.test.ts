@@ -92,24 +92,22 @@ describe('ThemeEditor', () => {
     expect(screen.getByText('Font & Cursor')).toBeTruthy();
   });
 
-  it('font size slider updates settingsStore', async () => {
-    const spy = vi.spyOn(settingsStore, 'updateSetting');
+  it('font size slider updates local state (per-theme, not settingsStore)', async () => {
     render(ThemeEditor, { props: { isOpen: true } });
     const slider = document.querySelector('#themeEditorFontSize') as HTMLInputElement;
     expect(slider).toBeTruthy();
     await fireEvent.input(slider, { target: { value: '18' } });
-    expect(spy).toHaveBeenCalledWith('fontSize', 18);
-    spy.mockRestore();
+    // Font size is now per-theme local state, not a settingsStore field
+    expect(slider.value).toBe('18');
   });
 
-  it('font family select updates settingsStore', async () => {
-    const spy = vi.spyOn(settingsStore, 'updateSetting');
+  it('font family select updates local state (per-theme, not settingsStore)', async () => {
     render(ThemeEditor, { props: { isOpen: true } });
     const select = document.querySelector('#themeEditorFontFamily') as HTMLSelectElement;
     expect(select).toBeTruthy();
     await fireEvent.change(select, { target: { value: 'Fira Code' } });
-    expect(spy).toHaveBeenCalledWith('fontFamily', 'Fira Code');
-    spy.mockRestore();
+    // Font family is now per-theme local state, not a settingsStore field
+    expect(select.value).toBe('Fira Code');
   });
 
   it('cursor style select updates settingsStore', async () => {
@@ -162,6 +160,8 @@ describe('ThemeEditor - Edit Mode', () => {
     textPrimary: '#eee', textSecondary: '#ccc', textMuted: '#999',
     border: '#444', accent: '#0ff', accentHover: '#0ee',
     destructive: '#f00', destructiveHover: '#e00',
+    scrollbarThumb: 'rgba(100,100,100,0.4)', scrollbarThumbHover: 'rgba(100,100,100,0.7)',
+    tabActive: '#0ff', paneBorderActive: '#0ff', sidebarActive: '#0ff',
   };
 
   const editTerm: TerminalTheme = {
@@ -180,6 +180,8 @@ describe('ThemeEditor - Edit Mode', () => {
       brightBlack: '#555', brightRed: '#f55', brightGreen: '#5f5', brightYellow: '#ff5',
       brightBlue: '#55f', brightMagenta: '#f5f', brightCyan: '#5ff', brightWhite: '#fff',
     },
+    fontSize: 14,
+    fontFamily: 'Menlo',
   };
 
   beforeEach(() => {
