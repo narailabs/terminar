@@ -325,8 +325,6 @@
         isLocal={true}
         onReconnect={handleReconnect}
         onLogout={() => {}}
-        onSettings={() => {}}
-        onToggleBroadcast={toggleBroadcast}
       />
       <div class="workspace-area">
         <WorkspaceView />
@@ -345,6 +343,7 @@
       onrename={(detail) => handleSidebarRename(detail)}
       oncreate={() => handleSidebarCreate()}
       onsettings={() => {}}
+      onToggleBroadcast={() => toggleBroadcast()}
       onpanedrop={(detail) => handleSidebarPaneDrop(detail)}
     />
   </div>
