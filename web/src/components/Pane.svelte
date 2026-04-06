@@ -19,6 +19,7 @@
   import { createActionDispatcher } from '../lib/actionDispatcher';
   import { createKeyEventHandler } from '../lib/keyEventHandler';
   import { getManagerContext, getSessionsContext, getActionsContext, getPaneActionsContext } from '../lib/sessionContext.svelte';
+  import { themeState, getTerminalTheme } from '../lib/themeStore.svelte';
 
   let {
     paneId,
@@ -37,6 +38,12 @@
   let manager = $derived(managerBox.value);
 
   let showTitleBar = $state(true);
+
+  // Resolve per-pane terminal theme for accent color (border, etc.)
+  let paneTheme = $derived((() => {
+    void themeState.value;
+    return getTerminalTheme(paneId);
+  })());
 
   // Live session info from sessions store (updated by CwdChanged events)
   let currentSession = $derived(sessionId ? sessionsBox.value.find(s => s.id === sessionId) : null);
@@ -417,6 +424,7 @@
   class:drop-right={dropZone === 'right'}
   class:drop-top={dropZone === 'top'}
   class:drop-bottom={dropZone === 'bottom'}
+  style:--pane-accent={paneTheme?.cursor}
   class:drop-center={dropZone === 'center'}
   ondragover={handleDragOver}
   ondragleave={handleDragLeave}
@@ -733,7 +741,7 @@
   }
 
   .pane.active {
-    border-color: var(--ui-pane-border-active, #a0a7ff);
+    border-color: var(--pane-accent, var(--ui-pane-border-active, #a0a7ff));
   }
 
   .pane.broadcast-target {

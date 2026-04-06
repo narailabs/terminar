@@ -246,17 +246,12 @@ export function applyUIThemeCSS(): void {
     root.style.setProperty(cssVar, theme[themeKey]);
   }
 
-  // Override UI accent colors from the active terminal theme's cursor color
-  const termTheme = findTerminalTheme(state.activeTerminalThemeId, state);
-  if (termTheme) {
-    root.style.setProperty('--ui-tab-active', termTheme.cursor);
-    root.style.setProperty('--ui-pane-border-active', termTheme.cursor);
-    root.style.setProperty('--ui-sidebar-active', termTheme.cursor);
-  }
-
-  // Apply per-terminal-theme UI overrides (saved with the terminal theme's ID)
+  // Apply per-terminal-theme UI overrides (saved with the terminal theme's ID
+  // when editing built-in themes, where terminal/UI theme IDs may differ)
   const termUIOverride = state.customUIThemes.find((t) => t.id === state.activeTerminalThemeId);
   if (termUIOverride) {
+    root.style.setProperty('--ui-accent', termUIOverride.accent);
+    root.style.setProperty('--ui-accent-hover', termUIOverride.accentHover);
     root.style.setProperty('--ui-tab-active', termUIOverride.tabActive);
     root.style.setProperty('--ui-pane-border-active', termUIOverride.paneBorderActive);
     root.style.setProperty('--ui-sidebar-active', termUIOverride.sidebarActive);
