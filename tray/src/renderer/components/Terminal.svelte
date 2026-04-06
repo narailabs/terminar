@@ -673,6 +673,13 @@
     return getTerminalTheme(paneId);
   })());
 
+  function hexToRgba(hex: string, alpha: number): string {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+
   // Merge layout settings from xtermOptions with per-pane theme
   let resolvedOptions = $derived(xtermOptions.value && paneTheme ? {
     ...xtermOptions.value,
@@ -1236,7 +1243,11 @@
 
 <div class="terminal-wrapper">
   <div class="terminal-margins" style:background-color={resolvedOptions?.theme?.background}>
-    <div class="terminal-container" bind:this={terminalContainer} onmousedown={() => { if (term) term.focus(); }}></div>
+    <div class="terminal-container" bind:this={terminalContainer} onmousedown={() => { if (term) term.focus(); }}
+      style:--scrollbar-bg={paneTheme ? hexToRgba(paneTheme.foreground, 0.2) : undefined}
+      style:--scrollbar-bg-hover={paneTheme ? hexToRgba(paneTheme.foreground, 0.4) : undefined}
+      style:--scrollbar-bg-active={paneTheme ? hexToRgba(paneTheme.foreground, 0.5) : undefined}
+    ></div>
   </div>
   <button
     class="scroll-to-bottom-badge"
@@ -1322,8 +1333,17 @@
   }
 
   /* xterm v6 uses VS Code's SmoothScrollableElement with class .xterm-scrollable-element.
-     The old .xterm-viewport native scrollbar is no longer used for scrolling. */
+     The old .xterm-viewport native scrollbar is no longer used for scrolling.
+     xterm bakes scrollbar colors into a <style> at init and doesn't update on theme
+     changes, so we override via CSS custom properties set on .terminal-container. */
   .terminal-container :global(.xterm-scrollable-element > .scrollbar > .slider) {
     border-radius: 5px;
+    background: var(--scrollbar-bg) !important;
+  }
+  .terminal-container :global(.xterm-scrollable-element > .scrollbar > .slider:hover) {
+    background: var(--scrollbar-bg-hover) !important;
+  }
+  .terminal-container :global(.xterm-scrollable-element > .scrollbar > .slider.active) {
+    background: var(--scrollbar-bg-active) !important;
   }
 </style>
