@@ -316,36 +316,38 @@
 
 <main>
   <div class="app-container">
-    <div class="main-area">
-      <AppToolbar
-        {connectionState}
-        {reconnectAttempt}
-        {reconnectDelay}
-        isLocalEchoMode={false}
-        isLocal={true}
-        onReconnect={handleReconnect}
-        onLogout={() => {}}
-      />
-      <div class="workspace-area">
-        <WorkspaceView />
-      </div>
-      {#if showBroadcastBar}
-        <BroadcastBar onClose={closeBroadcastBar} />
-      {/if}
-    </div>
-    <Sidebar
-      {sessions}
-      {activeSessionId}
-      isOpen={sidebarOpen}
-      broadcastMode={broadcastEnabled.value}
-      ontoggle={() => handleSidebarToggle()}
-      onclose={(sessionId) => handleSidebarClose(sessionId)}
-      onrename={(detail) => handleSidebarRename(detail)}
-      oncreate={() => handleSidebarCreate()}
-      onsettings={() => {}}
-      onToggleBroadcast={() => toggleBroadcast()}
-      onpanedrop={(detail) => handleSidebarPaneDrop(detail)}
+    <AppToolbar
+      {connectionState}
+      {reconnectAttempt}
+      {reconnectDelay}
+      isLocalEchoMode={false}
+      isLocal={true}
+      onReconnect={handleReconnect}
+      onLogout={() => {}}
     />
+    <div class="content-area">
+      <div class="main-area">
+        <div class="workspace-area">
+          <WorkspaceView />
+        </div>
+        {#if showBroadcastBar}
+          <BroadcastBar onClose={closeBroadcastBar} />
+        {/if}
+      </div>
+      <Sidebar
+        {sessions}
+        {activeSessionId}
+        isOpen={sidebarOpen}
+        broadcastMode={broadcastEnabled.value}
+        ontoggle={() => handleSidebarToggle()}
+        onclose={(sessionId) => handleSidebarClose(sessionId)}
+        onrename={(detail) => handleSidebarRename(detail)}
+        oncreate={() => handleSidebarCreate()}
+        onsettings={() => {}}
+        onToggleBroadcast={() => toggleBroadcast()}
+        onpanedrop={(detail) => handleSidebarPaneDrop(detail)}
+      />
+    </div>
   </div>
 </main>
 
@@ -366,7 +368,14 @@
 
   .app-container {
     display: flex;
+    flex-direction: column;
     height: 100%;
+  }
+
+  .content-area {
+    flex: 1;
+    display: flex;
+    min-height: 0;
   }
 
   .main-area {
