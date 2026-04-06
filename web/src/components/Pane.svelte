@@ -588,8 +588,7 @@
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
-    direction: rtl;
-    text-align: left;
+    white-space: nowrap;
   }
 
   .close-btn {
