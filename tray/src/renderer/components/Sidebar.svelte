@@ -192,7 +192,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 12px 12px 6px;
+    padding: 10px 12px 10x 6px;
     border-bottom: 1px solid var(--ui-border, #47484a);
   }
 

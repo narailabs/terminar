@@ -494,7 +494,7 @@
             aria-label="Group settings"
             title="Group settings"
           >
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
               <path fill-rule="evenodd" clip-rule="evenodd" d="M9.1 4.4L8.6 2H7.4L6.9 4.4L6.5 4.6L4.4 3.5L3.5 4.4L4.6 6.5L4.4 6.9L2 7.4V8.6L4.4 9.1L4.6 9.5L3.5 11.6L4.4 12.5L6.5 11.4L6.9 11.6L7.4 14H8.6L9.1 11.6L9.5 11.4L11.6 12.5L12.5 11.6L11.4 9.5L11.6 9.1L14 8.6V7.4L11.6 6.9L11.4 6.5L12.5 4.4L11.6 3.5L9.5 4.6L9.1 4.4ZM8 10C9.1046 10 10 9.1046 10 8C10 6.8954 9.1046 6 8 6C6.8954 6 6 6.8954 6 8C6 9.1046 6.8954 10 8 10Z"/>
             </svg>
           </button>
@@ -884,10 +884,16 @@
   }
 
   .group-count {
-    color: var(--ui-text-muted, #555);
+    background: var(--ui-bg-tertiary, #242629);
+    color: var(--ui-text-primary, #fdfbfe);
     font-size: 9px;
     font-weight: 400;
+    padding: 1px 5px;
+    border-radius: 10px;
+    min-width: 14px;
+    text-align: center;
     flex-shrink: 0;
+    margin-bottom: 1px;
   }
 
   .group-drop-hint {
@@ -902,7 +908,7 @@
     border: none;
     padding: 2px;
     cursor: pointer;
-    color: var(--ui-text-muted, #777);
+    color: #626262;
     opacity: 0.5;
     display: flex;
     align-items: center;
