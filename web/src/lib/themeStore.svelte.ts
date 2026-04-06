@@ -235,8 +235,6 @@ const UI_CSS_MAP: Record<string, keyof UITheme> = {
   '--ui-tab-active': 'tabActive',
   '--ui-pane-border-active': 'paneBorderActive',
   '--ui-sidebar-active': 'sidebarActive',
-  '--ui-group-label-bg': 'groupLabelBg',
-  '--ui-group-label-fg': 'groupLabelFg',
 };
 
 export function applyUIThemeCSS(): void {
@@ -262,8 +260,6 @@ export function applyUIThemeCSS(): void {
     root.style.setProperty('--ui-tab-active', termUIOverride.tabActive);
     root.style.setProperty('--ui-pane-border-active', termUIOverride.paneBorderActive);
     root.style.setProperty('--ui-sidebar-active', termUIOverride.sidebarActive);
-    root.style.setProperty('--ui-group-label-bg', termUIOverride.groupLabelBg);
-    root.style.setProperty('--ui-group-label-fg', termUIOverride.groupLabelFg);
   }
 }
 

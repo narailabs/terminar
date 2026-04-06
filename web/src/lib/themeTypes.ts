@@ -28,8 +28,6 @@ export interface UITheme {
   tabActive: string;
   paneBorderActive: string;
   sidebarActive: string;
-  groupLabelBg: string;
-  groupLabelFg: string;
 }
 
 // ── Terminal Theme ───────────────────────────────────────────────────────────
@@ -91,8 +89,6 @@ const darkUI: UITheme = {
   tabActive: '#a0a7ff',
   paneBorderActive: '#a0a7ff',
   sidebarActive: '#a0a7ff',
-  groupLabelBg: '#fdfbfe',
-  groupLabelFg: '#0d0e10',
 };
 
 const lightUI: UITheme = {
@@ -116,8 +112,6 @@ const lightUI: UITheme = {
   tabActive: '#0066b8',
   paneBorderActive: '#0066b8',
   sidebarActive: '#0066b8',
-  groupLabelBg: '#333333',
-  groupLabelFg: '#ffffff',
 };
 
 export const BUILT_IN_UI_THEMES: readonly UITheme[] = [darkUI, lightUI];

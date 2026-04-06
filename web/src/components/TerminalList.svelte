@@ -17,6 +17,7 @@
     broadcastMode = false,
     onclose,
     onrename,
+    oncreate,
     onsettings,
     onpanedrop,
   }: {
@@ -25,6 +26,7 @@
     broadcastMode?: boolean;
     onclose?: (sessionId: string) => void;
     onrename?: (detail: { id: string; newName: string }) => void;
+    oncreate?: () => void;
     onsettings?: () => void;
     onpanedrop?: (detail: { sourcePaneId: string }) => void;
   } = $props();
@@ -66,6 +68,39 @@
   let newTagName = $state('');
   let newTagColor = $state(TAG_COLORS[0]);
   let newTagInputEl: HTMLInputElement | undefined = $state(undefined);
+
+  // Group settings modal
+  let groupSettingsModal = $state<{ groupId: string } | null>(null);
+  let gsName = $state('');
+  let gsSidebarTextColor = $state('');
+  let gsTitlebarBg = $state('');
+  let gsTitlebarFg = $state('');
+
+  function openGroupSettings(groupId: string) {
+    const group = sidebarGroupStore.groups.find(g => g.id === groupId);
+    if (!group) return;
+    groupSettingsModal = { groupId };
+    gsName = group.name;
+    gsSidebarTextColor = group.sidebarTextColor ?? '';
+    gsTitlebarBg = group.titlebarBg ?? '';
+    gsTitlebarFg = group.titlebarFg ?? '';
+  }
+
+  function saveGroupSettings() {
+    if (!groupSettingsModal) return;
+    sidebarGroupStore.updateGroupSettings(groupSettingsModal.groupId, {
+      name: gsName.trim() || 'Untitled',
+      sidebarTextColor: gsSidebarTextColor || undefined,
+      titlebarBg: gsTitlebarBg || undefined,
+      titlebarFg: gsTitlebarFg || undefined,
+    });
+    groupSettingsModal = null;
+  }
+
+  function handleGsKeydown(event: KeyboardEvent) {
+    if (event.key === 'Enter') saveGroupSettings();
+    else if (event.key === 'Escape') groupSettingsModal = null;
+  }
 
   function handleCreateAndAssignTag() {
     if (!newTagModal || !newTagName.trim()) return;
@@ -117,6 +152,7 @@
   }
 
   const emptyContextMenuItems = [
+    { label: 'New Terminal', action: 'new-terminal' },
     { label: 'New Group', action: 'new-group' },
   ];
 
@@ -282,6 +318,8 @@
       onsettings?.();
     } else if (action === 'close') {
       onclose?.(sessionId);
+    } else if (action === 'new-terminal') {
+      oncreate?.();
     } else if (action === 'new-group') {
       const id = sidebarGroupStore.createGroup('New Group');
       editingGroupId = id;
@@ -352,12 +390,13 @@
   }
 </script>
 
-{#snippet sessionRow(session: SessionInfo, index: number, groupId: string | null)}
+{#snippet sessionRow(session: SessionInfo, index: number, groupId: string | null, sidebarColor?: string)}
   {@const isAssigned = ($sessionPaneCounts.get(session.id) ?? 0) > 0}
   <div
     class="session-row"
     class:broadcast-mode={broadcastMode}
     class:session-drag-over={sessionDragOverIndex === index && sessionDragOverGroupId === groupId}
+    style={sidebarColor ? `color: ${sidebarColor}` : ''}
     draggable="true"
     ondragstart={(e) => handleSessionDragStart(e, session.id, groupId)}
     ondragover={(e) => handleSessionDragOver(e, index, groupId)}
@@ -419,6 +458,7 @@
         <div
           class="group-header"
           class:group-header-drag-over={groupHeaderDragOver[group.id]}
+          style={group.sidebarTextColor ? `color: ${group.sidebarTextColor}` : ''}
           ondragover={(e) => handleGroupHeaderDragOver(e, group.id)}
           ondragleave={() => handleGroupHeaderDragLeave(group.id)}
           ondrop={(e) => handleGroupHeaderDrop(e, group.id)}
@@ -449,13 +489,23 @@
             }}>{group.name}</span>
           {/if}
           <span class="group-count">{groupSessions.length}</span>
+          <button
+            class="group-settings-btn"
+            onclick={(e) => { e.stopPropagation(); openGroupSettings(group.id); }}
+            aria-label="Group settings"
+            title="Group settings"
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+              <path fill-rule="evenodd" clip-rule="evenodd" d="M9.1 4.4L8.6 2H7.4L6.9 4.4L6.5 4.6L4.4 3.5L3.5 4.4L4.6 6.5L4.4 6.9L2 7.4V8.6L4.4 9.1L4.6 9.5L3.5 11.6L4.4 12.5L6.5 11.4L6.9 11.6L7.4 14H8.6L9.1 11.6L9.5 11.4L11.6 12.5L12.5 11.6L11.4 9.5L11.6 9.1L14 8.6V7.4L11.6 6.9L11.4 6.5L12.5 4.4L11.6 3.5L9.5 4.6L9.1 4.4ZM8 10C9.1046 10 10 9.1046 10 8C10 6.8954 9.1046 6 8 6C6.8954 6 6 6.8954 6 8C6 9.1046 6.8954 10 8 10Z"/>
+            </svg>
+          </button>
           {#if groupHeaderDragOver[group.id]}
             <span class="group-drop-hint">Drop here</span>
           {/if}
         </div>
         {#if !group.collapsed}
           {#each groupSessions as session, index (session.id)}
-            {@render sessionRow(session, index, group.id)}
+            {@render sessionRow(session, index, group.id, group.sidebarTextColor)}
           {/each}
         {/if}
       </div>
@@ -502,6 +552,55 @@
       <div class="new-tag-actions">
         <button class="new-tag-btn cancel" onclick={() => newTagModal = null}>Cancel</button>
         <button class="new-tag-btn confirm" onclick={handleCreateAndAssignTag} disabled={!newTagName.trim()}>Create</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if groupSettingsModal}
+  <div class="new-tag-backdrop" onclick={() => groupSettingsModal = null} role="presentation">
+    <div class="gs-modal" onclick={(e) => e.stopPropagation()} onkeydown={handleGsKeydown}>
+      <div class="gs-header">Group Settings</div>
+
+      <label class="gs-label">Name</label>
+      <input class="gs-input" type="text" bind:value={gsName} />
+
+      <label class="gs-label">Sidebar Text Color</label>
+      <div class="gs-color-row">
+        <input class="gs-color-input" type="text" bind:value={gsSidebarTextColor} placeholder="#777 or empty for default" />
+        <input class="gs-color-picker" type="color" value={gsSidebarTextColor || '#777777'} oninput={(e) => gsSidebarTextColor = (e.target as HTMLInputElement).value} />
+        {#if gsSidebarTextColor}
+          <button class="gs-clear-btn" onclick={() => gsSidebarTextColor = ''} title="Clear">&times;</button>
+        {/if}
+      </div>
+
+      <label class="gs-label">Titlebar Background</label>
+      <div class="gs-color-row">
+        <input class="gs-color-input" type="text" bind:value={gsTitlebarBg} placeholder="#0d0e10 or empty for default" />
+        <input class="gs-color-picker" type="color" value={gsTitlebarBg || '#0d0e10'} oninput={(e) => gsTitlebarBg = (e.target as HTMLInputElement).value} />
+        {#if gsTitlebarBg}
+          <button class="gs-clear-btn" onclick={() => gsTitlebarBg = ''} title="Clear">&times;</button>
+        {/if}
+      </div>
+
+      <label class="gs-label">Titlebar Foreground</label>
+      <div class="gs-color-row">
+        <input class="gs-color-input" type="text" bind:value={gsTitlebarFg} placeholder="#ababad or empty for default" />
+        <input class="gs-color-picker" type="color" value={gsTitlebarFg || '#ababad'} oninput={(e) => gsTitlebarFg = (e.target as HTMLInputElement).value} />
+        {#if gsTitlebarFg}
+          <button class="gs-clear-btn" onclick={() => gsTitlebarFg = ''} title="Clear">&times;</button>
+        {/if}
+      </div>
+
+      {#if gsTitlebarBg || gsTitlebarFg}
+        <div class="gs-preview" style="background: {gsTitlebarBg || 'var(--ui-bg-primary, #0d0e10)'}; color: {gsTitlebarFg || 'var(--ui-text-secondary, #ababad)'};">
+          Preview: {gsName || 'Tab'}
+        </div>
+      {/if}
+
+      <div class="new-tag-actions">
+        <button class="new-tag-btn cancel" onclick={() => groupSettingsModal = null}>Cancel</button>
+        <button class="new-tag-btn confirm" onclick={saveGroupSettings}>Save</button>
       </div>
     </div>
   </div>
@@ -797,6 +896,129 @@
     color: var(--ui-accent, #a0a7ff);
     flex-shrink: 0;
     margin-left: 4px;
+  }
+
+  .group-settings-btn {
+    background: none;
+    border: none;
+    padding: 2px;
+    cursor: pointer;
+    color: inherit;
+    opacity: 0.5;
+    display: flex;
+    align-items: center;
+    border-radius: 3px;
+    transition: opacity 0.15s, background 0.15s;
+    flex-shrink: 0;
+  }
+
+  .group-settings-btn:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  /* ── Group settings modal ──────────────────────────────────────────── */
+
+  .gs-modal {
+    background: var(--ui-bg-secondary, #181a1c);
+    border: 1px solid var(--ui-border, #454545);
+    border-radius: 6px;
+    padding: 16px;
+    min-width: 300px;
+    max-width: 360px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  }
+
+  .gs-header {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--ui-text-primary, #fdfbfe);
+    margin-bottom: 14px;
+  }
+
+  .gs-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--ui-text-muted, #757578);
+    margin-bottom: 4px;
+    margin-top: 10px;
+  }
+
+  .gs-label:first-of-type {
+    margin-top: 0;
+  }
+
+  .gs-input {
+    width: 100%;
+    padding: 6px 8px;
+    background: var(--ui-bg-tertiary, #242629);
+    border: 1px solid var(--ui-border, #555);
+    border-radius: 4px;
+    color: var(--ui-text-primary, #fdfbfe);
+    font-size: 13px;
+    box-sizing: border-box;
+  }
+
+  .gs-input:focus {
+    outline: none;
+    border-color: var(--ui-accent, #a0a7ff);
+  }
+
+  .gs-color-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .gs-color-input {
+    flex: 1;
+    min-width: 0;
+    padding: 6px 8px;
+    background: var(--ui-bg-tertiary, #242629);
+    border: 1px solid var(--ui-border, #555);
+    border-radius: 4px;
+    color: var(--ui-text-primary, #fdfbfe);
+    font-size: 13px;
+  }
+
+  .gs-color-input:focus {
+    outline: none;
+    border-color: var(--ui-accent, #a0a7ff);
+  }
+
+  .gs-color-picker {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 1px solid var(--ui-border, #555);
+    border-radius: 4px;
+    cursor: pointer;
+    flex-shrink: 0;
+    background: none;
+  }
+
+  .gs-clear-btn {
+    background: none;
+    border: none;
+    color: var(--ui-text-muted, #757578);
+    cursor: pointer;
+    font-size: 16px;
+    padding: 0 4px;
+    flex-shrink: 0;
+  }
+
+  .gs-clear-btn:hover {
+    color: var(--ui-text-primary, #fdfbfe);
+  }
+
+  .gs-preview {
+    margin-top: 12px;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 500;
+    text-align: center;
   }
 
 </style>

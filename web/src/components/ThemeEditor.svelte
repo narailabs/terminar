@@ -57,8 +57,6 @@
   let tabActive = '';
   let paneBorderActive = '';
   let sidebarActive = '';
-  let groupLabelBg = '';
-  let groupLabelFg = '';
 
   // Font state — per-theme, stored in the terminal theme
   let fontSize = 14;
@@ -85,8 +83,6 @@
     tabActive = baseUI.tabActive;
     paneBorderActive = baseUI.paneBorderActive;
     sidebarActive = baseUI.sidebarActive;
-    groupLabelBg = baseUI.groupLabelBg;
-    groupLabelFg = baseUI.groupLabelFg;
   }
 
   // Initialize when editor opens
@@ -103,8 +99,6 @@
       tabActive = editUITheme?.tabActive ?? editUITheme?.accent ?? '';
       paneBorderActive = editUITheme?.paneBorderActive ?? editUITheme?.accent ?? '';
       sidebarActive = editUITheme?.sidebarActive ?? editUITheme?.accent ?? '';
-      groupLabelBg = editUITheme?.groupLabelBg ?? '#fdfbfe';
-      groupLabelFg = editUITheme?.groupLabelFg ?? '#0d0e10';
     } else if (copySourceTerminal) {
       themeName = copySourceTerminal.name + ' Copy';
       foreground = copySourceTerminal.foreground;
@@ -117,8 +111,6 @@
       tabActive = copySourceUI?.tabActive ?? copySourceUI?.accent ?? '';
       paneBorderActive = copySourceUI?.paneBorderActive ?? copySourceUI?.accent ?? '';
       sidebarActive = copySourceUI?.sidebarActive ?? copySourceUI?.accent ?? '';
-      groupLabelBg = copySourceUI?.groupLabelBg ?? '#fdfbfe';
-      groupLabelFg = copySourceUI?.groupLabelFg ?? '#0d0e10';
     } else {
       if (initialBaseThemeId) {
         baseThemeId = initialBaseThemeId;
@@ -170,8 +162,6 @@
         tabActive,
         paneBorderActive,
         sidebarActive,
-        groupLabelBg,
-        groupLabelFg,
       };
 
       const updatedTerm: TerminalTheme = {
@@ -198,8 +188,6 @@
         tabActive,
         paneBorderActive,
         sidebarActive,
-        groupLabelBg,
-        groupLabelFg,
       };
 
       const updatedTerm: TerminalTheme = {
@@ -230,8 +218,6 @@
         tabActive,
         paneBorderActive,
         sidebarActive,
-        groupLabelBg,
-        groupLabelFg,
       };
 
       const customTerm: TerminalTheme = {
@@ -320,13 +306,7 @@
     sidebarActive = event.detail;
   }
 
-  function handleGroupLabelBgChange(event: CustomEvent<string>) {
-    groupLabelBg = event.detail;
-  }
 
-  function handleGroupLabelFgChange(event: CustomEvent<string>) {
-    groupLabelFg = event.detail;
-  }
 
   import { onDestroy } from 'svelte';
   onDestroy(() => {
@@ -503,25 +483,6 @@
               />
             </div>
 
-            <div class="field">
-              <ColorPicker
-                id="themeEditorGroupLabelBg"
-                label="Group Label Background"
-                value={groupLabelBg}
-                showOpacity={true}
-                on:change={handleGroupLabelBgChange}
-              />
-            </div>
-
-            <div class="field">
-              <ColorPicker
-                id="themeEditorGroupLabelFg"
-                label="Group Label Text"
-                value={groupLabelFg}
-                showOpacity={true}
-                on:change={handleGroupLabelFgChange}
-              />
-            </div>
           </div>
         </div>
       </div>

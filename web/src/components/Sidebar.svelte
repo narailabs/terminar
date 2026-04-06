@@ -130,6 +130,7 @@
         {broadcastMode}
         onclose={onclose}
         onrename={onrename}
+        oncreate={oncreate}
         onsettings={onsettings}
         onpanedrop={onpanedrop}
       />
