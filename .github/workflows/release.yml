@@ -211,6 +211,41 @@ jobs:
           name: npm-packages
           path: npm/
 
+  publish-libs:
+    name: Publish Library Packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Build and publish @narai/terminar-protocol
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          cd packages/shell-protocol
+          pnpm install
+          pnpm build
+          npm publish --access public || echo "Already published, skipping"
+
+      - name: Build and publish @narai/terminar-ui
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          cd packages/terminar-ui
+          pnpm install
+          pnpm build
+          npm publish --access public || echo "Already published, skipping"
+
   publish-npm:
     name: Publish to npm
     runs-on: ubuntu-latest
@@ -249,7 +284,7 @@ jobs:
   release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [build-server, publish-npm]
+    needs: [build-server, publish-npm, publish-libs]
     steps:
       - uses: actions/checkout@v4
 

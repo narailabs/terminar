@@ -1,6 +1,6 @@
 {
   "name": "@narai/terminar-ui",
-  "version": "0.1.0",
+  "version": "0.4.3",
   "type": "module",
   "description": "Reusable terminal UI components (Svelte 5 custom elements + standalone exports)",
   "main": "./dist/index.js",
