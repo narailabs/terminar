@@ -44,14 +44,6 @@ vi.mock('./lib/foregroundStore.svelte', () => ({
   },
 }));
 
-// Mock activityStore
-vi.mock('./lib/activityStore.svelte', () => ({
-  activityStore: {
-    setActivity: vi.fn(),
-    activities: new Map(),
-  },
-}));
-
 // Mock fetch globally
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;
@@ -734,24 +726,6 @@ describe('App - Manager Events', () => {
     });
   });
 
-  it('sessionActivity callback calls activityStore.setActivity', async () => {
-    const { activityStore } = await import('./lib/activityStore.svelte');
-
-    render(App, { props: { serverWsUrl: 'ws://localhost:6749/ws', serverHttpUrl: 'http://localhost:6749' } });
-
-    await waitFor(() => {
-      expect(WebSocketSessionManager).toHaveBeenCalled();
-    });
-
-    const { getCallback } = getManagerOnCallbacks();
-    const sessionActivityCb = getCallback('sessionActivity');
-    expect(sessionActivityCb).toBeDefined();
-
-    sessionActivityCb('session-3', 'bell');
-
-    expect(activityStore.setActivity).toHaveBeenCalledWith('session-3', 'bell');
-  });
-
   it('all expected event handlers are registered on the manager', async () => {
     render(App, { props: { serverWsUrl: 'ws://localhost:6749/ws', serverHttpUrl: 'http://localhost:6749' } });
 
@@ -766,7 +740,6 @@ describe('App - Manager Events', () => {
     expect(registeredEvents).toContain('reconnecting');
     expect(registeredEvents).toContain('reconnected');
     expect(registeredEvents).toContain('sessionList');
-    expect(registeredEvents).toContain('sessionActivity');
     expect(registeredEvents).toContain('sessionExited');
     expect(registeredEvents).toContain('foregroundChanged');
     expect(registeredEvents).toContain('cwdChanged');

@@ -8,7 +8,6 @@
   import { BUILT_IN_TERMINAL_THEMES } from '../lib/themeTypes';
   import type { TabId, PaneId, SessionId, SplitNode } from '../lib/workspaceTypes';
   import { findPane } from '../lib/workspaceTypes';
-  import { activityStore } from '../lib/activityStore.svelte';
   import { exitedSessions } from '../lib/exitedSessionsStore.svelte';
 
   import { fade } from 'svelte/transition';
@@ -45,24 +44,6 @@
     }
     return (node.children || []).flatMap(collectSessionIds);
   }
-
-  // Compute tab indicator maps from stores (reactive)
-  let tabActivities = $derived((() => {
-    const map = new Map<string, string>();
-    const activities = activityStore.activities;
-    for (const tab of $workspaceStore.tabs) {
-      if (tab.id === $workspaceStore.activeTabId) continue; // skip active tab
-      const sessionIds = collectSessionIds(tab.root);
-      for (const sid of sessionIds) {
-        const activity = activities.get(sid);
-        if (activity) {
-          map.set(tab.id, activity);
-          break; // one indicator per tab is enough
-        }
-      }
-    }
-    return map;
-  })());
 
   let tabExitStates = $derived((() => {
     const map = new Map<string, { exited: boolean; exitCode: number | null }>();
@@ -494,7 +475,6 @@
   <TabBar
     tabs={$workspaceStore.tabs}
     activeTabId={$workspaceStore.activeTabId}
-    {tabActivities}
     {tabExitStates}
     {tabAgents}
     onselect={(detail) => handleTabSelect(detail)}

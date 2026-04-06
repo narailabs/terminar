@@ -5,7 +5,6 @@
   import { broadcastEnabled, clearTargets } from '../lib/broadcastStore.svelte';
   import { workspaceStore } from '../lib/workspaceStore';
   import type { TabId, SplitNode } from '../lib/workspaceTypes';
-  import { activityStore } from '../lib/activityStore.svelte';
   import { exitedSessions } from '../lib/exitedSessionsStore.svelte';
   import { isElectronMac } from '../lib/platformDetect';
 
@@ -43,23 +42,6 @@
     return (node.children || []).flatMap(collectSessionIds);
   }
 
-  let tabActivities = $derived((() => {
-    const map = new Map<string, string>();
-    const activities = activityStore.activities;
-    for (const tab of $workspaceStore.tabs) {
-      if (tab.id === $workspaceStore.activeTabId) continue;
-      const sessionIds = collectSessionIds(tab.root);
-      for (const sid of sessionIds) {
-        const activity = activities.get(sid);
-        if (activity) {
-          map.set(tab.id, activity);
-          break;
-        }
-      }
-    }
-    return map;
-  })());
-
   let tabExitStates = $derived((() => {
     const map = new Map<string, { exited: boolean; exitCode: number | null }>();
     const exited = exitedSessions.map;
@@ -77,14 +59,6 @@
   })());
 
   // --- Tab helpers ---
-
-  function getActivityIcon(activityType: string): string {
-    switch (activityType) {
-      case 'bell': return '\u{1F514}';
-      case 'silence': return '\u{1F4A4}';
-      default: return '\u{25CF}';
-    }
-  }
 
   function getExitLabel(exitState: { exited: boolean; exitCode: number | null }): string {
     if (!exitState.exited) return '';
@@ -320,9 +294,6 @@
         {:else}
           <span class="tab-name">{tab.name}</span>
         {/if}
-        {#if tabActivities.has(tab.id) && tab.id !== $workspaceStore.activeTabId && tabActivities.get(tab.id) !== 'silence'}
-          <span class="activity-badge">{getActivityIcon(tabActivities.get(tab.id)!)}</span>
-        {/if}
         {#if tabExitStates.has(tab.id) && tabExitStates.get(tab.id)!.exited}
           <span class="exit-badge">{getExitLabel(tabExitStates.get(tab.id)!)}</span>
         {/if}
@@ -544,12 +515,6 @@
 
   .tab.active .tab-name {
     color: var(--ui-tab-active, #a0a7ff);
-  }
-
-  .activity-badge {
-    font-size: 10px;
-    line-height: 1;
-    flex-shrink: 0;
   }
 
   .exit-badge {

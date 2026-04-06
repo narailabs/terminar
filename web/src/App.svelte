@@ -23,7 +23,6 @@
   import { broadcastEnabled, clearTargets, setSessionManager } from './lib/broadcastStore.svelte';
   import { getEffectiveEnv } from './lib/envStore.svelte';
   import { getKeyBindingRegistry } from './lib/keybindings';
-  import { activityStore } from './lib/activityStore.svelte';
   import { markExited } from './lib/exitedSessionsStore.svelte';
   import { foregroundStore } from './lib/foregroundStore.svelte';
   import { parseSshPrivateKey } from './lib/sshKeyParser';
@@ -512,10 +511,6 @@
         pendingNewTerminal = false;
         pendingNewTerminalPaneId = null;
       }
-    });
-
-    manager.on('sessionActivity', (sessionId: string, activityType: string) => {
-      activityStore.setActivity(sessionId, activityType as any);
     });
 
     manager.on('sessionExited', (sessionId: string, exitCode: number) => {
