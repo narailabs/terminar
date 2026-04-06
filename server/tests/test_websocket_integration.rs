@@ -64,12 +64,15 @@ async fn test_websocket_flow_full() {
             let resp: ServerMessage = serde_json::from_str(&text).unwrap();
             match resp {
                 ServerMessage::SessionList { sessions } => {
-                    assert_eq!(sessions.len(), 1,
+                    assert_eq!(
+                        sessions.len(),
+                        1,
                         "Expected exactly 1 session (the one just created). \
                          Got {} — on a dev machine, pre-existing sessions in \
                          ~/.terminar/sessions.json are loaded at startup. \
                          This is expected locally; if this fails in CI, it's a real issue.",
-                        sessions.len());
+                        sessions.len()
+                    );
                     session_id = sessions[0].id.clone();
                     break;
                 }
@@ -199,24 +202,30 @@ async fn test_localhost_connection_skips_auth() {
                     let resp2: ServerMessage = serde_json::from_str(&text2).unwrap();
                     match resp2 {
                         ServerMessage::SessionList { sessions } => {
-                            assert_eq!(sessions.len(), 0,
+                            assert_eq!(
+                                sessions.len(),
+                                0,
                                 "Expected empty session list. Got {} — on a dev machine, \
                                  pre-existing sessions in ~/.terminar/sessions.json are \
                                  loaded at startup. This is expected locally; \
                                  if this fails in CI, it's a real issue.",
-                                sessions.len());
+                                sessions.len()
+                            );
                         }
                         _ => panic!("Expected SessionList after AuthOk, got {:?}", resp2),
                     }
                 }
             }
             ServerMessage::SessionList { sessions } => {
-                assert_eq!(sessions.len(), 0,
+                assert_eq!(
+                    sessions.len(),
+                    0,
                     "Expected empty session list. Got {} — on a dev machine, \
                      pre-existing sessions in ~/.terminar/sessions.json are \
                      loaded at startup. This is expected locally; \
                      if this fails in CI, it's a real issue.",
-                    sessions.len());
+                    sessions.len()
+                );
             }
             ServerMessage::Error { message, .. } => {
                 panic!("Got auth error, localhost bypass not working: {}", message);

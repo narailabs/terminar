@@ -434,10 +434,7 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
     };
 
     // Initialize audit logger
-    let audit_level: audit::AuditLevel = cli
-        .audit_level
-        .parse()
-        .unwrap_or(audit::AuditLevel::Off);
+    let audit_level: audit::AuditLevel = cli.audit_level.parse().unwrap_or(audit::AuditLevel::Off);
     if audit_level != audit::AuditLevel::Off {
         let audit_path =
             std::path::PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()))
@@ -730,7 +727,11 @@ async fn auth_middleware(
         q.split('&')
             .filter_map(|pair| {
                 let (key, val) = pair.split_once('=')?;
-                if key == "token" { Some(val.to_string()) } else { None }
+                if key == "token" {
+                    Some(val.to_string())
+                } else {
+                    None
+                }
             })
             .next()
     });
@@ -938,16 +939,10 @@ async fn ws_handler(
 
     let connection_id = Uuid::new_v4().to_string();
     let span = info_span!("websocket", connection_id = %connection_id, is_local = is_local);
-    ws.on_upgrade(move |socket| {
-        handle_websocket(socket, state, is_local).instrument(span)
-    })
+    ws.on_upgrade(move |socket| handle_websocket(socket, state, is_local).instrument(span))
 }
 
-async fn handle_websocket(
-    socket: WebSocket,
-    state: AppState,
-    is_local: bool,
-) {
+async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
     let (mut sender, mut receiver) = socket.split();
 
     // Phase 1: Authentication
@@ -968,49 +963,47 @@ async fn handle_websocket(
             .await;
     } else {
         // Non-local connection with auth enabled: require token auth
-        let auth_timeout = tokio::time::timeout(
-            Duration::from_secs(30),
-            async {
-                while let Some(Ok(msg)) = receiver.next().await {
-                    if let Message::Text(text) = msg {
-                        match serde_json::from_str::<ClientMessage>(&text) {
-                            Ok(ClientMessage::Auth { token, .. }) => {
-                                if token == state.api_key {
-                                    let ok_msg = ServerMessage::AuthOk {
-                                        token: state.api_key.clone(),
-                                        expires: "never".to_string(),
-                                        protocol_version: Some(constants::PROTOCOL_VERSION.to_string()),
-                                    };
-                                    let _ = sender.send(Message::Text(
-                                        serde_json::to_string(&ok_msg).unwrap()
-                                    )).await;
-                                    return Some(true);
-                                }
-                                let err_msg = ServerMessage::Error {
-                                    message: "Authentication failed".to_string(),
-                                    error_code: Some("AUTH_FAILED".to_string()),
+        let auth_timeout = tokio::time::timeout(Duration::from_secs(30), async {
+            while let Some(Ok(msg)) = receiver.next().await {
+                if let Message::Text(text) = msg {
+                    match serde_json::from_str::<ClientMessage>(&text) {
+                        Ok(ClientMessage::Auth { token, .. }) => {
+                            if token == state.api_key {
+                                let ok_msg = ServerMessage::AuthOk {
+                                    token: state.api_key.clone(),
+                                    expires: "never".to_string(),
+                                    protocol_version: Some(constants::PROTOCOL_VERSION.to_string()),
                                 };
-                                let _ = sender.send(Message::Text(
-                                    serde_json::to_string(&err_msg).unwrap()
-                                )).await;
-                                continue;
+                                let _ = sender
+                                    .send(Message::Text(serde_json::to_string(&ok_msg).unwrap()))
+                                    .await;
+                                return Some(true);
                             }
-                            _ => {
-                                let err_msg = ServerMessage::Error {
-                                    message: "Authentication required".to_string(),
-                                    error_code: Some("AUTH_FAILED".to_string()),
-                                };
-                                let _ = sender.send(Message::Text(
-                                    serde_json::to_string(&err_msg).unwrap()
-                                )).await;
-                                continue;
-                            }
+                            let err_msg = ServerMessage::Error {
+                                message: "Authentication failed".to_string(),
+                                error_code: Some("AUTH_FAILED".to_string()),
+                            };
+                            let _ = sender
+                                .send(Message::Text(serde_json::to_string(&err_msg).unwrap()))
+                                .await;
+                            continue;
+                        }
+                        _ => {
+                            let err_msg = ServerMessage::Error {
+                                message: "Authentication required".to_string(),
+                                error_code: Some("AUTH_FAILED".to_string()),
+                            };
+                            let _ = sender
+                                .send(Message::Text(serde_json::to_string(&err_msg).unwrap()))
+                                .await;
+                            continue;
                         }
                     }
                 }
-                None // Connection closed before auth
             }
-        ).await;
+            None // Connection closed before auth
+        })
+        .await;
 
         let authenticated = match auth_timeout {
             Ok(Some(true)) => true,
