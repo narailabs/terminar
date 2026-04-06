@@ -3,7 +3,7 @@ import { themeState, getActiveTerminalTheme } from './themeStore.svelte';
 /**
  * Title bar field configuration — ordered array for display sequence
  */
-export type TitleBarFieldId = 'sessionName' | 'terminalTitle' | 'shell' | 'cwd' | 'process' | 'tags' | 'group';
+export type TitleBarFieldId = 'sessionName' | 'terminalTitle' | 'shell' | 'cwd' | 'cwdName' | 'process' | 'tags' | 'group';
 
 export interface TitleBarFieldEntry {
   id: TitleBarFieldId;
@@ -14,7 +14,8 @@ export const TITLE_BAR_FIELD_LABELS: Record<TitleBarFieldId, string> = {
   sessionName: 'Session Name',
   terminalTitle: 'Terminal Title',
   shell: 'Shell',
-  cwd: 'Working Directory',
+  cwd: 'Working Directory Path',
+  cwdName: 'Working Directory Name',
   process: 'Process',
   tags: 'Tags',
   group: 'Group',
@@ -23,8 +24,9 @@ export const TITLE_BAR_FIELD_LABELS: Record<TitleBarFieldId, string> = {
 export const DEFAULT_TITLE_BAR_FIELDS: TitleBarFieldEntry[] = [
   { id: 'sessionName', visible: true },
   { id: 'terminalTitle', visible: true },
-  { id: 'shell', visible: true },
-  { id: 'cwd', visible: true },
+  { id: 'shell', visible: false },
+  { id: 'cwd', visible: false },
+  { id: 'cwdName', visible: true },
   { id: 'process', visible: true },
   { id: 'tags', visible: true },
   { id: 'group', visible: true },
@@ -92,6 +94,10 @@ function loadFromCache(): TerminalSettings | null {
       // Migrate boolean dimInactivePanes → number
       if (typeof merged.dimInactivePanes === 'boolean') {
         merged.dimInactivePanes = merged.dimInactivePanes ? 0.4 : 1.0;
+      }
+      // Ensure new title bar fields are present
+      if (merged.titleBarFields) {
+        merged.titleBarFields = normalizeFields(merged.titleBarFields);
       }
       return merged;
     }
@@ -163,6 +169,9 @@ export const settingsStore = {
   initialize(serverSettings: TerminalSettings | null) {
     if (serverSettings) {
       const merged = { ...DEFAULT_SETTINGS, ...serverSettings };
+      if (merged.titleBarFields) {
+        merged.titleBarFields = normalizeFields(merged.titleBarFields);
+      }
       settings = merged;
       saveToCache(merged);
     }

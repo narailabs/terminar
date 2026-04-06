@@ -29,18 +29,31 @@
     onpanedrop?: (detail: { sourcePaneId: string }) => void;
   } = $props();
 
-  // Sessions not in any sidebar group
+  // Sessions not in any sidebar group (attached-to-tab first)
   let ungroupedSessions = $derived((() => {
     const grouped = new Set(sidebarGroupStore.groups.flatMap(g => g.sessionIds));
-    return sessions.filter(s => !grouped.has(s.id));
+    const counts = $sessionPaneCounts;
+    return sessions
+      .filter(s => !grouped.has(s.id))
+      .sort((a, b) => {
+        const aAttached = (counts.get(a.id) ?? 0) > 0 ? 1 : 0;
+        const bAttached = (counts.get(b.id) ?? 0) > 0 ? 1 : 0;
+        return bAttached - aAttached;
+      });
   })());
 
-  // Resolved sessions per group (filter out sessions that no longer exist)
+  // Resolved sessions per group (filter out sessions that no longer exist, attached first)
   function resolveGroupSessions(group: SidebarGroup): SessionInfo[] {
     const sessionMap = new Map(sessions.map(s => [s.id, s]));
+    const counts = $sessionPaneCounts;
     return group.sessionIds
       .map(id => sessionMap.get(id))
-      .filter((s): s is SessionInfo => s !== undefined);
+      .filter((s): s is SessionInfo => s !== undefined)
+      .sort((a, b) => {
+        const aAttached = (counts.get(a.id) ?? 0) > 0 ? 1 : 0;
+        const bAttached = (counts.get(b.id) ?? 0) > 0 ? 1 : 0;
+        return bAttached - aAttached;
+      });
   }
 
   let contextMenu: { x: number; y: number; sessionId: string; groupId?: string } | null = $state(null);
@@ -585,7 +598,7 @@
   }
 
   .session-item-wrapper.assigned {
-    opacity: 0.6;
+    /* icon-only indicator, no opacity change */
   }
 
   /* ── New tag modal ─────────────────────────────────────────────────── */
@@ -711,7 +724,7 @@
     gap: 4px;
     padding: 4px 8px 4px 2px;
     margin-top: 2px;
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 600;
     color: var(--ui-text-muted, #777);
     border-bottom: 1px solid var(--ui-border, #47484a);
@@ -766,7 +779,7 @@
     border: 1px solid var(--ui-accent, #a0a7ff);
     border-radius: 2px;
     color: var(--ui-text-primary, #fdfbfe);
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 600;
     padding: 1px 4px;
     outline: none;

@@ -87,6 +87,13 @@
     if (sessionCwd.startsWith(home + '/')) return '~/' + sessionCwd.slice(home.length + 1);
     return sessionCwd;
   })());
+  // Just the directory name (last path component), or ~ for home
+  let displayCwdName = $derived((() => {
+    if (!sessionCwd) return '';
+    const home = '/Users/' + (sessionCwd.split('/')[2] || '');
+    if (sessionCwd === home) return '~';
+    return sessionCwd.split('/').pop() || sessionCwd;
+  })());
 
   // Search state (derived from store)
   let isSearchTarget = $derived(searchStore.state.paneId === paneId);
@@ -122,6 +129,7 @@
       case 'terminalTitle': return terminalTitle;
       case 'shell': return sessionShell;
       case 'cwd': return displayCwd;
+      case 'cwdName': return displayCwdName;
       case 'process': return processBadge ?? '';
       case 'tags': return sessionTags.length > 0 ? '\x00' : ''; // placeholder — rendered as badges
       case 'group': return sessionGroup?.name ?? '';
@@ -418,7 +426,7 @@
       ondragstart={handleTitleDragStart}
       ondragend={handleTitleDragEnd}
     >
-      <span class="pane-title-text">{#each titleFields as field, i}{#if field.visible && getFieldValue(field)}{@const val = getFieldValue(field)}{#if i > 0 && titleFields.slice(0, i).some(f => f.visible && getFieldValue(f))}<span class="field-sep">·</span>{/if}{#if field.id === 'terminalTitle'}<span class="terminal-title">{val}</span>{:else if field.id === 'process'}<span class="process-badge">{val}</span>{:else if field.id === 'group'}<span class="title-group">{val}</span>{:else if field.id === 'tags'}{#each sessionTags as tag}<span class="title-tag" style="background: {tag.color}25; color: {tag.color}">{tag.name}</span>{/each}{:else}{val}{/if}{/if}{/each}</span>
+      <span class="pane-title-text">{#each titleFields as field, i}{#if field.visible && getFieldValue(field)}{@const val = getFieldValue(field)}{#if i > 0 && titleFields.slice(0, i).some(f => f.visible && getFieldValue(f))}<span class="field-sep">·</span>{/if}{#if field.id === 'sessionName'}<span class="session-name">{val}</span>{:else if field.id === 'terminalTitle'}<span class="terminal-title">{val}</span>{:else if field.id === 'process'}<span class="process-badge">{val}</span>{:else if field.id === 'group'}<span class="title-group">{val}</span>{:else if field.id === 'tags'}{#each sessionTags as tag}<span class="title-tag" style="background: {tag.color}25; color: {tag.color}">{tag.name}</span>{/each}{:else}{val}{/if}{/if}{/each}</span>
       {#if sessionExited}<span class="exited-badge">{exitBadgeText}</span>{/if}
       <span class="title-bar-spacer"></span>
       <button
@@ -681,6 +689,10 @@
   .field-sep {
     margin: 0 6px;
     color: var(--ui-text-muted, #757578);
+  }
+
+  .session-name {
+    font-weight: 600;
   }
 
   .terminal-title {
