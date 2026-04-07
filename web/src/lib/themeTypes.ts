@@ -99,7 +99,7 @@ const lightUI: UITheme = {
   bgPrimary: '#ffffff',
   bgSecondary: '#f3f3f3',
   bgTertiary: '#e8e8e8',
-  bgHover: '#0060c0',
+  bgHover: '#d8d8d8',
   bgActive: '#e8e8e8',
   textPrimary: '#333333',
   textSecondary: '#676767',

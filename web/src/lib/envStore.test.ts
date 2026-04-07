@@ -16,8 +16,13 @@ import {
   updateEnvVar,
   deleteEnvVar,
   ENV_STORAGE_KEY,
+  SESSION_ENV_STORAGE_KEY,
   validateEnvKey,
   resetEnvVars,
+  addSessionEnvVar,
+  deleteSessionEnvVar,
+  getSessionEnvVars,
+  cleanStaleSessionEnvVars,
 } from './envStore.svelte';
 
 describe('envStore', () => {
@@ -107,35 +112,72 @@ describe('envStore', () => {
   });
 
   describe('getEffectiveEnv', () => {
-    it('should return global env vars when no overrides', () => {
+    it('should return global env vars when no session id', () => {
       addEnvVar('GLOBAL_VAR', 'global_value');
-      const result = getEffectiveEnv({});
+      const result = getEffectiveEnv();
       expect(result).toEqual({ GLOBAL_VAR: 'global_value' });
     });
 
-    it('should merge session overrides with global env vars', () => {
+    it('should merge session vars with global env vars', () => {
       addEnvVar('GLOBAL_VAR', 'global_value');
-      const result = getEffectiveEnv({ SESSION_VAR: 'session_value' });
+      addSessionEnvVar('sess-1', 'SESSION_VAR', 'session_value');
+      const result = getEffectiveEnv('sess-1');
       expect(result).toEqual({
         GLOBAL_VAR: 'global_value',
         SESSION_VAR: 'session_value',
       });
     });
 
-    it('should give session overrides precedence over global', () => {
+    it('should give session vars precedence over global', () => {
       addEnvVar('SHARED_KEY', 'global_value');
-      const result = getEffectiveEnv({ SHARED_KEY: 'session_value' });
+      addSessionEnvVar('sess-1', 'SHARED_KEY', 'session_value');
+      const result = getEffectiveEnv('sess-1');
       expect(result).toEqual({ SHARED_KEY: 'session_value' });
     });
 
-    it('should return only session vars when no global vars', () => {
-      const result = getEffectiveEnv({ ONLY_SESSION: 'value' });
-      expect(result).toEqual({ ONLY_SESSION: 'value' });
+    it('should return only global vars for session with no per-session vars', () => {
+      addEnvVar('GLOBAL_VAR', 'value');
+      const result = getEffectiveEnv('sess-none');
+      expect(result).toEqual({ GLOBAL_VAR: 'value' });
     });
 
     it('should return empty object when no vars at all', () => {
-      const result = getEffectiveEnv({});
+      const result = getEffectiveEnv();
       expect(result).toEqual({});
+    });
+  });
+
+  describe('per-session env vars', () => {
+    it('should add and retrieve session env vars', () => {
+      addSessionEnvVar('sess-1', 'FOO', 'bar');
+      expect(getSessionEnvVars('sess-1')).toEqual({ FOO: 'bar' });
+    });
+
+    it('should delete session env vars', () => {
+      addSessionEnvVar('sess-1', 'FOO', 'bar');
+      addSessionEnvVar('sess-1', 'BAZ', 'qux');
+      deleteSessionEnvVar('sess-1', 'FOO');
+      expect(getSessionEnvVars('sess-1')).toEqual({ BAZ: 'qux' });
+    });
+
+    it('should return empty object for unknown session', () => {
+      expect(getSessionEnvVars('unknown')).toEqual({});
+    });
+
+    it('should persist session env vars to localStorage', () => {
+      addSessionEnvVar('sess-1', 'KEY', 'val');
+      expect(localStorage.setItem).toHaveBeenCalledWith(
+        SESSION_ENV_STORAGE_KEY,
+        expect.any(String)
+      );
+    });
+
+    it('should clean stale session env vars', () => {
+      addSessionEnvVar('sess-1', 'A', '1');
+      addSessionEnvVar('sess-2', 'B', '2');
+      cleanStaleSessionEnvVars(new Set(['sess-1']));
+      expect(getSessionEnvVars('sess-1')).toEqual({ A: '1' });
+      expect(getSessionEnvVars('sess-2')).toEqual({});
     });
   });
 

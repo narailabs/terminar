@@ -28,6 +28,7 @@ vi.mock('./lib/broadcastStore.svelte', () => ({
 vi.mock('./lib/envStore.svelte', () => ({
   getEffectiveEnv: vi.fn().mockReturnValue({}),
   globalEnvVars: { value: {} },
+  cleanStaleSessionEnvVars: vi.fn(),
 }));
 
 // Mock exitedSessionsStore
