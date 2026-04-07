@@ -7,13 +7,15 @@
 
 export interface Tag {
   name: string;
-  color: string; // hex color
+  color: string;       // hex — background color
+  fontColor?: string;  // hex — text color (falls back to contrastColor when undefined)
 }
 
 export interface TagDefinition {
-  id: string;       // crypto.randomUUID()
+  id: string;          // crypto.randomUUID()
   name: string;
-  color: string;    // hex color
+  color: string;       // hex — background color
+  fontColor?: string;  // hex — text color
 }
 
 export interface TagState {
@@ -130,7 +132,7 @@ export const tagStore = {
     return ids
       .map(id => defMap.get(id))
       .filter((d): d is TagDefinition => d !== undefined)
-      .map(d => ({ name: d.name, color: d.color }));
+      .map(d => ({ name: d.name, color: d.color, fontColor: d.fontColor }));
   },
 
   getAssignedIds(sessionId: string): string[] {
@@ -154,15 +156,15 @@ export const tagStore = {
     updateState({ ...state, assignments: newAssignments });
   },
 
-  addDefinition(name: string, color: string): TagDefinition {
-    const def: TagDefinition = { id: crypto.randomUUID(), name, color };
+  addDefinition(name: string, color: string, fontColor?: string): TagDefinition {
+    const def: TagDefinition = { id: crypto.randomUUID(), name, color, ...(fontColor ? { fontColor } : {}) };
     updateState({ ...state, definitions: [...state.definitions, def] });
     return def;
   },
 
-  updateDefinition(id: string, name: string, color: string): void {
+  updateDefinition(id: string, name: string, color: string, fontColor?: string): void {
     const definitions = state.definitions.map(d =>
-      d.id === id ? { ...d, name, color } : d
+      d.id === id ? { ...d, name, color, fontColor } : d
     );
     updateState({ ...state, definitions });
   },

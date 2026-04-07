@@ -14,12 +14,12 @@
   import { foregroundStore } from '../lib/foregroundStore.svelte';
   import { titleStore } from '../lib/titleStore.svelte';
   import { tagStore } from '../lib/tagStore.svelte';
-  import { sidebarGroupStore } from '../lib/sidebarGroupStore.svelte';
+  import { sidebarGroupStore, DEFAULT_GROUP_ID } from '../lib/sidebarGroupStore.svelte';
   import { getKeyBindingRegistry } from '../lib/keybindings';
   import { createActionDispatcher } from '../lib/actionDispatcher';
   import { createKeyEventHandler } from '../lib/keyEventHandler';
   import { getManagerContext, getSessionsContext, getActionsContext, getPaneActionsContext } from '../lib/sessionContext.svelte';
-  import { themeState, getTerminalTheme } from '../lib/themeStore.svelte';
+  import { themeState, getTerminalTheme, getPaneBorderColor } from '../lib/themeStore.svelte';
 
   let {
     paneId,
@@ -43,6 +43,12 @@
   let paneTheme = $derived((() => {
     void themeState.value;
     return getTerminalTheme(paneId);
+  })());
+
+  // Per-pane border color from UI theme override (null = use global)
+  let paneBorderColor = $derived((() => {
+    void themeState.value;
+    return getPaneBorderColor(paneId);
   })());
 
   // Live session info from sessions store (updated by CwdChanged events)
@@ -146,7 +152,7 @@
       case 'cwdName': return displayCwdName;
       case 'process': return processBadge ?? '';
       case 'tags': return sessionTags.length > 0 ? '\x00' : ''; // placeholder — rendered as badges
-      case 'group': return sessionGroup?.name ?? '';
+      case 'group': return (sessionGroup && sessionGroup.id !== DEFAULT_GROUP_ID) ? sessionGroup.name : '';
       default: return '';
     }
   }
@@ -424,7 +430,7 @@
   class:drop-right={dropZone === 'right'}
   class:drop-top={dropZone === 'top'}
   class:drop-bottom={dropZone === 'bottom'}
-  style:--pane-accent={paneTheme?.cursor}
+  style:--pane-border={paneBorderColor}
   class:drop-center={dropZone === 'center'}
   ondragover={handleDragOver}
   ondragleave={handleDragLeave}
@@ -441,7 +447,7 @@
       ondragstart={handleTitleDragStart}
       ondragend={handleTitleDragEnd}
     >
-      <span class="pane-title-text">{#each titleFields as field, i}{#if field.visible && getFieldValue(field)}{@const val = getFieldValue(field)}{#if i > 0 && titleFields.slice(0, i).some(f => f.visible && getFieldValue(f))}<span class="field-sep">·</span>{/if}{#if field.id === 'sessionName'}<span class="session-name">{val}</span>{:else if field.id === 'terminalTitle'}<span class="terminal-title">{val}</span>{:else if field.id === 'process'}<span class="process-badge">{val}</span>{:else if field.id === 'group'}<span class="title-group" style={sessionGroup?.titlebarBg || sessionGroup?.titlebarFg ? `${sessionGroup.titlebarBg ? `background: ${sessionGroup.titlebarBg};` : ''}${sessionGroup.titlebarFg ? ` color: ${sessionGroup.titlebarFg};` : ''}` : ''}>{val}</span>{:else if field.id === 'tags'}{#each sessionTags as tag}<span class="title-tag" style="background: {tag.color}; color: {contrastColor(tag.color)}">{tag.name}</span>{/each}{:else}{val}{/if}{/if}{/each}</span>
+      <span class="pane-title-text">{#each titleFields as field, i}{#if field.visible && getFieldValue(field)}{@const val = getFieldValue(field)}{#if i > 0 && titleFields.slice(0, i).some(f => f.visible && getFieldValue(f))}<span class="field-sep">·</span>{/if}{#if field.id === 'sessionName'}<span class="session-name">{val}</span>{:else if field.id === 'terminalTitle'}<span class="terminal-title">{val}</span>{:else if field.id === 'process'}<span class="process-badge">{val}</span>{:else if field.id === 'group'}<span class="title-group" style={sessionGroup?.titlebarBg || sessionGroup?.titlebarFg ? `${sessionGroup.titlebarBg ? `background: ${sessionGroup.titlebarBg};` : ''}${sessionGroup.titlebarFg ? ` color: ${sessionGroup.titlebarFg};` : ''}` : ''}>{val}</span>{:else if field.id === 'tags'}{#each sessionTags as tag}<span class="title-tag" style="background: {tag.color}; color: {tag.fontColor || contrastColor(tag.color)}">{tag.name}</span>{/each}{:else}{val}{/if}{/if}{/each}</span>
       {#if sessionExited}<span class="exited-badge">{exitBadgeText}</span>{/if}
       <span class="title-bar-spacer"></span>
       <button
@@ -708,7 +714,7 @@
 
   .session-name {
     font-weight: 600;
-    color: #d4d4d4;
+    color: var(--ui-text-secondary, #fdfbfe);
   }
 
   .terminal-title {
@@ -740,7 +746,7 @@
   }
 
   .pane.active {
-    border-color: var(--pane-accent, var(--ui-pane-border-active, #a0a7ff));
+    border-color: var(--pane-border, var(--ui-pane-border-active, #a0a7ff));
   }
 
   .pane.broadcast-target {

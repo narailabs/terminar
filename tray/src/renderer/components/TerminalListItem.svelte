@@ -175,7 +175,7 @@
         <span class="process-badge" title={foregroundProcess}>{processBadge}</span>
       {/if}
       {#each tags as tag}
-        <span class="tag-badge" style="background: {tag.color}20; color: {tag.color}; border-color: {tag.color}40">{tag.name}</span>
+        <span class="tag-badge" style="background: {tag.color}20; color: {tag.fontColor || tag.color}; border-color: {tag.color}40">{tag.name}</span>
       {/each}
       {#if paneCount > 0}
         <span class="pane-count" title="{paneCount} pane{paneCount > 1 ? 's' : ''}">

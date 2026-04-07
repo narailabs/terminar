@@ -41,7 +41,7 @@ const mockTerminalTheme = {
     magenta: '#bc3fbc',
     cyan: '#47c4ff',
     white: '#e5e5e5',
-    brightBlack: '#666666',
+    brightBlack: '#676767',
     brightRed: '#f14c4c',
     brightGreen: '#23d18b',
     brightYellow: '#f5f543',

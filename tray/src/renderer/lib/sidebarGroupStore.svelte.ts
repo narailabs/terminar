@@ -1,6 +1,6 @@
 /**
  * Sidebar groups — organize terminals into named groups, independent of tabs.
- * A session can exist in at most one group, or be ungrouped.
+ * Every session must belong to exactly one group (default: "Ungrouped").
  */
 
 export interface SidebarGroup {
@@ -10,14 +10,21 @@ export interface SidebarGroup {
   collapsed: boolean;
 }
 
+export const DEFAULT_GROUP_ID = '__default__';
+
 const STORAGE_KEY = 'sidebar-groups';
+
+function ensureDefaultGroup(groups: SidebarGroup[]): SidebarGroup[] {
+  if (groups.some(g => g.id === DEFAULT_GROUP_ID)) return groups;
+  return [{ id: DEFAULT_GROUP_ID, name: 'Ungrouped', sessionIds: [], collapsed: false }, ...groups];
+}
 
 function load(): SidebarGroup[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) return ensureDefaultGroup(JSON.parse(raw));
   } catch { /* ignore */ }
-  return [];
+  return ensureDefaultGroup([]);
 }
 
 function save(groups: SidebarGroup[]): void {
@@ -48,6 +55,15 @@ export const sidebarGroupStore = {
   },
 
   deleteGroup(groupId: string): void {
+    if (groupId === DEFAULT_GROUP_ID) return;
+    const dying = groups.find(g => g.id === groupId);
+    if (dying && dying.sessionIds.length > 0) {
+      groups = groups.map(g =>
+        g.id === DEFAULT_GROUP_ID
+          ? { ...g, sessionIds: [...g.sessionIds, ...dying.sessionIds] }
+          : g
+      );
+    }
     groups = groups.filter(g => g.id !== groupId);
     persist();
   },
@@ -73,10 +89,34 @@ export const sidebarGroupStore = {
     persist();
   },
 
-  removeSession(sessionId: string): void {
+  /** Add a session to a group at a specific index. Removes from any other group first. */
+  addSessionAt(groupId: string, sessionId: string, index: number): void {
     groups = groups.map(g => {
-      if (!g.sessionIds.includes(sessionId)) return g;
-      return { ...g, sessionIds: g.sessionIds.filter(id => id !== sessionId) };
+      if (g.id !== groupId && g.sessionIds.includes(sessionId)) {
+        return { ...g, sessionIds: g.sessionIds.filter(id => id !== sessionId) };
+      }
+      if (g.id === groupId) {
+        const filtered = g.sessionIds.filter(id => id !== sessionId);
+        filtered.splice(Math.min(index, filtered.length), 0, sessionId);
+        return { ...g, sessionIds: filtered };
+      }
+      return g;
+    });
+    persist();
+  },
+
+  /** Remove a session from its group. Moves to default group instead of ungrouping. */
+  removeSession(sessionId: string): void {
+    const current = groups.find(g => g.sessionIds.includes(sessionId));
+    if (!current || current.id === DEFAULT_GROUP_ID) return;
+    groups = groups.map(g => {
+      if (g.id === DEFAULT_GROUP_ID) {
+        return { ...g, sessionIds: [...g.sessionIds, sessionId] };
+      }
+      if (g.sessionIds.includes(sessionId)) {
+        return { ...g, sessionIds: g.sessionIds.filter(id => id !== sessionId) };
+      }
+      return g;
     });
     persist();
   },
@@ -111,5 +151,11 @@ export const sidebarGroupStore = {
   /** Get the group a session belongs to, or null */
   getGroupForSession(sessionId: string): SidebarGroup | null {
     return groups.find(g => g.sessionIds.includes(sessionId)) ?? null;
+  },
+
+  /** Ensure a session belongs to a group; if not, add to default group. */
+  ensureSessionInGroup(sessionId: string): void {
+    if (groups.some(g => g.sessionIds.includes(sessionId))) return;
+    this.addSession(DEFAULT_GROUP_ID, sessionId);
   },
 };

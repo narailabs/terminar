@@ -17,6 +17,7 @@
   import { getKeyBindingRegistry } from './lib/keybindings';
   import { markExited } from './lib/exitedSessionsStore.svelte';
   import { foregroundStore } from './lib/foregroundStore.svelte';
+  import { sidebarGroupStore } from './lib/sidebarGroupStore.svelte';
   import { reactiveBox, setManagerContext, setSessionsContext, setActionsContext, type AppActions } from './lib/sessionContext.svelte';
   import { activePaneStore } from './lib/activePaneStore.svelte';
   import { findPane } from './lib/workspaceTypes';
@@ -233,6 +234,11 @@
         }
         pendingNewTerminal = false;
         pendingNewTerminalPaneId = null;
+      }
+
+      // Ensure every session belongs to a group
+      for (const s of sessions) {
+        sidebarGroupStore.ensureSessionInGroup(s.id);
       }
     });
 
