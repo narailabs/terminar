@@ -206,6 +206,18 @@ export function getTerminalTheme(paneId: string): TerminalTheme {
   return findTerminalTheme(state.activeTerminalThemeId, state) ?? BUILT_IN_TERMINAL_THEMES[0];
 }
 
+export function getPaneBorderColor(paneId: string): string | null {
+  const overrideId = state.terminalOverrides[paneId];
+  if (!overrideId) return null;
+  const uiTheme = findUITheme(overrideId, state);
+  if (!uiTheme) return null;
+  const resolvedMode = state.uiMode === 'auto' ? resolveMode('auto') : state.activeUIThemeId;
+  const baseTheme = findUITheme(resolvedMode, state) ?? BUILT_IN_UI_THEMES[0];
+  return resolvedMode === 'light'
+    ? (uiTheme.paneBorderActiveLight ?? baseTheme.paneBorderActive)
+    : uiTheme.paneBorderActive;
+}
+
 export function getActiveUITheme(): UITheme {
   return findUITheme(state.activeUIThemeId, state) ?? BUILT_IN_UI_THEMES[0];
 }
@@ -243,7 +255,7 @@ export function applyUIThemeCSS(): void {
   const theme = findUITheme(resolvedId, state) ?? BUILT_IN_UI_THEMES[0];
   const root = document.documentElement;
   for (const [cssVar, themeKey] of Object.entries(UI_CSS_MAP)) {
-    root.style.setProperty(cssVar, theme[themeKey]);
+    root.style.setProperty(cssVar, theme[themeKey] as string);
   }
 
   // Apply per-terminal-theme UI overrides (saved with the terminal theme's ID
@@ -252,8 +264,14 @@ export function applyUIThemeCSS(): void {
   if (termUIOverride) {
     root.style.setProperty('--ui-accent', termUIOverride.accent);
     root.style.setProperty('--ui-accent-hover', termUIOverride.accentHover);
-    root.style.setProperty('--ui-tab-active', termUIOverride.tabActive);
-    root.style.setProperty('--ui-pane-border-active', termUIOverride.paneBorderActive);
+    const tabColor = resolvedId === 'light'
+      ? (termUIOverride.tabActiveLight ?? theme.tabActive)
+      : termUIOverride.tabActive;
+    root.style.setProperty('--ui-tab-active', tabColor);
+    const borderColor = resolvedId === 'light'
+      ? (termUIOverride.paneBorderActiveLight ?? theme.paneBorderActive)
+      : termUIOverride.paneBorderActive;
+    root.style.setProperty('--ui-pane-border-active', borderColor);
     root.style.setProperty('--ui-sidebar-active', termUIOverride.sidebarActive);
   }
 }

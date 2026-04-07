@@ -69,6 +69,7 @@ export function importTheme(data: ExportedTheme): {
       scrollbarThumb: imported.scrollbarThumb ?? 'rgba(121,121,121,0.4)',
       scrollbarThumbHover: imported.scrollbarThumbHover ?? 'rgba(121,121,121,0.7)',
       tabActive: imported.tabActive ?? imported.accent ?? '#a0a7ff',
+      tabActiveLight: imported.tabActiveLight ?? imported.tabActive ?? imported.accent ?? '#0066b8',
       paneBorderActive: imported.paneBorderActive ?? imported.accent ?? '#a0a7ff',
       sidebarActive: imported.sidebarActive ?? imported.accent ?? '#a0a7ff',
     };

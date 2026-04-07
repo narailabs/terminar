@@ -30,7 +30,8 @@
   import EnvVarEditor from './EnvVarEditor.svelte';
   import { globalEnvVars, addEnvVar, updateEnvVar, deleteEnvVar } from '../lib/envStore.svelte';
   import { getKeyBindingRegistry, formatBinding, type KeyBinding } from '../lib/keybindings';
-  import { tagStore, TAG_COLORS, type TagDefinition } from '../lib/tagStore.svelte';
+  import { tagStore } from '../lib/tagStore.svelte';
+  import TagEditorModal from './TagEditorModal.svelte';
 
   let { isOpen = false, onclose }: {
     isOpen?: boolean;
@@ -360,41 +361,7 @@
     refreshBindings();
   }
 
-  // Tag editor state
-  let editingTagId: string | null = $state(null);
-  let editingTagName: string = $state('');
-  let editingTagColor: string = $state('');
-  let newTagName: string = $state('');
-  let newTagColor: string = $state(TAG_COLORS[0]);
-
-  function handleAddTagDefinition() {
-    if (!newTagName.trim()) return;
-    tagStore.addDefinition(newTagName.trim(), newTagColor);
-    newTagName = '';
-    newTagColor = TAG_COLORS[0];
-  }
-
-  function handleStartEditTag(def: TagDefinition) {
-    editingTagId = def.id;
-    editingTagName = def.name;
-    editingTagColor = def.color;
-  }
-
-  function handleSaveEditTag() {
-    if (!editingTagId || !editingTagName.trim()) return;
-    tagStore.updateDefinition(editingTagId, editingTagName.trim(), editingTagColor);
-    editingTagId = null;
-  }
-
-  function handleDeleteTagDefinition(id: string) {
-    tagStore.deleteDefinition(id);
-    if (editingTagId === id) editingTagId = null;
-  }
-
-  function handleTagEditKeydown(event: KeyboardEvent) {
-    if (event.key === 'Enter') handleSaveEditTag();
-    else if (event.key === 'Escape') editingTagId = null;
-  }
+  let showTagEditor = $state(false);
 
   function handleReset() {
     settingsStore.reset();
@@ -586,56 +553,15 @@
             <!-- Tags -->
             <div class="setting-group">
               <label>Tags</label>
-              <div class="custom-theme-list">
+              <div class="tag-summary">
                 {#each tagStore.definitions as def (def.id)}
-                  <div class="custom-theme-item">
-                    {#if editingTagId === def.id}
-                      <div class="tag-edit-row">
-                        <div class="tag-color-picker">
-                          {#each TAG_COLORS as color}
-                            <button
-                              class="tag-color-swatch"
-                              class:selected={editingTagColor === color}
-                              style="background: {color}"
-                              onclick={() => editingTagColor = color}
-                            ></button>
-                          {/each}
-                        </div>
-                        <input type="text" class="tag-name-input" bind:value={editingTagName}
-                               onkeydown={handleTagEditKeydown} />
-                        <div class="custom-theme-actions">
-                          <button class="edit-theme-btn" onclick={handleSaveEditTag}>Save</button>
-                          <button class="edit-theme-btn" onclick={() => editingTagId = null}>Cancel</button>
-                        </div>
-                      </div>
-                    {:else}
-                      <span class="tag-badge-preview" style="background: {def.color}; color: {contrastColor(def.color)}">
-                        {def.name}
-                      </span>
-                      <div class="custom-theme-actions">
-                        <button class="edit-theme-btn" onclick={() => handleStartEditTag(def)}>Edit</button>
-                        <button class="delete-theme-btn" onclick={() => handleDeleteTagDefinition(def.id)}>&times;</button>
-                      </div>
-                    {/if}
-                  </div>
+                  <span class="tag-badge-preview" style="background: {def.color}; color: {def.fontColor || contrastColor(def.color)}">
+                    {def.name}
+                  </span>
                 {/each}
-              </div>
-              <div class="tag-add-row">
-                <div class="tag-color-picker">
-                  {#each TAG_COLORS as color}
-                    <button
-                      class="tag-color-swatch"
-                      class:selected={newTagColor === color}
-                      style="background: {color}"
-                      onclick={() => newTagColor = color}
-                    ></button>
-                  {/each}
-                </div>
-                <input type="text" class="tag-name-input" placeholder="New tag name"
-                       bind:value={newTagName}
-                       onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && handleAddTagDefinition()} />
-                <button class="theme-action-btn" onclick={handleAddTagDefinition}
-                        disabled={!newTagName.trim()}>Add</button>
+                <button class="theme-action-btn" onclick={() => showTagEditor = true}>
+                  {tagStore.definitions.length > 0 ? 'Edit Tags' : 'Add Tags'}
+                </button>
               </div>
             </div>
 
@@ -725,6 +651,7 @@
 {/if}
 
 <ThemeEditor isOpen={showThemeEditor} {editUITheme} {editTerminalTheme} initialBaseThemeId={editBaseThemeId} {copySourceUI} {copySourceTerminal} on:close={handleThemeEditorClose} on:save={handleThemeEditorSave} />
+<TagEditorModal isOpen={showTagEditor} onclose={() => showTagEditor = false} />
 
 <style>
   .modal-backdrop {
@@ -1137,35 +1064,10 @@
     color: var(--ui-accent, #a0a7ff);
   }
 
-  .tag-name-input {
-    flex: 1;
-    min-width: 0;
-    padding: 4px 8px;
-    background: var(--ui-bg-tertiary, #242629);
-    border: 1px solid var(--ui-border, #555);
-    border-radius: 4px;
-    color: var(--ui-text-primary, #fdfbfe);
-    font-size: 12px;
-  }
-
-  .tag-name-input:focus {
-    outline: none;
-    border-color: var(--ui-accent, #a0a7ff);
-  }
-
-  .tag-add-row {
+  .tag-summary {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-top: 4px;
-    flex-wrap: wrap;
-  }
-
-  .tag-edit-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex: 1;
+    gap: 6px;
     flex-wrap: wrap;
   }
 
@@ -1174,30 +1076,5 @@
     padding: 1px 7px;
     border-radius: 3px;
     white-space: nowrap;
-  }
-
-  .tag-color-picker {
-    display: flex;
-    gap: 3px;
-    flex-wrap: wrap;
-  }
-
-  .tag-color-swatch {
-    width: 16px;
-    height: 16px;
-    border-radius: 3px;
-    border: 2px solid transparent;
-    cursor: pointer;
-    transition: transform 0.1s;
-    padding: 0;
-  }
-
-  .tag-color-swatch.selected {
-    border-color: white;
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3);
-  }
-
-  .tag-color-swatch:hover {
-    transform: scale(1.15);
   }
 </style>

@@ -26,7 +26,9 @@ export interface UITheme {
   scrollbarThumb: string;
   scrollbarThumbHover: string;
   tabActive: string;
+  tabActiveLight?: string;
   paneBorderActive: string;
+  paneBorderActiveLight?: string;
   sidebarActive: string;
   groupLabelBg: string;
   groupLabelFg: string;
@@ -102,7 +104,7 @@ const lightUI: UITheme = {
   bgHover: '#0060c0',
   bgActive: '#e8e8e8',
   textPrimary: '#333333',
-  textSecondary: '#666666',
+  textSecondary: '#676767',
   textMuted: '#999999',
   border: '#d4d4d4',
   accent: '#0066b8',
@@ -131,7 +133,7 @@ const ANSI_DARK: AnsiColors = {
   magenta: '#bc3fbc',
   cyan: '#47c4ff',
   white: '#e5e5e5',
-  brightBlack: '#666666',
+  brightBlack: '#676767',
   brightRed: '#f14c4c',
   brightGreen: '#23d18b',
   brightYellow: '#f5f543',
@@ -150,7 +152,7 @@ const ANSI_LIGHT: AnsiColors = {
   magenta: '#bc05bc',
   cyan: '#0598bc',
   white: '#555555',
-  brightBlack: '#666666',
+  brightBlack: '#676767',
   brightRed: '#cd3131',
   brightGreen: '#14CE14',
   brightYellow: '#b5ba00',

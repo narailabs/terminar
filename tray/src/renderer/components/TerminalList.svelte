@@ -52,6 +52,21 @@
     return sessions.filter(s => !allOrdered.has(s.id));
   })());
 
+  // Single-tab: sessions ordered by active tab's sessionOrder, with orphans appended
+  let orderedSessions = $derived((() => {
+    const tab = _wsStore.tabs.find(t => t.id === _wsStore.activeTabId);
+    if (!tab) return sessions;
+    const sessionMap = new Map(sessions.map(s => [s.id, s]));
+    const ordered = tab.sessionOrder
+      .map(id => sessionMap.get(id))
+      .filter((s): s is SessionInfo => s !== undefined);
+    const orderedIds = new Set(tab.sessionOrder);
+    for (const s of sessions) {
+      if (!orderedIds.has(s.id)) ordered.push(s);
+    }
+    return ordered;
+  })());
+
   let contextMenu: { x: number; y: number; sessionId: string } | null = $state(null);
   let editingSessionId: string | null = $state(null);
 
@@ -69,10 +84,12 @@
 
   // ── Session drag-drop for sidebar reordering ──────────────────────────────
   let draggedSessionIndex: number | null = $state(null);
-  let sessionDragOverIndex: number | null = $state(null);
+  let draggedTabId: string | null = $state(null);
+  let dragInsertIndex: number | null = $state(null);
 
-  function handleSessionDragStart(event: DragEvent, sessionId: string, index: number) {
+  function handleSessionDragStart(event: DragEvent, sessionId: string, index: number, tabId?: string) {
     draggedSessionIndex = index;
+    draggedTabId = tabId ?? workspaceStore.get().activeTabId;
     event.dataTransfer?.setData('text/plain', sessionId);
     event.dataTransfer?.setData('application/x-terminar-session', sessionId);
   }
@@ -80,26 +97,43 @@
   function handleSessionDragOver(event: DragEvent, index: number) {
     if (draggedSessionIndex === null) return;
     event.preventDefault();
-    sessionDragOverIndex = index;
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const midpoint = rect.top + rect.height / 2;
+    const gap = event.clientY < midpoint ? index : index + 1;
+    // Suppress indicator when insertion would be a no-op
+    if (gap === draggedSessionIndex || gap === draggedSessionIndex + 1) {
+      dragInsertIndex = null;
+      return;
+    }
+    dragInsertIndex = gap;
   }
 
   function handleSessionDragLeave() {
-    sessionDragOverIndex = null;
+    // Intentionally don't clear dragInsertIndex here — dragleave fires
+    // spuriously when entering child elements within the same row.
+    // State is reset by handleSessionDragEnd / handleSessionDrop.
   }
 
-  function handleSessionDrop(event: DragEvent, toIndex: number) {
-    if (draggedSessionIndex === null) return;
+  function handleSessionDrop(event: DragEvent) {
+    if (draggedSessionIndex === null || dragInsertIndex === null || draggedTabId === null) {
+      resetSessionDragState();
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
-    const activeTabId = workspaceStore.get().activeTabId;
-    workspaceStore.reorderSession(activeTabId, draggedSessionIndex, toIndex);
-    draggedSessionIndex = null;
-    sessionDragOverIndex = null;
+    const toIndex = dragInsertIndex > draggedSessionIndex ? dragInsertIndex - 1 : dragInsertIndex;
+    workspaceStore.reorderSession(draggedTabId, draggedSessionIndex, toIndex);
+    resetSessionDragState();
   }
 
   function handleSessionDragEnd() {
+    resetSessionDragState();
+  }
+
+  function resetSessionDragState() {
     draggedSessionIndex = null;
-    sessionDragOverIndex = null;
+    draggedTabId = null;
+    dragInsertIndex = null;
   }
 
   function handleClose(sessionId: string) {
@@ -233,17 +267,17 @@
           {/if}
         </div>
         {#each group.sessions as session, index (session.id)}
-          {@const globalIndex = sessions.findIndex(s => s.id === session.id)}
           {@const isAssigned = ($sessionPaneCounts.get(session.id) ?? 0) > 0}
           <div
             class="session-row"
             class:broadcast-mode={broadcastMode}
-            class:session-drag-over={sessionDragOverIndex === globalIndex}
+            class:drag-insert-before={dragInsertIndex === index}
+            class:drag-insert-after={index === group.sessions.length - 1 && dragInsertIndex === group.sessions.length}
             draggable="true"
-            ondragstart={(e) => handleSessionDragStart(e, session.id, globalIndex)}
-            ondragover={(e) => handleSessionDragOver(e, globalIndex)}
+            ondragstart={(e) => handleSessionDragStart(e, session.id, index, group.tab.id)}
+            ondragover={(e) => handleSessionDragOver(e, index)}
             ondragleave={handleSessionDragLeave}
-            ondrop={(e) => handleSessionDrop(e, globalIndex)}
+            ondrop={(e) => handleSessionDrop(e)}
             ondragend={handleSessionDragEnd}
           >
             {#if broadcastMode}
@@ -282,17 +316,17 @@
       {/each}
       <!-- Orphan sessions (not in any tab) -->
       {#each orphanSessions as session, index (session.id)}
-        {@const globalIndex = sessions.findIndex(s => s.id === session.id)}
         {@const isAssigned = ($sessionPaneCounts.get(session.id) ?? 0) > 0}
         <div
           class="session-row"
           class:broadcast-mode={broadcastMode}
-          class:session-drag-over={sessionDragOverIndex === globalIndex}
+          class:drag-insert-before={dragInsertIndex === index}
+          class:drag-insert-after={index === orphanSessions.length - 1 && dragInsertIndex === orphanSessions.length}
           draggable="true"
-          ondragstart={(e) => handleSessionDragStart(e, session.id, globalIndex)}
-          ondragover={(e) => handleSessionDragOver(e, globalIndex)}
+          ondragstart={(e) => handleSessionDragStart(e, session.id, index)}
+          ondragover={(e) => handleSessionDragOver(e, index)}
           ondragleave={handleSessionDragLeave}
-          ondrop={(e) => handleSessionDrop(e, globalIndex)}
+          ondrop={(e) => handleSessionDrop(e)}
           ondragend={handleSessionDragEnd}
         >
           {#if broadcastMode}
@@ -329,18 +363,19 @@
         </div>
       {/each}
     {:else}
-      <!-- Single-tab view: flat list -->
-      {#each sessions as session, index (session.id)}
+      <!-- Single-tab view: flat list ordered by sessionOrder -->
+      {#each orderedSessions as session, index (session.id)}
         {@const isAssigned = ($sessionPaneCounts.get(session.id) ?? 0) > 0}
         <div
           class="session-row"
           class:broadcast-mode={broadcastMode}
-          class:session-drag-over={sessionDragOverIndex === index}
+          class:drag-insert-before={dragInsertIndex === index}
+          class:drag-insert-after={index === orderedSessions.length - 1 && dragInsertIndex === orderedSessions.length}
           draggable="true"
           ondragstart={(e) => handleSessionDragStart(e, session.id, index)}
           ondragover={(e) => handleSessionDragOver(e, index)}
           ondragleave={handleSessionDragLeave}
-          ondrop={(e) => handleSessionDrop(e, index)}
+          ondrop={(e) => handleSessionDrop(e)}
           ondragend={handleSessionDragEnd}
         >
           {#if broadcastMode}
@@ -444,6 +479,7 @@
     display: flex;
     align-items: stretch;
     cursor: grab;
+    position: relative;
   }
 
   .session-row:active {
@@ -454,10 +490,25 @@
     padding-left: 4px;
   }
 
-  .session-row.session-drag-over {
-    outline: 2px solid var(--ui-accent, #a0a7ff);
-    outline-offset: -2px;
-    border-radius: 2px;
+  .session-row.drag-insert-before::before,
+  .session-row.drag-insert-after::after {
+    content: '';
+    position: absolute;
+    left: 4px;
+    right: 4px;
+    height: 2px;
+    background: var(--ui-accent, #a0a7ff);
+    border-radius: 1px;
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  .session-row.drag-insert-before::before {
+    top: 0;
+  }
+
+  .session-row.drag-insert-after::after {
+    bottom: 0;
   }
 
   .session-item-wrapper {

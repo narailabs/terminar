@@ -55,7 +55,9 @@
   // UI Chrome color state
   let accent = '';
   let tabActive = '';
+  let tabActiveLight = '';
   let paneBorderActive = '';
+  let paneBorderActiveLight = '';
   let sidebarActive = '';
 
   // Font state — per-theme, stored in the terminal theme
@@ -79,9 +81,13 @@
     fontSize = baseTerm.fontSize ?? 14;
     fontFamily = baseTerm.fontFamily ?? 'Menlo';
     const baseUI = BUILT_IN_UI_THEMES.find(t => t.id === baseThemeId) ?? BUILT_IN_UI_THEMES[0];
+    const darkUI = BUILT_IN_UI_THEMES.find(t => t.id === 'dark') ?? BUILT_IN_UI_THEMES[0];
+    const lightUI = BUILT_IN_UI_THEMES.find(t => t.id === 'light') ?? BUILT_IN_UI_THEMES[0];
     accent = baseUI.accent;
-    tabActive = baseUI.tabActive;
-    paneBorderActive = baseUI.paneBorderActive;
+    tabActive = darkUI.tabActive;
+    tabActiveLight = lightUI.tabActive;
+    paneBorderActive = darkUI.paneBorderActive;
+    paneBorderActiveLight = lightUI.paneBorderActive;
     sidebarActive = baseUI.sidebarActive;
   }
 
@@ -97,7 +103,9 @@
       fontFamily = editTerminalTheme.fontFamily ?? 'Menlo';
       accent = editUITheme?.accent ?? '';
       tabActive = editUITheme?.tabActive ?? editUITheme?.accent ?? '';
+      tabActiveLight = editUITheme?.tabActiveLight ?? (BUILT_IN_UI_THEMES.find(t => t.id === 'light') ?? BUILT_IN_UI_THEMES[0]).tabActive;
       paneBorderActive = editUITheme?.paneBorderActive ?? editUITheme?.accent ?? '';
+      paneBorderActiveLight = editUITheme?.paneBorderActiveLight ?? (BUILT_IN_UI_THEMES.find(t => t.id === 'light') ?? BUILT_IN_UI_THEMES[0]).paneBorderActive;
       sidebarActive = editUITheme?.sidebarActive ?? editUITheme?.accent ?? '';
     } else if (copySourceTerminal) {
       themeName = copySourceTerminal.name + ' Copy';
@@ -109,7 +117,9 @@
       fontFamily = copySourceTerminal.fontFamily ?? 'Menlo';
       accent = copySourceUI?.accent ?? '';
       tabActive = copySourceUI?.tabActive ?? copySourceUI?.accent ?? '';
+      tabActiveLight = copySourceUI?.tabActiveLight ?? (BUILT_IN_UI_THEMES.find(t => t.id === 'light') ?? BUILT_IN_UI_THEMES[0]).tabActive;
       paneBorderActive = copySourceUI?.paneBorderActive ?? copySourceUI?.accent ?? '';
+      paneBorderActiveLight = copySourceUI?.paneBorderActiveLight ?? (BUILT_IN_UI_THEMES.find(t => t.id === 'light') ?? BUILT_IN_UI_THEMES[0]).paneBorderActive;
       sidebarActive = copySourceUI?.sidebarActive ?? copySourceUI?.accent ?? '';
     } else {
       if (initialBaseThemeId) {
@@ -160,7 +170,9 @@
         accent,
         accentHover: darkenHex(accent),
         tabActive,
+        tabActiveLight,
         paneBorderActive,
+        paneBorderActiveLight,
         sidebarActive,
       };
 
@@ -186,7 +198,9 @@
         accent,
         accentHover: darkenHex(accent),
         tabActive,
+        tabActiveLight,
         paneBorderActive,
+        paneBorderActiveLight,
         sidebarActive,
       };
 
@@ -216,7 +230,9 @@
         accent,
         accentHover: darkenHex(accent),
         tabActive,
+        tabActiveLight,
         paneBorderActive,
+        paneBorderActiveLight,
         sidebarActive,
       };
 
@@ -298,8 +314,16 @@
     tabActive = event.detail;
   }
 
+  function handleTabActiveLightChange(event: CustomEvent<string>) {
+    tabActiveLight = event.detail;
+  }
+
   function handlePaneBorderActiveChange(event: CustomEvent<string>) {
     paneBorderActive = event.detail;
+  }
+
+  function handlePaneBorderActiveLightChange(event: CustomEvent<string>) {
+    paneBorderActiveLight = event.detail;
   }
 
   function handleSidebarActiveChange(event: CustomEvent<string>) {
@@ -456,7 +480,7 @@
             <div class="field">
               <ColorPicker
                 id="themeEditorTabActive"
-                label="Active Tab"
+                label="Active Tab (Dark)"
                 value={tabActive}
                 showOpacity={true}
                 on:change={handleTabActiveChange}
@@ -465,11 +489,31 @@
 
             <div class="field">
               <ColorPicker
+                id="themeEditorTabActiveLight"
+                label="Active Tab (Light)"
+                value={tabActiveLight}
+                showOpacity={true}
+                on:change={handleTabActiveLightChange}
+              />
+            </div>
+
+            <div class="field">
+              <ColorPicker
                 id="themeEditorPaneBorderActive"
-                label="Active Pane Border"
+                label="Active Pane Border (Dark)"
                 value={paneBorderActive}
                 showOpacity={true}
                 on:change={handlePaneBorderActiveChange}
+              />
+            </div>
+
+            <div class="field">
+              <ColorPicker
+                id="themeEditorPaneBorderActiveLight"
+                label="Active Pane Border (Light)"
+                value={paneBorderActiveLight}
+                showOpacity={true}
+                on:change={handlePaneBorderActiveLightChange}
               />
             </div>
 

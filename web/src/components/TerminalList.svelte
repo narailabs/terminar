@@ -7,7 +7,7 @@
   import { titleStore } from '../lib/titleStore.svelte';
   import { sessionPaneCounts, newSessionIds, activeTab } from '../lib/workspaceStore';
   import { tagStore, TAG_COLORS } from '../lib/tagStore.svelte';
-  import { sidebarGroupStore, type SidebarGroup } from '../lib/sidebarGroupStore.svelte';
+  import { sidebarGroupStore, DEFAULT_GROUP_ID, type SidebarGroup } from '../lib/sidebarGroupStore.svelte';
   import { getAllPanes } from '../lib/workspaceTypes';
   import { activePaneStore } from '../lib/activePaneStore.svelte';
 
@@ -31,31 +31,15 @@
     onpanedrop?: (detail: { sourcePaneId: string }) => void;
   } = $props();
 
-  // Sessions not in any sidebar group (attached-to-tab first)
-  let ungroupedSessions = $derived((() => {
-    const grouped = new Set(sidebarGroupStore.groups.flatMap(g => g.sessionIds));
-    const counts = $sessionPaneCounts;
-    return sessions
-      .filter(s => !grouped.has(s.id))
-      .sort((a, b) => {
-        const aAttached = (counts.get(a.id) ?? 0) > 0 ? 1 : 0;
-        const bAttached = (counts.get(b.id) ?? 0) > 0 ? 1 : 0;
-        return bAttached - aAttached;
-      });
-  })());
+  // All sessions are in groups now — this is only used for legacy compat
+  // (ungroupedSessions should always be empty since ensureSessionInGroup runs on sessionList)
 
-  // Resolved sessions per group (filter out sessions that no longer exist, attached first)
+  // Resolved sessions per group (filter out sessions that no longer exist, preserve explicit order)
   function resolveGroupSessions(group: SidebarGroup): SessionInfo[] {
     const sessionMap = new Map(sessions.map(s => [s.id, s]));
-    const counts = $sessionPaneCounts;
     return group.sessionIds
       .map(id => sessionMap.get(id))
-      .filter((s): s is SessionInfo => s !== undefined)
-      .sort((a, b) => {
-        const aAttached = (counts.get(a.id) ?? 0) > 0 ? 1 : 0;
-        const bAttached = (counts.get(b.id) ?? 0) > 0 ? 1 : 0;
-        return bAttached - aAttached;
-      });
+      .filter((s): s is SessionInfo => s !== undefined);
   }
 
   let contextMenu: { x: number; y: number; sessionId: string; groupId?: string } | null = $state(null);
@@ -125,16 +109,14 @@
   function getSessionContextMenuItems(sessionId: string) {
     const group = sidebarGroupStore.getGroupForSession(sessionId);
     const items: any[] = [...sessionContextMenuItems];
-    if (group) {
-      // Insert "Remove from Group" before the last separator+Close
-      items.splice(items.length - 2, 0, { label: 'Remove from Group', action: 'ungroup' });
+    if (group && group.id !== DEFAULT_GROUP_ID) {
+      // Insert "Move to Ungrouped" before the last separator+Close
+      items.splice(items.length - 2, 0, { label: 'Move to Ungrouped', action: 'ungroup' });
     }
-    if (sidebarGroupStore.groups.length > 0) {
-      // Add "Move to Group" submenu entries
-      const groups = sidebarGroupStore.groups.filter(g => g.id !== group?.id);
-      for (const g of groups) {
-        items.splice(items.length - 2, 0, { label: `Move to "${g.name}"`, action: `move-to-group:${g.id}` });
-      }
+    // Add "Move to Group" submenu entries (exclude current group)
+    const groups = sidebarGroupStore.groups.filter(g => g.id !== group?.id);
+    for (const g of groups) {
+      items.splice(items.length - 2, 0, { label: `Move to "${g.name}"`, action: `move-to-group:${g.id}` });
     }
     // Add Tags submenu
     const assignedIds = new Set(tagStore.getAssignedIds(sessionId));
@@ -161,6 +143,10 @@
     { label: 'Delete Group', action: 'delete-group' },
   ];
 
+  const defaultGroupContextMenuItems = [
+    { label: 'Rename Group', action: 'rename-group' },
+  ];
+
   function handleSelect(sessionId: string) {
     const tab = $activeTab;
     if (!tab) return;
@@ -173,12 +159,14 @@
   // ── Session drag-drop for sidebar reordering ──────────────────────────────
   let draggedSessionId: string | null = $state(null);
   let draggedFromGroupId: string | null = $state(null);
-  let sessionDragOverIndex: number | null = $state(null);
-  let sessionDragOverGroupId: string | null = $state(null);
+  let draggedSessionIndex: number | null = $state(null);
+  let dragInsertIndex: number | null = $state(null);
+  let dragInsertGroupId: string | null = $state(null);
 
-  function handleSessionDragStart(event: DragEvent, sessionId: string, groupId: string | null) {
+  function handleSessionDragStart(event: DragEvent, sessionId: string, groupId: string | null, index: number) {
     draggedSessionId = sessionId;
     draggedFromGroupId = groupId;
+    draggedSessionIndex = index;
     event.dataTransfer?.setData('text/plain', sessionId);
     event.dataTransfer?.setData('application/x-terminar-session', sessionId);
   }
@@ -186,19 +174,35 @@
   function handleSessionDragOver(event: DragEvent, index: number, groupId: string | null) {
     if (draggedSessionId === null) return;
     event.preventDefault();
-    sessionDragOverIndex = index;
-    sessionDragOverGroupId = groupId;
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const midpoint = rect.top + rect.height / 2;
+    const gap = event.clientY < midpoint ? index : index + 1;
+    // Suppress indicator when same-group insertion would be a no-op
+    if (groupId === draggedFromGroupId && draggedSessionIndex !== null &&
+        (gap === draggedSessionIndex || gap === draggedSessionIndex + 1)) {
+      dragInsertIndex = null;
+      dragInsertGroupId = null;
+      return;
+    }
+    dragInsertIndex = gap;
+    dragInsertGroupId = groupId;
   }
 
   function handleSessionDragLeave() {
-    sessionDragOverIndex = null;
-    sessionDragOverGroupId = null;
+    // Intentionally don't clear drag state here — dragleave fires
+    // spuriously when entering child elements within the same row.
+    // State is reset by handleSessionDragEnd / handleSessionDrop.
   }
 
-  function handleSessionDrop(event: DragEvent, toIndex: number, toGroupId: string | null) {
-    if (draggedSessionId === null) return;
+  function handleSessionDrop(event: DragEvent) {
+    if (draggedSessionId === null || dragInsertIndex === null) {
+      resetDragState();
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
+
+    const toGroupId = dragInsertGroupId;
 
     if (toGroupId && draggedFromGroupId === toGroupId) {
       // Reorder within same group
@@ -206,17 +210,17 @@
       if (group) {
         const fromIndex = group.sessionIds.indexOf(draggedSessionId);
         if (fromIndex !== -1) {
+          const toIndex = dragInsertIndex > fromIndex ? dragInsertIndex - 1 : dragInsertIndex;
           sidebarGroupStore.reorderInGroup(toGroupId, fromIndex, toIndex);
         }
       }
     } else if (toGroupId) {
-      // Move to a different group
-      sidebarGroupStore.addSession(toGroupId, draggedSessionId);
+      // Move to a different group at specific position
+      sidebarGroupStore.addSessionAt(toGroupId, draggedSessionId, dragInsertIndex);
     } else if (draggedFromGroupId) {
-      // Dragged out of a group to ungrouped
+      // Dragged out of a group — move to default group
       sidebarGroupStore.removeSession(draggedSessionId);
     }
-    // If both null (ungrouped to ungrouped), no-op for now
 
     resetDragState();
   }
@@ -228,8 +232,9 @@
   function resetDragState() {
     draggedSessionId = null;
     draggedFromGroupId = null;
-    sessionDragOverIndex = null;
-    sessionDragOverGroupId = null;
+    draggedSessionIndex = null;
+    dragInsertIndex = null;
+    dragInsertGroupId = null;
     groupHeaderDragOver = {};
   }
 
@@ -254,6 +259,52 @@
     event.stopPropagation();
     sidebarGroupStore.addSession(groupId, sessionId);
     resetDragState();
+  }
+
+  // ── Group drag-drop for reordering ────────────────────────────────────────
+  let draggedGroupIndex: number | null = $state(null);
+  let groupInsertIndex: number | null = $state(null);
+
+  function handleGroupDragStart(event: DragEvent, groupIndex: number) {
+    draggedGroupIndex = groupIndex;
+    event.dataTransfer?.setData('application/x-terminar-group', String(groupIndex));
+    event.dataTransfer!.effectAllowed = 'move';
+  }
+
+  function handleGroupDragOver(event: DragEvent, groupIndex: number) {
+    if (draggedGroupIndex === null) return;
+    // Ignore if a session is being dragged (not a group)
+    if (draggedSessionId !== null) return;
+    event.preventDefault();
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const midpoint = rect.top + rect.height / 2;
+    const gap = event.clientY < midpoint ? groupIndex : groupIndex + 1;
+    if (gap === draggedGroupIndex || gap === draggedGroupIndex + 1) {
+      groupInsertIndex = null;
+      return;
+    }
+    groupInsertIndex = gap;
+  }
+
+  function handleGroupDrop(event: DragEvent) {
+    if (draggedGroupIndex === null || groupInsertIndex === null) {
+      resetGroupDragState();
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const toIndex = groupInsertIndex > draggedGroupIndex ? groupInsertIndex - 1 : groupInsertIndex;
+    sidebarGroupStore.reorderGroups(draggedGroupIndex, toIndex);
+    resetGroupDragState();
+  }
+
+  function handleGroupDragEnd() {
+    resetGroupDragState();
+  }
+
+  function resetGroupDragState() {
+    draggedGroupIndex = null;
+    groupInsertIndex = null;
   }
 
   // ── Pane drag-to-sidebar drop target ──────────────────────────────────────
@@ -390,18 +441,19 @@
   }
 </script>
 
-{#snippet sessionRow(session: SessionInfo, index: number, groupId: string | null, sidebarColor?: string)}
+{#snippet sessionRow(session: SessionInfo, index: number, groupId: string | null, sidebarColor: string | undefined, itemCount: number)}
   {@const isAssigned = ($sessionPaneCounts.get(session.id) ?? 0) > 0}
   <div
     class="session-row"
     class:broadcast-mode={broadcastMode}
-    class:session-drag-over={sessionDragOverIndex === index && sessionDragOverGroupId === groupId}
+    class:drag-insert-before={dragInsertIndex === index && dragInsertGroupId === groupId}
+    class:drag-insert-after={index === itemCount - 1 && dragInsertIndex === itemCount && dragInsertGroupId === groupId}
     style={sidebarColor ? `color: ${sidebarColor}` : ''}
     draggable="true"
-    ondragstart={(e) => handleSessionDragStart(e, session.id, groupId)}
+    ondragstart={(e) => handleSessionDragStart(e, session.id, groupId, index)}
     ondragover={(e) => handleSessionDragOver(e, index, groupId)}
     ondragleave={handleSessionDragLeave}
-    ondrop={(e) => handleSessionDrop(e, index, groupId)}
+    ondrop={(e) => handleSessionDrop(e)}
     ondragend={handleSessionDragEnd}
   >
     {#if broadcastMode}
@@ -446,15 +498,19 @@
     ondragleave={handleListDragLeave}
     ondrop={handleListDrop}
   >
-    <!-- Ungrouped sessions (top) -->
-    {#each ungroupedSessions as session, index (session.id)}
-      {@render sessionRow(session, index, null)}
-    {/each}
-
-    <!-- Sidebar groups -->
+    <!-- All sessions are in groups -->
     {#each sidebarGroupStore.groups as group, groupIndex (group.id)}
       {@const groupSessions = resolveGroupSessions(group)}
-      <div class="sidebar-group">
+      <div
+        class="sidebar-group"
+        class:group-drag-insert-before={groupInsertIndex === groupIndex}
+        class:group-drag-insert-after={groupIndex === sidebarGroupStore.groups.length - 1 && groupInsertIndex === sidebarGroupStore.groups.length}
+        draggable="true"
+        ondragstart={(e) => handleGroupDragStart(e, groupIndex)}
+        ondragover={(e) => handleGroupDragOver(e, groupIndex)}
+        ondrop={(e) => handleGroupDrop(e)}
+        ondragend={handleGroupDragEnd}
+      >
         <div
           class="group-header"
           class:group-header-drag-over={groupHeaderDragOver[group.id]}
@@ -482,29 +538,31 @@
               autofocus
             />
           {:else}
-            <span class="group-name" style={group.sidebarTextColor ? `color: ${group.sidebarTextColor}` : ''} ondblclick={() => {
+            <span class="group-name" style={group.id !== DEFAULT_GROUP_ID && group.sidebarTextColor ? `color: ${group.sidebarTextColor}` : ''} ondblclick={() => {
               editingGroupId = group.id;
               editingGroupName = group.name;
             }}>{group.name}</span>
           {/if}
           <span class="group-count">{groupSessions.length}</span>
-          <button
-            class="group-settings-btn"
-            onclick={(e) => { e.stopPropagation(); openGroupSettings(group.id); }}
-            aria-label="Group settings"
-            title="Group settings"
-          >
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
-              <path fill-rule="evenodd" clip-rule="evenodd" d="M9.1 4.4L8.6 2H7.4L6.9 4.4L6.5 4.6L4.4 3.5L3.5 4.4L4.6 6.5L4.4 6.9L2 7.4V8.6L4.4 9.1L4.6 9.5L3.5 11.6L4.4 12.5L6.5 11.4L6.9 11.6L7.4 14H8.6L9.1 11.6L9.5 11.4L11.6 12.5L12.5 11.6L11.4 9.5L11.6 9.1L14 8.6V7.4L11.6 6.9L11.4 6.5L12.5 4.4L11.6 3.5L9.5 4.6L9.1 4.4ZM8 10C9.1046 10 10 9.1046 10 8C10 6.8954 9.1046 6 8 6C6.8954 6 6 6.8954 6 8C6 9.1046 6.8954 10 8 10Z"/>
-            </svg>
-          </button>
+          {#if group.id !== DEFAULT_GROUP_ID}
+            <button
+              class="group-settings-btn"
+              onclick={(e) => { e.stopPropagation(); openGroupSettings(group.id); }}
+              aria-label="Group settings"
+              title="Group settings"
+            >
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
+                <path fill-rule="evenodd" clip-rule="evenodd" d="M9.1 4.4L8.6 2H7.4L6.9 4.4L6.5 4.6L4.4 3.5L3.5 4.4L4.6 6.5L4.4 6.9L2 7.4V8.6L4.4 9.1L4.6 9.5L3.5 11.6L4.4 12.5L6.5 11.4L6.9 11.6L7.4 14H8.6L9.1 11.6L9.5 11.4L11.6 12.5L12.5 11.6L11.4 9.5L11.6 9.1L14 8.6V7.4L11.6 6.9L11.4 6.5L12.5 4.4L11.6 3.5L9.5 4.6L9.1 4.4ZM8 10C9.1046 10 10 9.1046 10 8C10 6.8954 9.1046 6 8 6C6.8954 6 6 6.8954 6 8C6 9.1046 6.8954 10 8 10Z"/>
+              </svg>
+            </button>
+          {/if}
           {#if groupHeaderDragOver[group.id]}
             <span class="group-drop-hint">Drop here</span>
           {/if}
         </div>
         {#if !group.collapsed}
           {#each groupSessions as session, index (session.id)}
-            {@render sessionRow(session, index, group.id, group.sidebarTextColor)}
+            {@render sessionRow(session, index, group.id, group.id !== DEFAULT_GROUP_ID ? group.sidebarTextColor : undefined, groupSessions.length)}
           {/each}
         {/if}
       </div>
@@ -517,7 +575,7 @@
     x={contextMenu.x}
     y={contextMenu.y}
     items={contextMenu.groupId
-      ? groupContextMenuItems
+      ? (contextMenu.groupId === DEFAULT_GROUP_ID ? defaultGroupContextMenuItems : groupContextMenuItems)
       : contextMenu.sessionId
         ? getSessionContextMenuItems(contextMenu.sessionId)
         : emptyContextMenuItems}
@@ -527,7 +585,7 @@
 {/if}
 
 {#if newTagModal}
-  <div class="new-tag-backdrop" onclick={() => newTagModal = null} role="presentation">
+  <div class="new-tag-backdrop" onmousedown={(e) => { if (e.target === e.currentTarget) newTagModal = null; }} role="presentation">
     <div class="new-tag-modal" onclick={(e) => e.stopPropagation()}>
       <div class="new-tag-header">New Tag</div>
       <input
@@ -557,7 +615,7 @@
 {/if}
 
 {#if groupSettingsModal}
-  <div class="new-tag-backdrop" onclick={() => groupSettingsModal = null} role="presentation">
+  <div class="new-tag-backdrop" onmousedown={(e) => { if (e.target === e.currentTarget) groupSettingsModal = null; }} role="presentation">
     <div class="gs-modal" onclick={(e) => e.stopPropagation()} onkeydown={handleGsKeydown}>
       <div class="gs-header">Group Settings</div>
 
@@ -567,7 +625,7 @@
       <label class="gs-label">Sidebar Text Color</label>
       <div class="gs-color-row">
         <input class="gs-color-input" type="text" bind:value={gsSidebarTextColor} placeholder="#777 or empty for default" />
-        <input class="gs-color-picker" type="color" value={gsSidebarTextColor || '#777777'} oninput={(e) => gsSidebarTextColor = (e.target as HTMLInputElement).value} />
+        <input class="gs-color-picker" type="color" value={gsSidebarTextColor || '#676767'} oninput={(e) => gsSidebarTextColor = (e.target as HTMLInputElement).value} />
         {#if gsSidebarTextColor}
           <button class="gs-clear-btn" onclick={() => gsSidebarTextColor = ''} title="Clear">&times;</button>
         {/if}
@@ -647,6 +705,7 @@
     display: flex;
     align-items: stretch;
     cursor: grab;
+    position: relative;
   }
 
   .session-row:active {
@@ -657,10 +716,25 @@
     padding-left: 4px;
   }
 
-  .session-row.session-drag-over {
-    outline: 2px solid var(--ui-accent, #a0a7ff);
-    outline-offset: -2px;
-    border-radius: 2px;
+  .session-row.drag-insert-before::before,
+  .session-row.drag-insert-after::after {
+    content: '';
+    position: absolute;
+    left: 4px;
+    right: 4px;
+    height: 2px;
+    background: var(--ui-accent, #a0a7ff);
+    border-radius: 1px;
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  .session-row.drag-insert-before::before {
+    top: 0;
+  }
+
+  .session-row.drag-insert-after::after {
+    bottom: 0;
   }
 
   .session-item-wrapper {
@@ -814,6 +888,33 @@
 
   .sidebar-group {
     margin-bottom: 2px;
+    position: relative;
+    cursor: grab;
+  }
+
+  .sidebar-group:active {
+    cursor: grabbing;
+  }
+
+  .sidebar-group.group-drag-insert-before::before,
+  .sidebar-group.group-drag-insert-after::after {
+    content: '';
+    position: absolute;
+    left: 4px;
+    right: 4px;
+    height: 2px;
+    background: var(--ui-accent, #a0a7ff);
+    border-radius: 1px;
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  .sidebar-group.group-drag-insert-before::before {
+    top: 0;
+  }
+
+  .sidebar-group.group-drag-insert-after::after {
+    bottom: 0;
   }
 
   .group-header {

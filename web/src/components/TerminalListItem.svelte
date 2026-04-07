@@ -162,7 +162,7 @@
         <span class="name">{name}</span>
       {/if}
       {#each tags as tag}
-        <span class="tag-badge" style="background: {tag.color}; color: {contrastColor(tag.color)}">{tag.name}</span>
+        <span class="tag-badge" style="background: {tag.color}; color: {tag.fontColor || contrastColor(tag.color)}">{tag.name}</span>
       {/each}
     </div>
     {#if terminalTitle}
