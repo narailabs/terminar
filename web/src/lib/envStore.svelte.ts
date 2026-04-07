@@ -4,6 +4,11 @@
 export const ENV_STORAGE_KEY = 'terminar-env-vars';
 
 /**
+ * localStorage key for persisting per-session environment variables
+ */
+export const SESSION_ENV_STORAGE_KEY = 'terminar-session-env-vars';
+
+/**
  * Load env vars from localStorage
  */
 function loadFromStorage(): Record<string, string> {
@@ -32,7 +37,37 @@ function saveToStorage(vars: Record<string, string>): void {
   }
 }
 
+/**
+ * Load per-session env vars from localStorage
+ */
+function loadSessionVarsFromStorage(): Record<string, Record<string, string>> {
+  try {
+    const stored = localStorage.getItem(SESSION_ENV_STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.warn('[EnvStore] Failed to load session vars from localStorage:', e);
+  }
+  return {};
+}
+
+/**
+ * Save per-session env vars to localStorage
+ */
+function saveSessionVarsToStorage(vars: Record<string, Record<string, string>>): void {
+  try {
+    localStorage.setItem(SESSION_ENV_STORAGE_KEY, JSON.stringify(vars));
+  } catch (e) {
+    console.warn('[EnvStore] Failed to save session vars to localStorage:', e);
+  }
+}
+
 let vars = $state<Record<string, string>>(loadFromStorage());
+let sessionVars = $state<Record<string, Record<string, string>>>(loadSessionVarsFromStorage());
 
 /**
  * Global environment variables store.
@@ -41,6 +76,15 @@ let vars = $state<Record<string, string>>(loadFromStorage());
 export const globalEnvVars = {
   get value() {
     return vars;
+  },
+};
+
+/**
+ * Per-session environment variables store.
+ */
+export const sessionEnvVars = {
+  get value() {
+    return sessionVars;
   },
 };
 
@@ -73,11 +117,71 @@ export function deleteEnvVar(key: string): void {
 }
 
 /**
- * Get the effective environment variables by merging global vars with
- * per-session overrides. Session overrides take precedence over global vars.
+ * Add a per-session environment variable.
  */
-export function getEffectiveEnv(sessionOverrides?: Record<string, string>): Record<string, string> {
-  return { ...vars, ...(sessionOverrides || {}) };
+export function addSessionEnvVar(sessionId: string, key: string, value: string): void {
+  const sessionMap = { ...(sessionVars[sessionId] || {}), [key]: value };
+  const updated = { ...sessionVars, [sessionId]: sessionMap };
+  saveSessionVarsToStorage(updated);
+  sessionVars = updated;
+}
+
+/**
+ * Update a per-session environment variable.
+ */
+export function updateSessionEnvVar(sessionId: string, key: string, value: string): void {
+  const sessionMap = { ...(sessionVars[sessionId] || {}), [key]: value };
+  const updated = { ...sessionVars, [sessionId]: sessionMap };
+  saveSessionVarsToStorage(updated);
+  sessionVars = updated;
+}
+
+/**
+ * Delete a per-session environment variable.
+ */
+export function deleteSessionEnvVar(sessionId: string, key: string): void {
+  const sessionMap = { ...(sessionVars[sessionId] || {}) };
+  delete sessionMap[key];
+  const updated = { ...sessionVars, [sessionId]: sessionMap };
+  if (Object.keys(sessionMap).length === 0) {
+    delete updated[sessionId];
+  }
+  saveSessionVarsToStorage(updated);
+  sessionVars = updated;
+}
+
+/**
+ * Get env vars for a specific session (without global merge).
+ */
+export function getSessionEnvVars(sessionId: string): Record<string, string> {
+  return sessionVars[sessionId] || {};
+}
+
+/**
+ * Remove per-session env var entries for sessions that no longer exist.
+ */
+export function cleanStaleSessionEnvVars(activeSessionIds: Set<string>): void {
+  let changed = false;
+  const updated = { ...sessionVars };
+  for (const id of Object.keys(updated)) {
+    if (!activeSessionIds.has(id)) {
+      delete updated[id];
+      changed = true;
+    }
+  }
+  if (changed) {
+    saveSessionVarsToStorage(updated);
+    sessionVars = updated;
+  }
+}
+
+/**
+ * Get the effective environment variables by merging global vars with
+ * per-session vars. Per-session vars take precedence over global vars.
+ */
+export function getEffectiveEnv(sessionId?: string): Record<string, string> {
+  if (!sessionId) return { ...vars };
+  return { ...vars, ...(sessionVars[sessionId] || {}) };
 }
 
 /**
@@ -104,4 +208,5 @@ export function validateEnvKey(key: string): string | null {
  */
 export function resetEnvVars(): void {
   vars = loadFromStorage();
+  sessionVars = loadSessionVarsFromStorage();
 }

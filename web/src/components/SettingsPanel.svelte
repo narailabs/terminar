@@ -27,8 +27,7 @@
     type UIMode,
   } from '../lib/themeStore.svelte';
   import { BUILT_IN_TERMINAL_THEMES, BUILT_IN_UI_THEMES, BUILT_IN_TERMINAL_THEME_IDS } from '../lib/themeTypes';
-  import EnvVarEditor from './EnvVarEditor.svelte';
-  import { globalEnvVars, addEnvVar, updateEnvVar, deleteEnvVar } from '../lib/envStore.svelte';
+  import EnvVarsModal from './EnvVarsModal.svelte';
   import { getKeyBindingRegistry, formatBinding, type KeyBinding } from '../lib/keybindings';
   import { tagStore } from '../lib/tagStore.svelte';
   import TagEditorModal from './TagEditorModal.svelte';
@@ -284,35 +283,8 @@
     deleteCustomTerminalTheme(id);
   }
 
-  // Environment variables
-  let currentEnvVars = $derived(globalEnvVars.value);
-
-  let envSaveTimer: ReturnType<typeof setTimeout> | null = null;
-
-  function handleEnvChange(newVars: Record<string, string>) {
-    // Debounce the save to avoid excessive writes
-    if (envSaveTimer) clearTimeout(envSaveTimer);
-    envSaveTimer = setTimeout(() => {
-      // Diff and apply changes
-      const current = globalEnvVars.value;
-      // Delete removed keys
-      for (const key of Object.keys(current)) {
-        if (!(key in newVars)) {
-          deleteEnvVar(key);
-        }
-      }
-      // Add/update keys
-      for (const [key, value] of Object.entries(newVars)) {
-        if (current[key] !== value) {
-          if (key in current) {
-            updateEnvVar(key, value);
-          } else {
-            addEnvVar(key, value);
-          }
-        }
-      }
-    }, 300);
-  }
+  // Environment variables modal
+  let showEnvModal = $state(false);
 
   // Keyboard shortcuts
   let recordingAction: string | null = $state(null);
@@ -374,7 +346,6 @@
   onDestroy(() => {
     document.removeEventListener('keydown', handleKeydown);
     unsubscribe();
-    if (envSaveTimer) clearTimeout(envSaveTimer);
   });
 </script>
 
@@ -512,11 +483,11 @@
 
             <!-- Environment Variables -->
             <div class="setting-group" data-testid="env-vars-section">
-              <EnvVarEditor
-                envVars={currentEnvVars}
-                label="Global Environment Variables"
-                onchange={handleEnvChange}
-              />
+              <label>Environment Variables</label>
+              <button class="env-button" onclick={() => showEnvModal = true}>
+                Environment Variables
+              </button>
+              <span class="field-hint">Set environment variables for terminal sessions</span>
             </div>
           </div>
 
@@ -652,6 +623,10 @@
 
 <ThemeEditor isOpen={showThemeEditor} {editUITheme} {editTerminalTheme} initialBaseThemeId={editBaseThemeId} {copySourceUI} {copySourceTerminal} on:close={handleThemeEditorClose} on:save={handleThemeEditorSave} />
 <TagEditorModal isOpen={showTagEditor} onclose={() => showTagEditor = false} />
+
+{#if showEnvModal}
+  <EnvVarsModal onClose={() => showEnvModal = false} />
+{/if}
 
 <style>
   .modal-backdrop {
@@ -1076,5 +1051,30 @@
     padding: 1px 7px;
     border-radius: 3px;
     white-space: nowrap;
+  }
+
+  .env-button {
+    background: var(--ui-bg-tertiary, #242629);
+    color: var(--ui-text-primary, #fdfbfe);
+    width: 100%;
+    text-align: left;
+    border: 1px solid var(--ui-border, #555);
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .env-button:hover {
+    background: var(--ui-bg-hover, #4a4a4a);
+    border-color: var(--ui-accent, #a0a7ff);
+  }
+
+  .field-hint {
+    font-size: 11px;
+    color: var(--ui-text-muted, #6c7086);
+    margin-top: 2px;
   }
 </style>

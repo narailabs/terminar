@@ -22,7 +22,7 @@
   import BroadcastBar from './components/BroadcastBar.svelte';
   import { broadcastEnabled, clearTargets, setSessionManager } from './lib/broadcastStore.svelte';
   import { sidebarPositionStore } from './lib/sidebarPositionStore.svelte';
-  import { getEffectiveEnv } from './lib/envStore.svelte';
+  import { getEffectiveEnv, cleanStaleSessionEnvVars } from './lib/envStore.svelte';
   import { getKeyBindingRegistry } from './lib/keybindings';
   import { markExited } from './lib/exitedSessionsStore.svelte';
   import { foregroundStore } from './lib/foregroundStore.svelte';
@@ -463,6 +463,7 @@
       // Clear workspace panes that reference sessions no longer on the server
       const currentSessionIds = new Set(newSessions.map(s => s.id));
       workspaceStore.clearStaleSessions(currentSessionIds);
+      cleanStaleSessionEnvVars(currentSessionIds);
 
       // Helper to find first empty pane
       function findEmptyPane(node: any): string | null {
@@ -921,7 +922,7 @@
     pendingNewTerminalPaneId = paneId;
     const estimatedCols = Math.max(40, Math.floor((window.innerWidth * 0.75) / 8));
     const estimatedRows = Math.max(10, Math.floor((window.innerHeight * 0.85) / 17));
-    const envVars = getEffectiveEnv();
+    const envVars = getEffectiveEnv(sessionId);
     manager?.createSession(cwd, shell, envVars, estimatedCols, estimatedRows);
   }
 
