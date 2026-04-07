@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api, type TrayConfig } from "./lib/api";
+  import EnvVarsModal from "./components/EnvVarsModal.svelte";
 
   let config = $state<TrayConfig>({
     server_port: 6750,
@@ -8,6 +9,7 @@
   let loading = $state(true);
   let saving = $state(false);
   let errorMessage = $state("");
+  let showEnvModal = $state(false);
 
   // Load config on mount
   $effect(() => {
@@ -66,6 +68,20 @@
         />
       </div>
     </section>
+
+    <section>
+      <h2>Environment</h2>
+      <div class="field">
+        <button class="env-button" onclick={() => showEnvModal = true}>
+          Environment Variables
+        </button>
+        <span class="field-hint">Set environment variables for terminal sessions</span>
+      </div>
+    </section>
+
+    {#if showEnvModal}
+      <EnvVarsModal onClose={() => showEnvModal = false} />
+    {/if}
 
     <div class="actions">
       <button class="secondary" onclick={cancel}>Cancel</button>
@@ -181,5 +197,29 @@
 
   .secondary:hover {
     background: #47484a;
+  }
+
+  .env-button {
+    background: #242629;
+    color: #fdfbfe;
+    width: 100%;
+    text-align: left;
+    border: 1px solid #47484a;
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .env-button:hover {
+    background: #2e3035;
+    border-color: #a0a7ff;
+  }
+
+  .field-hint {
+    font-size: 0.75rem;
+    color: #6c7086;
   }
 </style>

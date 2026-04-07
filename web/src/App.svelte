@@ -891,7 +891,7 @@
     // default monospace fonts. The terminal will send precise resize after attach.
     const estimatedCols = Math.max(40, Math.floor((window.innerWidth * 0.75) / 8));
     const estimatedRows = Math.max(10, Math.floor((window.innerHeight * 0.85) / 17));
-    const envVars = getEffectiveEnv({});
+    const envVars = getEffectiveEnv();
     manager?.createSession('', '', envVars, estimatedCols, estimatedRows);
   }
 
@@ -900,7 +900,7 @@
     pendingNewTerminalPaneId = targetPaneId;
     const estimatedCols = Math.max(40, Math.floor((window.innerWidth * 0.75) / 8));
     const estimatedRows = Math.max(10, Math.floor((window.innerHeight * 0.85) / 17));
-    const envVars = getEffectiveEnv({});
+    const envVars = getEffectiveEnv();
     manager?.createSession(cwd, '', envVars, estimatedCols, estimatedRows);
   }
 
@@ -921,7 +921,7 @@
     pendingNewTerminalPaneId = paneId;
     const estimatedCols = Math.max(40, Math.floor((window.innerWidth * 0.75) / 8));
     const estimatedRows = Math.max(10, Math.floor((window.innerHeight * 0.85) / 17));
-    const envVars = getEffectiveEnv({});
+    const envVars = getEffectiveEnv();
     manager?.createSession(cwd, shell, envVars, estimatedCols, estimatedRows);
   }
 
