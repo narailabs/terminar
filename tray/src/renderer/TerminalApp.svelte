@@ -13,7 +13,8 @@
 
   import { broadcastEnabled, clearTargets, setSessionManager } from './lib/broadcastStore.svelte';
   import { sidebarPositionStore } from './lib/sidebarPositionStore.svelte';
-  import { getEffectiveEnv } from './lib/envStore.svelte';
+  import { getEffectiveEnv, cleanStaleSessionEnvVars } from './lib/envStore.svelte';
+  import { writeSessionList } from './lib/sessionListStore.svelte';
   import { getKeyBindingRegistry } from './lib/keybindings';
   import { markExited } from './lib/exitedSessionsStore.svelte';
   import { foregroundStore } from './lib/foregroundStore.svelte';
@@ -182,6 +183,7 @@
       const previousSessionIds = new Set(sessions.map(s => s.id));
       const isFirstSessionList = previousSessionIds.size === 0;
       sessions = newSessions;
+      writeSessionList(newSessions.map(s => ({ id: s.id, name: s.name })));
 
       // Initialize foreground store from session list data
       for (const s of newSessions) {
@@ -193,6 +195,7 @@
       // Clear workspace panes that reference sessions no longer on the server
       const currentSessionIds = new Set(newSessions.map(s => s.id));
       workspaceStore.clearStaleSessions(currentSessionIds);
+      cleanStaleSessionEnvVars(currentSessionIds);
 
       function findEmptyPane(node: Record<string, unknown>): string | null {
         if (node.type === 'pane') {
@@ -269,7 +272,7 @@
     pendingNewTerminalPaneId = targetPaneId || null;
     const estimatedCols = Math.max(40, Math.floor((window.innerWidth * 0.75) / 8));
     const estimatedRows = Math.max(10, Math.floor((window.innerHeight * 0.85) / 17));
-    const envVars = getEffectiveEnv({});
+    const envVars = getEffectiveEnv();
     manager?.createSession('', '', envVars, estimatedCols, estimatedRows);
   }
 
@@ -290,7 +293,7 @@
     pendingNewTerminalPaneId = paneId;
     const estimatedCols = Math.max(40, Math.floor((window.innerWidth * 0.75) / 8));
     const estimatedRows = Math.max(10, Math.floor((window.innerHeight * 0.85) / 17));
-    const envVars = getEffectiveEnv({});
+    const envVars = getEffectiveEnv(sessionId);
     manager?.createSession(cwd, shell, envVars, estimatedCols, estimatedRows);
   }
 

@@ -76,8 +76,8 @@ export function deleteEnvVar(key: string): void {
  * Get the effective environment variables by merging global vars with
  * per-session overrides. Session overrides take precedence over global vars.
  */
-export function getEffectiveEnv(sessionOverrides: Record<string, string>): Record<string, string> {
-  return { ...vars, ...sessionOverrides };
+export function getEffectiveEnv(sessionOverrides?: Record<string, string>): Record<string, string> {
+  return { ...vars, ...(sessionOverrides || {}) };
 }
 
 /**
