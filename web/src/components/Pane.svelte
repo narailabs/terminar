@@ -149,7 +149,12 @@
       case 'terminalTitle': return terminalTitle;
       case 'shell': return sessionShell;
       case 'cwd': return displayCwd;
-      case 'cwdName': return displayCwdName;
+      case 'cwdName': {
+        // Deduplicate: hide cwdName when it matches visible sessionName
+        const snField = titleFields.find(f => f.id === 'sessionName');
+        if (snField?.visible && sessionName.trim() === displayCwdName.trim()) return '';
+        return displayCwdName;
+      }
       case 'process': return processBadge ?? '';
       case 'tags': return sessionTags.length > 0 ? '\x00' : ''; // placeholder — rendered as badges
       case 'group': return (sessionGroup && sessionGroup.id !== DEFAULT_GROUP_ID) ? sessionGroup.name : '';
