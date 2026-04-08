@@ -34,7 +34,7 @@ describe('Theme Export', () => {
     expect(exported.name).toBe('Dark');
     expect(exported.type).toBe('terminal');
     expect(exported.terminal).toBeDefined();
-    expect(exported.terminal!.foreground).toBe('#fdfbfe');
+    expect(exported.terminal!.foreground).toBe('#cacaca');
     expect(exported.ui).toBeUndefined();
   });
 

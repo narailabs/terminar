@@ -31,11 +31,11 @@ describe('themeStore', () => {
 
   // ── Default state ────────────────────────────────────────────────────────
 
-  it('should initialize with dark theme as default', () => {
+  it('should initialize with dark-green as default terminal theme', () => {
     const state = themeStore.themeState.value;
     expect(state.uiMode).toBe('dark');
     expect(state.activeUIThemeId).toBe('dark');
-    expect(state.activeTerminalThemeId).toBe('dark');
+    expect(state.activeTerminalThemeId).toBe('dark-green');
   });
 
   it('should have empty custom themes and overrides by default', () => {
@@ -396,10 +396,11 @@ describe('themeStore', () => {
     expect(state.uiMode).toBe('light');
   });
 
-  it('should migrate old state with dark-green activeUIThemeId to dark', async () => {
+  it('should preserve dark-green as activeUIThemeId (valid built-in)', async () => {
     const saved = {
+      uiMode: 'dark',
       activeUIThemeId: 'dark-green',
-      activeTerminalThemeId: 'dark',
+      activeTerminalThemeId: 'dark-green',
       terminalOverrides: {},
       customUIThemes: [],
       customTerminalThemes: [],
@@ -409,8 +410,7 @@ describe('themeStore', () => {
     vi.resetModules();
     const freshStore = await import('./themeStore.svelte');
     const state = freshStore.themeState.value;
-    expect(state.uiMode).toBe('dark');
-    expect(state.activeUIThemeId).toBe('dark');
+    expect(state.activeUIThemeId).toBe('dark-green');
   });
 });
 

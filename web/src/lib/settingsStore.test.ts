@@ -25,11 +25,11 @@ Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock });
 const mockTerminalTheme = {
   id: 'dark',
   name: 'Dark',
-  foreground: '#fdfbfe',
+  foreground: '#cacaca',
   background: '#000000',
-  cursor: '#a0a7ff',
+  cursor: '#fdfbfe',
   cursorAccent: '#000000',
-  selectionBackground: '#2a2d5a',
+  selectionBackground: '#707070',
   selectionForeground: '#fdfbfe',
   selectionInactiveBackground: '#242629',
   ansi: {
@@ -41,7 +41,7 @@ const mockTerminalTheme = {
     magenta: '#bc3fbc',
     cyan: '#47c4ff',
     white: '#e5e5e5',
-    brightBlack: '#676767',
+    brightBlack: '#666666',
     brightRed: '#f14c4c',
     brightGreen: '#23d18b',
     brightYellow: '#f5f543',
@@ -68,7 +68,7 @@ const { mockThemeStateWritable } = vi.hoisted(() => {
   };
 });
 
-vi.mock('./themeStore', () => ({
+vi.mock('./themeStore.svelte', () => ({
   themeState: mockThemeStateWritable,
   getActiveTerminalTheme: vi.fn(() => mockTerminalTheme),
 }));
@@ -304,11 +304,11 @@ describe('settingsStore', () => {
     expect(opts.lineHeight).toBe(1.2);
 
     // Theme colors come from the mocked getActiveTerminalTheme
-    expect(opts.theme.foreground).toBe('#fdfbfe');
+    expect(opts.theme.foreground).toBe('#cacaca');
     expect(opts.theme.background).toBe('#000000');
-    expect(opts.theme.cursor).toBe('#a0a7ff');
+    expect(opts.theme.cursor).toBe('#fdfbfe');
     expect(opts.theme.cursorAccent).toBe('#000000');
-    expect(opts.theme.selectionBackground).toBe('#2a2d5a');
+    expect(opts.theme.selectionBackground).toBe('#707070');
     expect(opts.theme.selectionForeground).toBe('#fdfbfe');
     expect(opts.theme.selectionInactiveBackground).toBe('#242629');
 
