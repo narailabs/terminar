@@ -58,6 +58,16 @@ function loadState(): ThemeState {
 }
 
 function migrateCustomThemes(s: ThemeState): ThemeState {
+  // In production: strip any custom overrides of built-in theme IDs so that
+  // shipped built-in values always win (upgrades replace system themes).
+  // In dev: merge built-in base with custom overrides for live editing.
+  if (!import.meta.env.DEV) {
+    return {
+      ...s,
+      customUIThemes: s.customUIThemes.filter((t) => !BUILT_IN_UI_THEME_IDS.has(t.id)),
+      customTerminalThemes: s.customTerminalThemes.filter((t) => !BUILT_IN_TERMINAL_THEME_IDS.has(t.id)),
+    };
+  }
   const migratedUI = s.customUIThemes.map((custom) => {
     const base = BUILT_IN_UI_THEMES.find((b) => b.id === custom.id) ?? BUILT_IN_UI_THEMES[0];
     return { ...base, ...custom };
