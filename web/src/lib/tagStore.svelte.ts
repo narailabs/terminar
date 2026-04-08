@@ -39,7 +39,14 @@ export const TAG_COLORS = [
 ] as const;
 
 const STORAGE_KEY = 'terminal-tags';
-const DEFAULT_STATE: TagState = { definitions: [], assignments: {} };
+const DEFAULT_STATE: TagState = {
+  definitions: [
+    { id: '427e80c6-48c0-4654-947e-34d2a726ad6e', name: 'Important', color: '#e06c75', fontColor: '#ffe5e5' },
+    { id: 'cd62cfa8-e052-4f60-b354-6a27a11bb3f8', name: 'Follow-up', color: '#e5c07b', fontColor: '#750000' },
+    { id: 'd0d618fd-6836-4d8c-a110-75eb5829a97c', name: 'Waiting for response', color: '#61afef' },
+  ],
+  assignments: {},
+};
 
 /**
  * Detect and migrate old format: [[sessionId, Tag[]], ...] → TagState
