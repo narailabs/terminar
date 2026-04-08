@@ -403,7 +403,7 @@
               <label>Themes</label>
               <div class="custom-theme-list">
                 {#each BUILT_IN_TERMINAL_THEMES as builtInTheme}
-                  {@const overridden = isBuiltInOverridden(builtInTheme.id)}
+                  {@const overridden = import.meta.env.DEV && isBuiltInOverridden(builtInTheme.id)}
                   {@const displayTerm = overridden
                     ? themeState.value.customTerminalThemes.find(t => t.id === builtInTheme.id) ?? builtInTheme
                     : builtInTheme}
@@ -412,12 +412,23 @@
                     ? themeState.value.customUIThemes.find(u => u.id === builtInTheme.id)
                     : null) ?? builtInUI}
                   <div class="custom-theme-item">
-                    <span>{displayTerm.name}{#if overridden} <span class="modified-badge">(modified)</span>{/if}</span>
+                    <span>
+                      {displayTerm.name}
+                      {#if import.meta.env.DEV && overridden}
+                        <span class="modified-badge">(modified)</span>
+                      {:else if !import.meta.env.DEV}
+                        <span class="system-badge">system</span>
+                      {/if}
+                    </span>
                     <div class="custom-theme-actions">
-                      <button class="edit-theme-btn" onclick={() => handleEditTheme(displayUI, displayTerm)}>Edit</button>
-                      <button class="edit-theme-btn" onclick={() => handleCopyTheme(displayUI, displayTerm)}>Copy</button>
-                      {#if overridden}
-                        <button class="edit-theme-btn" onclick={() => resetBuiltInOverride(builtInTheme.id)}>Reset</button>
+                      {#if import.meta.env.DEV}
+                        <button class="edit-theme-btn" onclick={() => handleEditTheme(displayUI, displayTerm)}>Edit</button>
+                        <button class="edit-theme-btn" onclick={() => handleCopyTheme(displayUI, displayTerm)}>Copy</button>
+                        {#if overridden}
+                          <button class="edit-theme-btn" onclick={() => resetBuiltInOverride(builtInTheme.id)}>Reset</button>
+                        {/if}
+                      {:else}
+                        <button class="edit-theme-btn" onclick={() => handleCopyTheme(displayUI, displayTerm)}>Duplicate</button>
                       {/if}
                     </div>
                   </div>
@@ -970,6 +981,14 @@
     color: var(--ui-text-muted, #757578);
     font-size: 11px;
     font-style: italic;
+  }
+
+  .system-badge {
+    color: var(--ui-text-muted, #757578);
+    font-size: 10px;
+    font-variant: small-caps;
+    letter-spacing: 0.04em;
+    opacity: 0.7;
   }
 
   .keybinding-list {
