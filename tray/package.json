@@ -1,7 +1,7 @@
 {
   "name": "terminar-tray",
   "private": true,
-  "version": "0.4.3",
+  "version": "0.5.0",
   "type": "module",
   "main": "dist-electron/index.js",
   "scripts": {
