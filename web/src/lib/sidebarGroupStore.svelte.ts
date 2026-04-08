@@ -18,6 +18,14 @@ export const DEFAULT_GROUP_ID = '__default__';
 const STORAGE_KEY = 'sidebar-groups';
 const UNGROUPED_ORDER_KEY = 'sidebar-ungrouped-order';
 
+const DEFAULT_GROUPS: SidebarGroup[] = [
+  { id: DEFAULT_GROUP_ID, name: 'Ungrouped', sessionIds: [], collapsed: false },
+  { id: 'ac341aba-35f9-4a25-b5c7-ffda778f7201', name: 'Todo', sessionIds: [], collapsed: false, sidebarTextColor: '#676767', titlebarBg: '#676767', titlebarFg: '#e3e3e3' },
+  { id: '8ef3ffb2-77d5-4505-8ae9-bd69c8764e3c', name: 'In-Progress', sessionIds: [], collapsed: false, sidebarTextColor: '#5a88c4', titlebarBg: '#5a88c4', titlebarFg: '#f0f1ff' },
+  { id: 'd17d4128-10af-4ed8-a1b2-95007afaf621', name: 'In-Review', sessionIds: [], collapsed: false, sidebarTextColor: '#cc7b30', titlebarBg: '#cc7b30', titlebarFg: '#fff4e5' },
+  { id: 'ada11281-a6bb-49ee-8de9-ef11d2c91048', name: 'Complete', sessionIds: [], collapsed: false, sidebarTextColor: '#4a944c', titlebarBg: '#4a944c', titlebarFg: '#d1ffe3' },
+];
+
 function ensureDefaultGroup(groups: SidebarGroup[]): SidebarGroup[] {
   if (groups.some(g => g.id === DEFAULT_GROUP_ID)) return groups;
   return [{ id: DEFAULT_GROUP_ID, name: 'Ungrouped', sessionIds: [], collapsed: false }, ...groups];
@@ -28,7 +36,7 @@ function load(): SidebarGroup[] {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return ensureDefaultGroup(JSON.parse(raw));
   } catch { /* ignore */ }
-  return ensureDefaultGroup([]);
+  return DEFAULT_GROUPS;
 }
 
 function save(groups: SidebarGroup[]): void {
