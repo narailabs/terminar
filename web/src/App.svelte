@@ -2,12 +2,9 @@
   import { onMount, onDestroy } from 'svelte';
   import WorkspaceView from './components/WorkspaceView.svelte';
 
-  import LoginPage from './components/LoginPage.svelte';
   import Sidebar from './components/Sidebar.svelte';
   import SettingsPanel from './components/SettingsPanel.svelte';
-  import { WebSocketSessionManager } from './lib/WebSocketSessionManager';
   import type { ConnectionState, SessionManager } from './lib/SessionManager';
-  import { LocalEchoManager } from './lib/LocalEchoManager';
   import { createManager as singletonCreate, destroyManager as singletonDestroy, isActiveManager } from './lib/connectionSingleton';
   import { settingsStore, applyControlsZoom } from './lib/settingsStore.svelte';
   import { initializeSettings } from './lib/settingsApi';
@@ -27,21 +24,13 @@
   import { markExited } from './lib/exitedSessionsStore.svelte';
   import { foregroundStore } from './lib/foregroundStore.svelte';
   import { sidebarGroupStore } from './lib/sidebarGroupStore.svelte';
-  import { parseSshPrivateKey } from './lib/sshKeyParser';
   import { reactiveBox, setManagerContext, setSessionsContext, setActionsContext, type AppActions } from './lib/sessionContext.svelte';
   import { sessionCwdStore } from './lib/sessionCwdStore.svelte';
   import { activePaneStore } from './lib/activePaneStore.svelte';
   import { findPane } from './lib/workspaceTypes';
 
-  // Check for local-echo mode via URL parameter or localStorage (for e2e tests)
-  const isLocalEchoMode = typeof window !== 'undefined' && (
-    new URLSearchParams(window.location.search).has('local-echo') ||
-    (typeof localStorage !== 'undefined' && typeof localStorage.getItem === 'function' && localStorage.getItem('local-echo') === '1')
-  );
-
-  // Connection management uses connectionSingleton.ts for deduplication.
-  // That module is a plain .ts file with true module-level scope, unlike
-  // Svelte 5 components where all <script> code is per-instance.
+  const serverHttpUrl = 'http://localhost:6750';
+  const serverWsUrl = 'ws://localhost:6750/ws';
 
   interface SessionInfo {
     id: string;
@@ -51,25 +40,7 @@
     started_at: string;
   }
 
-  // Props for server URLs (allows testing with different URLs)
-  let {
-    serverHttpUrl = 'http://localhost:6750',
-    serverWsUrl = 'ws://localhost:6750/ws',
-  }: {
-    serverHttpUrl?: string;
-    serverWsUrl?: string;
-  } = $props();
-
-  let token = $state('');
-  let pairingCode = $state('');
-  let pairingError = $state('');
-  let isPairingMode = $state(false);
-  let isExchangingCode = $state(false);
   let isConnected = $state(false);
-  let hasConnectedOnce = $state(false);  // Track if we've ever connected
-  let serverRequiresAuth = $state(false);  // True when local server unexpectedly requires auth
-  let authError = $state('');
-  let isAuthenticating = $state(false);
   let manager = $state<SessionManager | null>(null);
 
   // Session state
@@ -141,91 +112,6 @@
   let connectionState = $state<ConnectionState>('disconnected');
   let reconnectAttempt = $state(0);
   let reconnectDelay = $state(0);
-
-  // Detect if connecting to localhost (no auth needed)
-  function isLocalServer(url: string): boolean {
-    try {
-      const parsed = new URL(url);
-      return parsed.hostname === 'localhost' ||
-             parsed.hostname === '127.0.0.1' ||
-             parsed.hostname === '[::1]';
-    } catch {
-      return false;
-    }
-  }
-
-  // Enforce WSS for remote connections to prevent credential interception
-  function enforceSecureConnection(url: string): string {
-    if (!isLocalServer(url)) {
-      try {
-        const parsed = new URL(url);
-        if (parsed.protocol === 'ws:') {
-          parsed.protocol = 'wss:';
-          console.warn(`[Security] Upgrading remote connection to WSS: ${parsed.href}`);
-          return parsed.href;
-        }
-      } catch {
-        // If URL parsing fails, fall through to return original
-      }
-    }
-    return url;
-  }
-
-  // Cookie-based auth helpers -- replaces localStorage token persistence.
-  // After successful WebSocket auth, POST the token to /auth/session to set HttpOnly cookies.
-  // The server sets Secure; HttpOnly; SameSite=Strict cookies that the browser sends
-  // automatically on WebSocket upgrade requests, enabling transparent reconnection.
-  let refreshInterval: ReturnType<typeof setInterval> | null = null;
-
-  async function setSessionCookie(accessToken: string): Promise<void> {
-    try {
-      await fetch(`${serverHttpUrl}/auth/session`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ token: accessToken }),
-      });
-      startTokenRefresh();
-    } catch (err) {
-      console.warn('[Auth] Failed to set session cookie:', err);
-    }
-  }
-
-  async function clearSessionCookie(): Promise<void> {
-    try {
-      await fetch(`${serverHttpUrl}/auth/logout`, {
-        method: 'POST',
-        credentials: 'include',
-      });
-    } catch (err) {
-      console.warn('[Auth] Failed to clear session cookie:', err);
-    }
-    stopTokenRefresh();
-  }
-
-  function startTokenRefresh(): void {
-    stopTokenRefresh();
-    // Refresh every 14 minutes (access token expires in 15 min)
-    refreshInterval = setInterval(async () => {
-      try {
-        await fetch(`${serverHttpUrl}/auth/refresh`, {
-          method: 'POST',
-          credentials: 'include',
-        });
-      } catch (err) {
-        console.warn('[Auth] Token refresh failed:', err);
-      }
-    }, 14 * 60 * 1000);
-  }
-
-  function stopTokenRefresh(): void {
-    if (refreshInterval) {
-      clearInterval(refreshInterval);
-      refreshInterval = null;
-    }
-  }
-
-  let isLocal = $derived(isLocalServer(serverWsUrl));
 
   // Apply UI theme CSS variables whenever the theme state changes
   $effect(() => {
@@ -299,87 +185,29 @@
     };
   }
 
-  // Auto-connect on mount if local
   onMount(async () => {
-    // Expose the multi-window bridge immediately so it's ready when the
-    // main process queries it (the bridge reads from workspaceStore which
-    // is always available as a module singleton).
     exposeTerminarBridge();
-
-    // Check for local-echo mode (bypasses server completely)
-    if (isLocalEchoMode) {
-      console.log('[App] Local Echo Mode - bypassing server for testing');
-      connectLocalEcho();
-      window.addEventListener('keydown', handleGlobalKeydown);
-      return;
-    }
 
     // Initialize settings and themes from server (with localStorage fallback)
     await initializeSettings(settingsStore, serverHttpUrl);
     await initializeThemes(themeStoreApi, serverHttpUrl);
     await initializeTags(tagStoreApi, serverHttpUrl);
 
-    if (isLocal) {
-      connectLocal();
-    } else {
-      // Try cookie-based auto-reconnection for remote servers.
-      // HttpOnly cookies are sent automatically on the WebSocket upgrade request,
-      // so we attempt a direct connection. If the cookie is valid, the server
-      // authenticates without message-based auth. If not, the login page is shown.
-      // Fire-and-forget: runs in background so UI is immediately interactive.
-      connectWithCookie();
-    }
+    connectLocal();
     window.addEventListener('keydown', handleGlobalKeydown);
   });
 
   onDestroy(() => {
     window.removeEventListener('keydown', handleGlobalKeydown);
-    stopTokenRefresh();
-    // Clean up via singleton (ensures only current active manager is affected)
     singletonDestroy();
     manager = null;
   });
 
-  function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter') {
-      if (isPairingMode) {
-        exchangeCode();
-      } else {
-        connect();
-      }
-    }
+  function handleReconnect() {
+    manager?.reconnect();
   }
 
-  function togglePairingMode() {
-    isPairingMode = !isPairingMode;
-    pairingError = '';
-    pairingCode = '';
-  }
-
-  // Connect in local-echo mode (no server, for testing xterm.js)
-  async function connectLocalEcho() {
-    console.log('[App] Starting in local-echo mode (bypassing server)');
-    manager = new LocalEchoManager();
-
-    setupManagerEvents();
-
-    connectionState = 'connecting';
-    try {
-      await manager.connect();
-      console.log('[App] Local echo mode ready');
-      isConnected = true;
-      connectionState = 'connected';
-
-      // Initialize empty workspace (no server)
-      workspaceStore.initialize(null);
-    } catch (err) {
-      console.error('[App] Local echo mode failed:', err);
-      isConnected = false;
-      connectionState = 'disconnected';
-    }
-  }
-
-  // Connect without authentication (for local connections)
+  // Connect to local server (no auth required)
   async function connectLocal() {
     console.log('[App] Auto-connecting to local server (no auth required)');
     // Capture raw reference before assigning to $state (Svelte 5 may wrap
@@ -425,12 +253,6 @@
       connectionState = state;
       if (state === 'connected') {
         isConnected = true;
-        hasConnectedOnce = true;
-      } else if (state === 'disconnected' && !hasConnectedOnce) {
-        // Only show LoginPage if we've never successfully connected.
-        // During reconnection cycles, keep the workspace visible so
-        // terminals aren't destroyed — the toolbar shows reconnection status.
-        isConnected = false;
       }
       // For 'reconnecting' and 'connecting' after first connection, keep isConnected = true
     });
@@ -540,345 +362,7 @@
 
     manager.on('error', (err: Error) => {
       console.error('WebSocket error:', err);
-
-      // Detect auth-related errors from the server (e.g. when the gateway
-      // requires authentication but connectLocal() skipped auth).  In that
-      // case, stop the reconnect loop and fall back to the login page so the
-      // user can provide credentials.
-      const isAuthError = /auth|Expected Auth|authentication/i.test(err.message);
-      if (isAuthError && isLocal) {
-        console.warn('[App] Local server requires authentication — showing login page');
-        // Stop reconnection (same auth-less attempt would fail again)
-        manager?.disconnect();
-        singletonDestroy();
-        manager = null;
-        hasConnectedOnce = false;
-        isConnected = false;
-        connectionState = 'disconnected';
-        // Switch LoginPage to auth mode so the login form is shown
-        // instead of the "Retry Connection" button.
-        serverRequiresAuth = true;
-        authError = 'Server requires authentication. Please sign in.';
-        return;
-      }
-
-      if (connectionState === 'disconnected') {
-        alert(`Connection error: ${err.message}`);
-      }
     });
-  }
-
-  async function exchangeCode() {
-    if (!pairingCode || pairingCode.length < 6) {
-      pairingError = 'Please enter a valid pairing code';
-      return;
-    }
-
-    pairingError = '';
-    isExchangingCode = true;
-
-    try {
-      const response = await fetch(`${serverHttpUrl}/pair/exchange`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: pairingCode })
-      });
-
-      if (response.status === 429) {
-        pairingError = 'Too many attempts. Please wait and try again.';
-        return;
-      }
-
-      if (!response.ok) {
-        pairingError = 'Invalid or expired pairing code';
-        return;
-      }
-
-      const data = await response.json();
-      if (data.token) {
-        token = data.token;
-        isPairingMode = false;
-        pairingCode = '';
-        connect();
-      } else {
-        pairingError = 'Unexpected response from server';
-      }
-    } catch (err) {
-      console.error('Pairing exchange failed:', err);
-      pairingError = 'Failed to connect to server';
-    } finally {
-      isExchangingCode = false;
-    }
-  }
-
-  function handleReconnect() {
-    manager?.reconnect();
-  }
-
-  // Connect with authentication (for remote connections)
-  async function connect() {
-    if (!token) return;
-
-    console.log('[App] Connecting to remote server with token');
-    const wsUrl = enforceSecureConnection(serverWsUrl);
-    manager = singletonCreate(wsUrl, token);
-
-    setupManagerEvents();
-
-    try {
-      await manager.connect();
-      console.log('[App] Connected to remote server');
-      isConnected = true;
-      connectionState = 'connected';
-      manager?.listSessions();
-
-      // Set HttpOnly cookies for automatic reconnection on page refresh
-      setSessionCookie(token);
-
-      // Initialize workspace
-      const serverWorkspace = await loadWorkspace();
-      workspaceStore.initialize(serverWorkspace);
-      workspaceStore.setSaveCallback(saveWorkspace);
-    } catch (err) {
-      console.error('[App] Remote connection failed:', err);
-      isConnected = false;
-      connectionState = 'disconnected';
-      // Clear any stale session cookie on connection failure
-      clearSessionCookie();
-      alert('Connection failed. Check console and token.');
-    }
-  }
-
-  // Cookie-based reconnection: the browser sends HttpOnly cookies automatically
-  // on the WebSocket upgrade request. The server validates the cookie and sends AuthOk.
-  // This runs silently (no isAuthenticating UI state) -- if it fails, the login page shows.
-  async function connectWithCookie(): Promise<boolean> {
-    const wsUrl = enforceSecureConnection(serverWsUrl);
-    const wsManager = singletonCreate(wsUrl);
-
-    // Set manager and wire up events BEFORE connecting, so events emitted
-    // during auth are not missed (matches connectLocal/connectWithPassword pattern).
-    manager = wsManager;
-    setupManagerEvents();
-
-    try {
-      const authPromise = new Promise<void>((resolve, reject) => {
-        wsManager.on('authenticated', () => resolve());
-        wsManager.on('error', (err: Error) => reject(err));
-      });
-
-      await wsManager.connect();
-      // No auth message needed -- the cookie is sent with the upgrade request
-
-      await Promise.race([
-        authPromise,
-        new Promise<void>((_, reject) => setTimeout(() => reject(new Error('Cookie auth timeout')), 5000)),
-      ]);
-
-      // Cookie auth succeeded
-      isConnected = true;
-      connectionState = 'connected';
-      startTokenRefresh();
-
-      manager?.listSessions();
-      const serverWorkspace = await loadWorkspace();
-      workspaceStore.initialize(serverWorkspace);
-      workspaceStore.setSaveCallback(saveWorkspace);
-      return true;
-    } catch {
-      // Cookie auth failed -- clean up
-      singletonDestroy();
-      manager = null;
-      return false;
-    }
-  }
-
-  // JWT token reconnection (for saved tokens)
-  async function connectWithJwtToken(jwtToken: string) {
-    authError = '';
-    isAuthenticating = true;
-
-    try {
-      const wsUrl = enforceSecureConnection(serverWsUrl);
-      manager = singletonCreate(wsUrl);
-      setupManagerEvents();
-
-      const authPromise = new Promise<void>((resolve, reject) => {
-        manager!.on('authenticated', () => {
-          isConnected = true;
-          connectionState = 'connected';
-          resolve();
-        });
-        manager!.on('error', (err: Error) => {
-          reject(err);
-        });
-      });
-
-      await manager.connect();
-      (manager as WebSocketSessionManager).authenticateWithToken(jwtToken);
-
-      await Promise.race([
-        authPromise,
-        new Promise<void>((_, reject) => setTimeout(() => reject(new Error('Token expired')), 10000)),
-      ]);
-
-      manager?.listSessions();
-      const serverWorkspace = await loadWorkspace();
-      workspaceStore.initialize(serverWorkspace);
-      workspaceStore.setSaveCallback(saveWorkspace);
-    } catch (err: any) {
-      console.warn('[App] JWT reconnection failed, showing login:', err?.message);
-      clearSessionCookie();
-      token = '';
-      isConnected = false;
-      connectionState = 'disconnected';
-      singletonDestroy();
-      manager = null;
-    } finally {
-      isAuthenticating = false;
-    }
-  }
-
-  // Password authentication for remote connections
-  async function connectWithPassword(username: string, password: string, rememberMe: boolean) {
-    authError = '';
-    isAuthenticating = true;
-
-    try {
-      const wsUrl = enforceSecureConnection(serverWsUrl);
-      manager = singletonCreate(wsUrl);
-      setupManagerEvents();
-
-      // Listen for auth result
-      const authPromise = new Promise<void>((resolve, reject) => {
-        manager!.on('authenticated', (jwtToken: string) => {
-          isConnected = true;
-          connectionState = 'connected';
-          if (rememberMe) {
-            setSessionCookie(jwtToken);
-          }
-          resolve();
-        });
-        manager!.on('error', (err: Error) => {
-          reject(err);
-        });
-      });
-
-      await manager.connect();
-      // Send password auth after connection
-      (manager as WebSocketSessionManager).authenticateWithPassword(username, password);
-
-      await Promise.race([
-        authPromise,
-        new Promise<void>((_, reject) => setTimeout(() => reject(new Error('Authentication timeout')), 15000)),
-      ]);
-
-      manager?.listSessions();
-      const serverWorkspace = await loadWorkspace();
-      workspaceStore.initialize(serverWorkspace);
-      workspaceStore.setSaveCallback(saveWorkspace);
-    } catch (err: any) {
-      console.error('[App] Password auth failed:', err);
-      authError = err?.message || 'Authentication failed';
-      isConnected = false;
-      connectionState = 'disconnected';
-      singletonDestroy();
-      manager = null;
-    } finally {
-      isAuthenticating = false;
-    }
-  }
-
-  // SSH key authentication for remote connections
-  async function connectWithSshKey(username: string, privateKeyPem: string, rememberMe: boolean) {
-    authError = '';
-    isAuthenticating = true;
-
-    try {
-      // Parse the private key to extract public key and algorithm
-      const { publicKeyStr, algorithm, signFn } = await parseSshPrivateKey(privateKeyPem);
-
-      const wsUrl = enforceSecureConnection(serverWsUrl);
-      manager = singletonCreate(wsUrl);
-      setupManagerEvents();
-
-      const authPromise = new Promise<void>((resolve, reject) => {
-        manager!.on('authenticated', (jwtToken: string) => {
-          isConnected = true;
-          connectionState = 'connected';
-          if (rememberMe) {
-            setSessionCookie(jwtToken);
-          }
-          resolve();
-        });
-        manager!.on('error', (err: Error) => {
-          reject(err);
-        });
-      });
-
-      await manager.connect();
-      (manager as WebSocketSessionManager).authenticateWithPubkey(
-        username, publicKeyStr, algorithm, signFn,
-      );
-
-      await Promise.race([
-        authPromise,
-        new Promise<void>((_, reject) => setTimeout(() => reject(new Error('Authentication timeout')), 15000)),
-      ]);
-
-      manager?.listSessions();
-      const serverWorkspace = await loadWorkspace();
-      workspaceStore.initialize(serverWorkspace);
-      workspaceStore.setSaveCallback(saveWorkspace);
-    } catch (err: any) {
-      console.error('[App] SSH key auth failed:', err);
-      authError = err?.message || 'SSH key authentication failed';
-      isConnected = false;
-      connectionState = 'disconnected';
-      singletonDestroy();
-      manager = null;
-    } finally {
-      isAuthenticating = false;
-    }
-  }
-
-  // Handle login events from LoginPage component
-  function handlePasswordAuth(detail: { username: string; password: string; rememberMe: boolean }) {
-    connectWithPassword(detail.username, detail.password, detail.rememberMe);
-  }
-
-  function handleSshKeyAuth(detail: { username: string; privateKeyPem: string; rememberMe: boolean }) {
-    connectWithSshKey(detail.username, detail.privateKeyPem, detail.rememberMe);
-  }
-
-  function handleTokenAuth(detail: { token: string }) {
-    token = detail.token;
-    connect();
-  }
-
-  function handlePairingAuth(detail: { code: string }) {
-    pairingCode = detail.code;
-    exchangeCode();
-  }
-
-  function handleRetryLocal() {
-    serverRequiresAuth = false;
-    authError = '';
-    connectLocal();
-  }
-
-  // Logout: disconnect and clear token
-  function logout() {
-    singletonDestroy();
-    manager = null;
-    isConnected = false;
-    hasConnectedOnce = false;
-    serverRequiresAuth = false;
-    connectionState = 'disconnected';
-    clearSessionCookie();
-    token = '';
-    sessions = [];
-    authError = '';
   }
 
   // Terminal management functions
@@ -965,54 +449,40 @@
 </script>
 
 <main>
-  {#if !isConnected}
-    <LoginPage
-      isLocal={isLocal && !serverRequiresAuth}
+  <div class="app-container">
+    <TitleBar
       {connectionState}
-      {authError}
-      {isAuthenticating}
-      onpasswordauth={(detail) => handlePasswordAuth(detail)}
-      onsshkeyauth={(detail) => handleSshKeyAuth(detail)}
-      ontokenauth={(detail) => handleTokenAuth(detail)}
-      onpairingauth={(detail) => handlePairingAuth(detail)}
-      onretrylocal={() => handleRetryLocal()}
+      {reconnectAttempt}
+      {reconnectDelay}
+      isLocalEchoMode={false}
+      isLocal={true}
+      onReconnect={handleReconnect}
+      onLogout={() => {}}
     />
-  {:else}
-    <div class="app-container">
-      <TitleBar
-        {connectionState}
-        {reconnectAttempt}
-        {reconnectDelay}
-        {isLocalEchoMode}
-        {isLocal}
-        onReconnect={handleReconnect}
-        onLogout={logout}
-      />
-      <div class="content-area">
-        <div class="main-area" style:order={sidebarPositionStore.value === 'left' ? 2 : 0}>
-          <div class="workspace-area">
-            <WorkspaceView />
-          </div>
-          {#if showBroadcastBar}
-            <BroadcastBar onClose={closeBroadcastBar} />
-          {/if}
+    <div class="content-area">
+      <div class="main-area" style:order={sidebarPositionStore.value === 'left' ? 2 : 0}>
+        <div class="workspace-area">
+          <WorkspaceView />
         </div>
-        <Sidebar
-          {sessions}
-          {activeSessionId}
-          isOpen={sidebarOpen}
-          broadcastMode={broadcastEnabled.value}
-          ontoggle={() => handleSidebarToggle()}
-          onclose={(sessionId) => handleSidebarClose(sessionId)}
-          onrename={(detail) => handleSidebarRename(detail)}
-          oncreate={() => handleSidebarCreate()}
-          onsettings={() => openSettings()}
-          onToggleBroadcast={() => toggleBroadcast()}
-          onpanedrop={(detail) => handleSidebarPaneDrop(detail)}
-        />
+        {#if showBroadcastBar}
+          <BroadcastBar onClose={closeBroadcastBar} />
+        {/if}
       </div>
+      <Sidebar
+        {sessions}
+        {activeSessionId}
+        isOpen={sidebarOpen}
+        broadcastMode={broadcastEnabled.value}
+        ontoggle={() => handleSidebarToggle()}
+        onclose={(sessionId) => handleSidebarClose(sessionId)}
+        onrename={(detail) => handleSidebarRename(detail)}
+        oncreate={() => handleSidebarCreate()}
+        onsettings={() => openSettings()}
+        onToggleBroadcast={() => toggleBroadcast()}
+        onpanedrop={(detail) => handleSidebarPaneDrop(detail)}
+      />
     </div>
-  {/if}
+  </div>
 
   <!-- Settings Panel Modal -->
   <SettingsPanel isOpen={showSettingsPanel} onclose={() => closeSettings()} />
@@ -1058,69 +528,4 @@
     overflow: hidden;
     padding: 4px 4px 6px 4px;
   }
-
-  .input {
-    padding: 10px;
-    width: 300px;
-    background: var(--ui-bg-tertiary, #242629);
-    border: 1px solid var(--ui-border, #555);
-    border-radius: 4px;
-    color: var(--ui-text-primary, white);
-    font-size: 14px;
-  }
-
-  .input:focus {
-    outline: none;
-    border-color: var(--ui-accent, #a0a7ff);
-  }
-
-  .btn {
-    padding: 10px 20px;
-    margin-left: 10px;
-    background: var(--ui-accent, #a0a7ff);
-    border: none;
-    border-radius: 4px;
-    color: white;
-    cursor: pointer;
-    font-size: 14px;
-  }
-
-  .btn:hover {
-    background: var(--ui-accent-hover, #8f97ff);
-  }
-
-  .btn:disabled {
-    background: var(--ui-bg-tertiary, #555);
-    cursor: not-allowed;
-  }
-
-  .btn-secondary {
-    padding: 8px 16px;
-    margin-left: 10px;
-    background: var(--ui-bg-tertiary, #242629);
-    border: 1px solid var(--ui-border, #555);
-    border-radius: 4px;
-    color: var(--ui-text-primary, white);
-    cursor: pointer;
-  }
-
-  .btn-secondary:hover {
-    background: var(--ui-bg-hover, #4a4a4a);
-  }
-
-  .spinner {
-    width: 20px;
-    height: 20px;
-    border: 2px solid #333;
-    border-top-color: #fff;
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-  }
-
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
 </style>

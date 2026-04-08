@@ -8,8 +8,7 @@ export type { SessionInfo } from './shared-protocol';
 /**
  * Common interface for session managers
  *
- * Both WebSocketSessionManager and LocalEchoManager implement this interface,
- * allowing components to work with either manager type.
+ * WebSocketSessionManager implements this interface for local server connections.
  */
 export interface SessionManager extends EventEmitter {
   // Connection state
