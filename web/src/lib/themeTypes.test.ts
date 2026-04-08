@@ -9,14 +9,16 @@ import {
 // ── UITheme structure ────────────────────────────────────────────────────────
 
 describe('Built-in UI Themes', () => {
-  it('should have exactly 2 built-in UI themes', () => {
-    expect(BUILT_IN_UI_THEMES).toHaveLength(2);
+  it('should have exactly 4 built-in UI themes', () => {
+    expect(BUILT_IN_UI_THEMES).toHaveLength(4);
   });
 
-  it('should have dark and light themes', () => {
+  it('should have dark, light, dark-green, and classic-blue themes', () => {
     const ids = BUILT_IN_UI_THEMES.map((t) => t.id);
     expect(ids).toContain('dark');
     expect(ids).toContain('light');
+    expect(ids).toContain('dark-green');
+    expect(ids).toContain('classic-blue');
   });
 
   it('each UI theme should have all required color tokens', () => {

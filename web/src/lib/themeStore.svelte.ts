@@ -33,7 +33,7 @@ const STORAGE_KEY = 'theme-state';
 const DEFAULT_STATE: ThemeState = {
   uiMode: 'dark',
   activeUIThemeId: 'dark',
-  activeTerminalThemeId: 'dark',
+  activeTerminalThemeId: 'dark-green',
   terminalOverrides: {},
   customUIThemes: [],
   customTerminalThemes: [],
@@ -48,11 +48,6 @@ function loadState(): ThemeState {
       // Migrate: if no uiMode saved, derive from activeUIThemeId
       if (!parsed.uiMode) {
         state.uiMode = state.activeUIThemeId === 'light' ? 'light' : 'dark';
-      }
-      // Migrate: if activeUIThemeId was dark-green, fall back to dark
-      if (state.activeUIThemeId === 'dark-green') {
-        state.activeUIThemeId = 'dark';
-        state.uiMode = 'dark';
       }
       return migrateCustomThemes(state);
     }
@@ -258,9 +253,13 @@ export function applyUIThemeCSS(): void {
     root.style.setProperty(cssVar, theme[themeKey] as string);
   }
 
-  // Apply per-terminal-theme UI overrides (saved with the terminal theme's ID
-  // when editing built-in themes, where terminal/UI theme IDs may differ)
-  const termUIOverride = state.customUIThemes.find((t) => t.id === state.activeTerminalThemeId);
+  // Apply per-terminal-theme UI overrides: check custom themes first, then built-in
+  // terminal-linked themes (dark-green, classic-blue). Skip if terminal ID matches
+  // the resolved base UI ID to avoid re-applying the same theme as an override.
+  const termUIOverride = state.customUIThemes.find((t) => t.id === state.activeTerminalThemeId)
+    ?? (state.activeTerminalThemeId !== resolvedId
+        ? BUILT_IN_UI_THEMES.find((t) => t.id === state.activeTerminalThemeId)
+        : undefined);
   if (termUIOverride) {
     root.style.setProperty('--ui-accent', termUIOverride.accent);
     root.style.setProperty('--ui-accent-hover', termUIOverride.accentHover);
