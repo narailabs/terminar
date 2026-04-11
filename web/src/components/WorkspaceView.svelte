@@ -6,7 +6,7 @@
   import { setTerminalOverride } from '../lib/themeStore.svelte';
   import { BUILT_IN_TERMINAL_THEMES } from '../lib/themeTypes';
   import type { PaneId, SessionId } from '../lib/workspaceTypes';
-  import { findPane } from '../lib/workspaceTypes';
+  import { findPane, getAllPanes } from '../lib/workspaceTypes';
 
   import { fade } from 'svelte/transition';
   import { focusedPane } from '../lib/focusStore.svelte';
@@ -87,7 +87,32 @@
     },
     commitResize(splitId, ratios) { workspaceStore.updateRatios(splitId, ratios); },
     toggleFocus(paneId) { focusedPane.id = focusedPane.id === paneId ? null : paneId; },
+    navigateToNextPane(paneId) { navigatePane(paneId, 1); },
+    navigateToPreviousPane(paneId) { navigatePane(paneId, -1); },
+    navigateToNextTab() { navigateTab(1); },
+    navigateToPreviousTab() { navigateTab(-1); },
   });
+
+  function navigatePane(currentPaneId: PaneId, delta: 1 | -1) {
+    const ws = workspaceStore.get();
+    const tab = ws.tabs.find((t) => t.id === ws.activeTabId);
+    if (!tab) return;
+    const panes = getAllPanes(tab.root);
+    if (panes.length === 0) return;
+    const currentIndex = panes.findIndex((p) => p.id === currentPaneId);
+    const fromIndex = currentIndex >= 0 ? currentIndex : 0;
+    const nextIndex = (fromIndex + delta + panes.length) % panes.length;
+    activePaneStore.id = panes[nextIndex].id;
+  }
+
+  function navigateTab(delta: 1 | -1) {
+    const ws = workspaceStore.get();
+    if (ws.tabs.length === 0) return;
+    const currentIndex = ws.tabs.findIndex((t) => t.id === ws.activeTabId);
+    const fromIndex = currentIndex >= 0 ? currentIndex : 0;
+    const nextIndex = (fromIndex + delta + ws.tabs.length) % ws.tabs.length;
+    workspaceStore.setActiveTab(ws.tabs[nextIndex].id);
+  }
 
   // Context menu actions
   function handleContextMenuClose() {
@@ -153,7 +178,8 @@
 
   function handleNewTerminalInPane() {
     if (contextMenu) {
-      actions.createNewTerminal(contextMenu.paneId);
+      const cwd = getSourceCwdForPane(contextMenu.paneId);
+      actions.createNewTerminalWithCwd(contextMenu.paneId, cwd);
       contextMenu = null;
     }
   }

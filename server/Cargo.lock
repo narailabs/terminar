@@ -1955,7 +1955,7 @@ dependencies = [
 [[package]]
 name = "terminar-core"
 version = "0.1.0"
-source = "git+https://github.com/narailabs/terminar-core#8f6baa77af57f5ce5a9b402dc6b3356cdce1caa1"
+source = "git+https://github.com/narailabs/terminar-core#dc1c77279a18b0899add433060215fac54a8081e"
 dependencies = [
  "anyhow",
  "libc",
@@ -1973,7 +1973,7 @@ dependencies = [
 
 [[package]]
 name = "terminar-server"
-version = "0.5.0"
+version = "0.5.3"
 dependencies = [
  "anyhow",
  "axum",

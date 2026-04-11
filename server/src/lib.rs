@@ -86,6 +86,11 @@ fn poll_foreground_processes(sessions: &SessionMap) {
             _ => continue,
         }
 
+        // Skip Docker and SSH sessions — tcgetpgrp returns the local process, not the remote shell
+        if session.container_id.is_some() || session.ssh_connection_id.is_some() {
+            continue;
+        }
+
         // Skip sessions without a PTY fd (e.g., mock PTYs)
         let pty_fd = match session.pty_fd {
             Some(fd) => fd,
@@ -357,6 +362,25 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
                         && num >= initial_name_counter
                     {
                         initial_name_counter = num + 1;
+                    }
+
+                    // Skip remote sessions (Docker/SSH) — Phase 1 does not restore
+                    // them because there's no agent to reattach to, and blindly
+                    // re-spawning would misleadingly show the docker/ssh badge on
+                    // a session that's actually running locally.
+                    if s.container_id.is_some() {
+                        info!(
+                            "Skipping restore of Docker session {} ({}): Phase 1 does not restore remote sessions",
+                            s.id, s.name
+                        );
+                        continue;
+                    }
+                    if s.ssh_connection_id.is_some() {
+                        info!(
+                            "Skipping restore of SSH session {} ({}): Phase 1 does not restore remote sessions",
+                            s.id, s.name
+                        );
+                        continue;
                     }
 
                     // Validate shell and cwd before restoring
@@ -1268,9 +1292,14 @@ async fn process_message_inner(
             env,
             cols,
             rows,
+            container_id,
+            ssh_connection_id,
         } => {
             handlers::session::handle_create_session(
-                cwd, shell, env, *cols, *rows, tx_out, sessions, state,
+                cwd, shell, env, *cols, *rows,
+                container_id.as_deref(),
+                ssh_connection_id.as_deref(),
+                tx_out, sessions, state,
             )
             .await?;
         }
@@ -1305,6 +1334,24 @@ async fn process_message_inner(
         }
         ClientMessage::LoadWorkspace => {
             handlers::workspace::handle_load_workspace(client_id, tx_out).await?;
+        }
+        ClientMessage::ListContainers => {
+            handlers::docker::handle_list_containers(tx_out).await?;
+        }
+        ClientMessage::ListSshConnections => {
+            handlers::ssh::handle_list_ssh_connections(tx_out).await?;
+        }
+        ClientMessage::AddSshConnection { name, host, user, port } => {
+            handlers::ssh::handle_add_ssh_connection(name, host, user, *port, tx_out).await?;
+        }
+        ClientMessage::UpdateSshConnection { id, name, host, user, port } => {
+            handlers::ssh::handle_update_ssh_connection(id, name, host, user, *port, tx_out).await?;
+        }
+        ClientMessage::RemoveSshConnection { id } => {
+            handlers::ssh::handle_remove_ssh_connection(id, tx_out).await?;
+        }
+        ClientMessage::ImportSshConfig => {
+            handlers::ssh::handle_import_ssh_config(tx_out).await?;
         }
         _ => {}
     }
@@ -1360,6 +1407,8 @@ mod tests {
             env: HashMap::new(),
             cols: 80,
             rows: 24,
+            container_id: None,
+            ssh_connection_id: None,
         };
 
         process_message(
@@ -1386,6 +1435,118 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_create_session_with_bogus_container_id_fails_and_rolls_back_counter() {
+        let (state, _) = create_test_state();
+        let (tx, mut rx) = mpsc::channel(32);
+        let mut attach_tasks = handlers::io::AttachTasks::new();
+
+        let counter_before = state
+            .session_name_counter
+            .load(std::sync::atomic::Ordering::Relaxed);
+
+        let msg = ClientMessage::CreateSession {
+            cwd: "/".to_string(),
+            shell: "/bin/bash".to_string(),
+            env: HashMap::new(),
+            cols: 80,
+            rows: 24,
+            container_id: Some("does-not-exist-xyz-12345".to_string()),
+            ssh_connection_id: None,
+        };
+
+        process_message(
+            &msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
+
+        // Expect an Error response (not a SessionList)
+        match rx.recv().await {
+            Some(ServerMessage::Error { message, error_code }) => {
+                assert!(
+                    message.contains("not found") || message.contains("not running") || message.contains("Docker"),
+                    "unexpected error message: {}",
+                    message
+                );
+                assert_eq!(error_code.as_deref(), Some("SESSION_ERROR"));
+            }
+            other => panic!("Expected Error, got {:?}", other),
+        }
+
+        // Counter should be rolled back to its pre-attempt value
+        let counter_after = state
+            .session_name_counter
+            .load(std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(
+            counter_before, counter_after,
+            "session_name_counter should be rolled back on failure"
+        );
+
+        // No session should be in the map
+        let guard = state.sessions.lock();
+        assert!(guard.is_empty(), "failed session should not be in the map");
+    }
+
+    #[tokio::test]
+    async fn test_create_session_with_bogus_ssh_connection_fails_and_rolls_back_counter() {
+        let (state, _) = create_test_state();
+        let (tx, mut rx) = mpsc::channel(32);
+        let mut attach_tasks = handlers::io::AttachTasks::new();
+
+        let counter_before = state
+            .session_name_counter
+            .load(std::sync::atomic::Ordering::Relaxed);
+
+        let msg = ClientMessage::CreateSession {
+            cwd: "/".to_string(),
+            shell: "/bin/bash".to_string(),
+            env: HashMap::new(),
+            cols: 80,
+            rows: 24,
+            container_id: None,
+            ssh_connection_id: Some("bogus-uuid-xyz-12345".to_string()),
+        };
+
+        process_message(
+            &msg,
+            &tx,
+            &state.sessions,
+            &state,
+            &mut attach_tasks,
+            "test",
+        )
+        .await
+        .unwrap();
+
+        // Expect an Error response
+        match rx.recv().await {
+            Some(ServerMessage::Error { message, error_code }) => {
+                assert!(
+                    message.contains("not found"),
+                    "unexpected error message: {}",
+                    message
+                );
+                assert_eq!(error_code.as_deref(), Some("SESSION_ERROR"));
+            }
+            other => panic!("Expected Error, got {:?}", other),
+        }
+
+        // Counter should be rolled back
+        let counter_after = state
+            .session_name_counter
+            .load(std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(
+            counter_before, counter_after,
+            "session_name_counter should be rolled back on failure"
+        );
+    }
+
+    #[tokio::test]
     async fn test_rename_session() {
         let (state, _) = create_test_state();
         let (tx, mut rx) = mpsc::channel(32);
@@ -1399,6 +1560,8 @@ mod tests {
             env: HashMap::new(),
             cols: 80,
             rows: 24,
+            container_id: None,
+            ssh_connection_id: None,
         };
         process_message(
             &create_msg,
@@ -1454,6 +1617,8 @@ mod tests {
             env: HashMap::new(),
             cols: 80,
             rows: 24,
+            container_id: None,
+            ssh_connection_id: None,
         };
         process_message(
             &create_msg,
@@ -1537,6 +1702,8 @@ mod tests {
             env: HashMap::new(),
             cols: 80,
             rows: 24,
+            container_id: None,
+            ssh_connection_id: None,
         };
         process_message(
             &create_msg,
@@ -1619,6 +1786,8 @@ mod tests {
             env: HashMap::new(),
             cols: 80,
             rows: 24,
+            container_id: None,
+            ssh_connection_id: None,
         };
         process_message(
             &create_msg,
@@ -1693,6 +1862,8 @@ mod tests {
             env: HashMap::new(),
             cols: 80,
             rows: 24,
+            container_id: None,
+            ssh_connection_id: None,
         };
         process_message(
             &create_msg,
@@ -2028,6 +2199,8 @@ mod tests {
             env: HashMap::new(),
             cols: 80,
             rows: 24,
+            container_id: None,
+            ssh_connection_id: None,
         };
         process_message(
             &create_msg,
@@ -2132,6 +2305,8 @@ mod tests {
             env: HashMap::new(),
             cols: 80,
             rows: 24,
+            container_id: None,
+            ssh_connection_id: None,
         };
 
         process_message(
@@ -2170,6 +2345,8 @@ mod tests {
             env: HashMap::new(),
             cols: 80,
             rows: 24,
+            container_id: None,
+            ssh_connection_id: None,
         };
 
         process_message(
@@ -2208,6 +2385,8 @@ mod tests {
             env: HashMap::new(),
             cols: 80,
             rows: 24,
+            container_id: None,
+            ssh_connection_id: None,
         };
 
         process_message(
@@ -2251,6 +2430,8 @@ mod tests {
             env: HashMap::new(),
             cols: 80,
             rows: 24,
+            container_id: None,
+            ssh_connection_id: None,
         };
 
         process_message(
@@ -2294,6 +2475,8 @@ mod tests {
             env: HashMap::new(),
             cols: 80,
             rows: 24,
+            container_id: None,
+            ssh_connection_id: None,
         };
 
         process_message(
@@ -2548,6 +2731,8 @@ mod tests {
             env: HashMap::new(),
             cols: 80,
             rows: 24,
+            container_id: None,
+            ssh_connection_id: None,
         };
         process_message(
             &msg,
@@ -2665,6 +2850,8 @@ mod tests {
             env: HashMap::new(),
             cols: 80,
             rows: 24,
+            container_id: None,
+            ssh_connection_id: None,
         };
 
         process_message(
@@ -2703,6 +2890,8 @@ mod tests {
             env: HashMap::new(),
             cols: 80,
             rows: 24,
+            container_id: None,
+            ssh_connection_id: None,
         };
 
         process_message(
@@ -2743,6 +2932,8 @@ mod tests {
             env: HashMap::new(),
             cols: 80,
             rows: 24,
+            container_id: None,
+            ssh_connection_id: None,
         };
 
         process_message(
@@ -2880,6 +3071,8 @@ mod tests {
             env: HashMap::new(),
             cols: 80,
             rows: 24,
+            container_id: None,
+            ssh_connection_id: None,
         };
         process_message(
             &msg,
@@ -2960,6 +3153,8 @@ mod tests {
             env: HashMap::new(),
             cols: 80,
             rows: 24,
+            container_id: None,
+            ssh_connection_id: None,
         };
         process_message(
             &create_msg,
@@ -3022,6 +3217,8 @@ mod tests {
             env: HashMap::new(),
             cols: 80,
             rows: 24,
+            container_id: None,
+            ssh_connection_id: None,
         };
         process_message(
             &create_msg,
@@ -3103,6 +3300,8 @@ mod tests {
             env: HashMap::new(),
             cols: 80,
             rows: 24,
+            container_id: None,
+            ssh_connection_id: None,
         };
         process_message(
             &create_msg,
@@ -3168,6 +3367,8 @@ mod tests {
             env: HashMap::new(),
             cols: 80,
             rows: 24,
+            container_id: None,
+            ssh_connection_id: None,
         };
         process_message(
             &create_msg,

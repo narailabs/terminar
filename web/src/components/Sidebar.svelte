@@ -20,6 +20,8 @@
     onclose,
     onrename,
     oncreate,
+    ondockercreate,
+    onsshcreate,
     onsettings,
     onpanedrop,
     onToggleBroadcast,
@@ -32,6 +34,8 @@
     onclose?: (sessionId: string) => void;
     onrename?: (detail: { id: string; newName: string }) => void;
     oncreate?: () => void;
+    ondockercreate?: () => void;
+    onsshcreate?: () => void;
     onsettings?: () => void;
     onpanedrop?: (detail: { sourcePaneId: string }) => void;
     onToggleBroadcast?: () => void;
@@ -307,6 +311,24 @@
           >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
               <path d="M8 1.5a.5.5 0 0 1 .5.5v5.5H14a.5.5 0 0 1 0 1H8.5V14a.5.5 0 0 1-1 0V8.5H2a.5.5 0 0 1 0-1h5.5V2a.5.5 0 0 1 .5-.5z"/>
+            </svg>
+          </button>
+          <button
+            class="header-icon-btn"
+            title="Docker Container"
+            onclick={() => ondockercreate?.()}
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M1.5 9.5h2v2h-2zm2.5 0h2v2h-2zm2.5 0h2v2h-2zm2.5 0h2v2h-2zm0-2.5h2v2h-2zm-2.5 0h2v2h-2zm-2.5 0h2v2h-2zm2.5-2.5h2v2h-2zm2.5 0h2v2h-2zM14.5 10.5c-.4 0-.7-.1-1-.2-.3.8-1.1 1.2-1.9 1.2H2.5c-1.1 0-2-.6-2-1.5 0-.4.2-.8.5-1.1-.2-.3-.3-.6-.3-1 0-.8.5-1.4 1.3-1.6 0-.1 0-.2 0-.3 0-.8.7-1.5 1.5-1.5.3 0 .5.1.7.2.4-.6 1-1 1.8-1 1 0 1.8.7 2 1.6.2-.1.4-.1.5-.1.8 0 1.4.5 1.6 1.2h.3c.8 0 1.4.4 1.7 1-.1 0-.1 0-.1 0 .8.3 1.5.9 1.5 1.6 0 .8-.7 1.5-1.5 1.5z"/>
+            </svg>
+          </button>
+          <button
+            class="header-icon-btn"
+            title="SSH Connection"
+            onclick={() => onsshcreate?.()}
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M1 3h14v10H1V3zm1 1v8h12V4H2zm1 1h2v1H3V5zm0 2h2v1H3V7zm0 2h2v1H3V9zm3-4h6v1H6V5zm0 2h4v1H6V7zm0 2h5v1H6V9z"/>
             </svg>
           </button>
         </div>

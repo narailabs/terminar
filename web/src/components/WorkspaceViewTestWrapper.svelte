@@ -23,6 +23,8 @@
   setActionsContext({
     createNewTerminal() {},
     createNewTerminalWithCwd() {},
+    createDockerTerminal() {},
+    createSshTerminal() {},
     closeTerminal() {},
     renameTerminal() {},
     toggleSidebar() {},
@@ -40,6 +42,10 @@
     splitVertical() {},
     commitResize() {},
     toggleFocus() {},
+    navigateToNextPane() {},
+    navigateToPreviousPane() {},
+    navigateToNextTab() {},
+    navigateToPreviousTab() {},
   });
 
   $effect(() => {

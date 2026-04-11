@@ -4,6 +4,13 @@
 
   import Sidebar from './components/Sidebar.svelte';
   import SettingsPanel from './components/SettingsPanel.svelte';
+  import ContainerPicker from './components/ContainerPicker.svelte';
+  import SshConnectionPicker from './components/SshConnectionPicker.svelte';
+  import SshConnectionEditor from './components/SshConnectionEditor.svelte';
+  import SshConfigImportDialog from './components/SshConfigImportDialog.svelte';
+  import { containerStore } from './lib/containerStore.svelte';
+  import { sshConnectionStore } from './lib/sshConnectionStore.svelte';
+  import type { SessionInfo, SshConnectionInfo, SshConfigHost } from './lib/shared-protocol';
   import type { ConnectionState, SessionManager } from './lib/SessionManager';
   import { createManager as singletonCreate, destroyManager as singletonDestroy, isActiveManager } from './lib/connectionSingleton';
   import { settingsStore, applyControlsZoom } from './lib/settingsStore.svelte';
@@ -31,14 +38,6 @@
 
   const serverHttpUrl = 'http://localhost:6750';
   const serverWsUrl = 'ws://localhost:6750/ws';
-
-  interface SessionInfo {
-    id: string;
-    name: string;
-    shell: string;
-    cwd: string;
-    started_at: string;
-  }
 
   let isConnected = $state(false);
   let manager = $state<SessionManager | null>(null);
@@ -77,6 +76,8 @@
   const appActions: AppActions = {
     createNewTerminal,
     createNewTerminalWithCwd,
+    createDockerTerminal,
+    createSshTerminal,
     closeTerminal,
     renameTerminal,
     toggleSidebar: () => { sidebarOpen = !sidebarOpen; },
@@ -86,6 +87,11 @@
 
   // Settings panel state
   let showSettingsPanel = $state(false);
+  let showContainerPicker = $state(false);
+  let showSshPicker = $state(false);
+  let showSshEditor = $state(false);
+  let editingSshConnection = $state<SshConnectionInfo | undefined>(undefined);
+  let showSshImportDialog = $state(false);
 
   // Broadcast bar state
   let showBroadcastBar = $state(false);
@@ -269,16 +275,32 @@
       reconnectDelay = 0;
     });
 
+    manager.on('containerList', (containers) => {
+      containerStore.set(containers);
+    });
+
+    manager.on('sshConnectionList', (connections) => {
+      sshConnectionStore.set(connections);
+    });
+
+    manager.on('sshConfigImportResult', (hosts) => {
+      sshConnectionStore.setImportHosts(hosts);
+      showSshImportDialog = true;
+    });
+
     manager.on('sessionList', (newSessions: SessionInfo[]) => {
       console.log('Sessions:', newSessions);
       const previousSessionIds = new Set(sessions.map(s => s.id));
       const isFirstSessionList = previousSessionIds.size === 0;
       sessions = newSessions;
 
-      // Initialize foreground store from session list data
+      // Initialize foreground store and cwd store from session list data.
+      // The server only emits CwdChanged on actual changes, so freshly loaded
+      // sessions need their initial cwd seeded here for split-inherit to work.
       for (const s of newSessions) {
-        if ((s as any).foreground_process) {
-          foregroundStore.setForeground(s.id, (s as any).foreground_process);
+        if (s.cwd) sessionCwdStore.set(s.id, s.cwd);
+        if (s.foreground_process) {
+          foregroundStore.setForeground(s.id, s.foreground_process);
         }
       }
 
@@ -286,6 +308,7 @@
       const currentSessionIds = new Set(newSessions.map(s => s.id));
       workspaceStore.clearStaleSessions(currentSessionIds);
       cleanStaleSessionEnvVars(currentSessionIds);
+      sessionCwdStore.deleteStaleSessions(currentSessionIds);
 
       // Helper to find first empty pane
       function findEmptyPane(node: any): string | null {
@@ -363,6 +386,17 @@
     manager.on('error', (err: Error) => {
       console.error('WebSocket error:', err);
     });
+
+    // Route server-originated errors to the appropriate store based on error_code,
+    // so that spinners don't hang forever when Docker/SSH operations fail.
+    manager.on('serverError', (message: string, code: string | null) => {
+      console.error('Server error:', code, message);
+      if (code?.startsWith('DOCKER_')) {
+        containerStore.setError(message);
+      } else if (code?.startsWith('SSH_') || (code === 'INVALID_INPUT' && (showSshPicker || showSshEditor))) {
+        sshConnectionStore.setError(message);
+      }
+    });
   }
 
   // Terminal management functions
@@ -408,6 +442,78 @@
     const estimatedRows = Math.max(10, Math.floor((window.innerHeight * 0.85) / 17));
     const envVars = getEffectiveEnv(sessionId);
     manager?.createSession(cwd, shell, envVars, estimatedCols, estimatedRows);
+  }
+
+  function createDockerTerminal(containerId: string, containerName: string, shell = '/bin/sh', targetPaneId?: string) {
+    pendingNewTerminal = true;
+    pendingNewTerminalPaneId = targetPaneId || null;
+    const estimatedCols = Math.max(40, Math.floor((window.innerWidth * 0.75) / 8));
+    const estimatedRows = Math.max(10, Math.floor((window.innerHeight * 0.85) / 17));
+    const envVars = getEffectiveEnv();
+    manager?.createSession('', shell, envVars, estimatedCols, estimatedRows, containerId);
+    showContainerPicker = false;
+  }
+
+  function handleDockerCreate() {
+    containerStore.setLoading();
+    manager?.listContainers();
+    showContainerPicker = true;
+  }
+
+  function createSshTerminal(connectionId: string, _connectionName: string, shell = '/bin/bash', targetPaneId?: string) {
+    pendingNewTerminal = true;
+    pendingNewTerminalPaneId = targetPaneId || null;
+    const estimatedCols = Math.max(40, Math.floor((window.innerWidth * 0.75) / 8));
+    const estimatedRows = Math.max(10, Math.floor((window.innerHeight * 0.85) / 17));
+    const envVars = getEffectiveEnv();
+    manager?.createSession('', shell, envVars, estimatedCols, estimatedRows, undefined, connectionId);
+    showSshPicker = false;
+  }
+
+  function handleSshCreate() {
+    sshConnectionStore.setLoading();
+    manager?.listSshConnections();
+    showSshPicker = true;
+  }
+
+  function handleSshAdd() {
+    editingSshConnection = undefined;
+    showSshEditor = true;
+  }
+
+  function handleSshEdit(conn: SshConnectionInfo) {
+    editingSshConnection = conn;
+    showSshEditor = true;
+  }
+
+  function handleSshSave(name: string, host: string, user: string, port: number) {
+    if (editingSshConnection) {
+      manager?.updateSshConnection(editingSshConnection.id, name, host, user, port);
+    } else {
+      manager?.addSshConnection(name, host, user, port);
+    }
+    showSshEditor = false;
+    editingSshConnection = undefined;
+  }
+
+  function handleSshDelete(id: string) {
+    manager?.removeSshConnection(id);
+  }
+
+  function handleSshImport() {
+    manager?.importSshConfig();
+  }
+
+  function handleSshImportConfirm(selected: SshConfigHost[]) {
+    for (const host of selected) {
+      const name = host.name;
+      const hostAddr = host.hostname || host.name;
+      const user = host.user || 'root';
+      const port = host.port || 22;
+      manager?.addSshConnection(name, hostAddr, user, port);
+    }
+    showSshImportDialog = false;
+    sshConnectionStore.clearImportHosts();
   }
 
   // Sidebar event handlers
@@ -477,6 +583,8 @@
         onclose={(sessionId) => handleSidebarClose(sessionId)}
         onrename={(detail) => handleSidebarRename(detail)}
         oncreate={() => handleSidebarCreate()}
+        ondockercreate={() => handleDockerCreate()}
+        onsshcreate={() => handleSshCreate()}
         onsettings={() => openSettings()}
         onToggleBroadcast={() => toggleBroadcast()}
         onpanedrop={(detail) => handleSidebarPaneDrop(detail)}
@@ -486,6 +594,44 @@
 
   <!-- Settings Panel Modal -->
   <SettingsPanel isOpen={showSettingsPanel} onclose={() => closeSettings()} />
+
+  <!-- Docker Container Picker -->
+  {#if showContainerPicker}
+    <ContainerPicker
+      onselect={(containerId, containerName, shell) => createDockerTerminal(containerId, containerName, shell)}
+      onclose={() => { showContainerPicker = false; }}
+    />
+  {/if}
+
+  <!-- SSH Connection Picker -->
+  {#if showSshPicker}
+    <SshConnectionPicker
+      onselect={(connectionId, connectionName, shell) => createSshTerminal(connectionId, connectionName, shell)}
+      onadd={handleSshAdd}
+      onedit={handleSshEdit}
+      ondelete={handleSshDelete}
+      onimport={handleSshImport}
+      onclose={() => { showSshPicker = false; }}
+    />
+  {/if}
+
+  <!-- SSH Connection Editor -->
+  {#if showSshEditor}
+    <SshConnectionEditor
+      connection={editingSshConnection}
+      onsave={handleSshSave}
+      oncancel={() => { showSshEditor = false; editingSshConnection = undefined; }}
+    />
+  {/if}
+
+  <!-- SSH Config Import Dialog -->
+  {#if showSshImportDialog}
+    <SshConfigImportDialog
+      hosts={sshConnectionStore.importHosts}
+      onimport={handleSshImportConfirm}
+      onclose={() => { showSshImportDialog = false; sshConnectionStore.clearImportHosts(); }}
+    />
+  {/if}
 </main>
 
 <style>

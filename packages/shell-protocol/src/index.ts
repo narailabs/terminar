@@ -10,6 +10,7 @@ export {
     SessionInfo,
     SessionInfoSchema,
 } from './messages.js';
+export type { ContainerInfo, SshConnectionInfo, SshConfigHost } from './messages.js';
 
 // Export client
 export { ShellClient, IShellSocket } from './client.js';

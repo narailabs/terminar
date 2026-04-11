@@ -10,6 +10,11 @@ function makeCallbacks(): ActionCallbacks {
     onPaneClose: vi.fn(),
     onSplitHorizontal: vi.fn(),
     onSplitVertical: vi.fn(),
+    onPaneFocus: vi.fn(),
+    onPaneNext: vi.fn(),
+    onPanePrevious: vi.fn(),
+    onTabNext: vi.fn(),
+    onTabPrevious: vi.fn(),
   };
 }
 
