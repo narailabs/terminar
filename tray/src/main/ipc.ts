@@ -1,7 +1,7 @@
 // ipc.ts — IPC handler registration.
 // All IPC channels are prefixed with "tray:".
 
-import { ipcMain, dialog, app } from 'electron';
+import { ipcMain, dialog, app, clipboard, shell } from 'electron';
 import type { TrayConfig } from './types.js';
 import { ConfigStore } from './ConfigStore.js';
 import { HealthPoller } from './HealthPoller.js';
@@ -106,4 +106,39 @@ export function registerIpcHandlers(
   ipcMain.handle('app:version', () => {
     return app.getVersion();
   });
+
+  // ---- Tool actions (OSC 52 clipboard / OSC 7777 open_url) ----
+  // The server parses these OSC sequences out of the PTY output stream and
+  // forwards them as ServerMessage variants. Terminal.svelte dispatches to
+  // these IPC handlers, which perform the native action locally.
+
+  ipcMain.handle('tray:clipboard-write', (_event, text: string) => {
+    if (typeof text !== 'string') {
+      return;
+    }
+    clipboard.writeText(text);
+  });
+
+  ipcMain.handle(
+    'tray:open-url',
+    async (_event, url: string): Promise<void> => {
+      if (typeof url !== 'string') {
+        return;
+      }
+      // Only allow safe schemes; ignore anything else silently so a
+      // compromised remote can't coerce the local system into opening
+      // arbitrary file:// or javascript: URLs.
+      const allowedSchemes = ['http:', 'https:', 'mailto:'];
+      let parsed: URL;
+      try {
+        parsed = new URL(url);
+      } catch {
+        return;
+      }
+      if (!allowedSchemes.includes(parsed.protocol)) {
+        return;
+      }
+      await shell.openExternal(url);
+    },
+  );
 }

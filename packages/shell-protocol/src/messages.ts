@@ -87,6 +87,12 @@ export const ServerMessageSchema = z.union([
   WithSessionId.extend({ type: z.literal('SessionActivity'), activity_type: z.enum(['activity', 'bell', 'silence']) }),
   WithSessionId.extend({ type: z.literal('SessionExited'), exit_code: z.number().nullable() }),
   WithSessionId.extend({ type: z.literal('CwdChanged'), cwd: z.string() }),
+  // Tool-action events: a program in the remote session emitted an OSC
+  // sequence asking the local client to perform a native action on the
+  // user's computer. `data` and `url` are already decoded on the server
+  // (the OSC wire encoding uses base64; we don't re-encode for JSON).
+  WithSessionId.extend({ type: z.literal('ClipboardWrite'), data: z.string() }),
+  WithSessionId.extend({ type: z.literal('OpenUrl'), url: z.string() }),
   z.object({ type: z.literal('WorkspaceData'), workspace: z.record(z.string(), z.unknown()).nullable() }),
   z.object({
     type: z.literal('ContainerList'),

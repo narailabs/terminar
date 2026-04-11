@@ -43,6 +43,16 @@ export interface WebSocketManagerEvents {
     sessionExited: [sessionId: string, exitCode: number | null];
     foregroundChanged: [sessionId: string, processName: string | null];
     cwdChanged: [sessionId: string, cwd: string];
+    /**
+     * Server parsed an OSC 52 clipboard write from the session's output.
+     * Consumers should copy `data` to the user's local system clipboard.
+     */
+    clipboardWrite: [sessionId: string, data: string];
+    /**
+     * Server parsed an OSC 7777 `open_url` from the session's output.
+     * Consumers should open `url` in the user's local default browser.
+     */
+    openUrl: [sessionId: string, url: string];
     workspaceData: [workspace: Record<string, unknown> | null];
     containerList: [containers: ContainerInfo[]];
     sshConnectionList: [connections: SshConnectionInfo[]];
@@ -248,6 +258,12 @@ export abstract class BaseWebSocketManager extends TypedEmitter {
                 break;
             case 'CwdChanged':
                 this.emit('cwdChanged', parsed.session_id, parsed.cwd);
+                break;
+            case 'ClipboardWrite':
+                this.emit('clipboardWrite', parsed.session_id, parsed.data);
+                break;
+            case 'OpenUrl':
+                this.emit('openUrl', parsed.session_id, parsed.url);
                 break;
             case 'WorkspaceData':
                 this.emit('workspaceData', parsed.workspace);

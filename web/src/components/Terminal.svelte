@@ -191,6 +191,12 @@
   let boundOutputHandler: ((sessionId: string, data: string) => void) | null = null;
   let currentAttachedSessionId: string | null = null;
 
+  // Tool-action handlers (OSC 52 clipboard, OSC 7777 open_url). Same lifecycle
+  // as boundOutputHandler — attached when we bind to a session, detached when
+  // we unbind, so events for other sessions don't leak into our terminal.
+  let boundClipboardHandler: ((sessionId: string, data: string) => void) | null = null;
+  let boundOpenUrlHandler: ((sessionId: string, url: string) => void) | null = null;
+
   // Write buffer: coalesces rapid output into a single term.write() per animation frame.
   // Without this, high-throughput programs (Claude Code, cat large-file, etc.) flood
   // xterm.js with many small write() calls per frame, overwhelming the rendering pipeline
@@ -734,7 +740,7 @@
       }
   }
 
-  // Cleanup output listener - must use stored reference
+  // Cleanup output + tool-action listeners — must use stored references
   function cleanupOutputListener() {
       if (manager && boundOutputHandler) {
           console.log(`[Terminal:${terminalInstanceId}] Removing output listener for session ${currentAttachedSessionId?.slice(0, 8)}`);
@@ -742,9 +748,63 @@
           boundOutputHandler = null;
           currentAttachedSessionId = null;
       }
+      if (manager && boundClipboardHandler) {
+          manager.off('clipboardWrite', boundClipboardHandler);
+          boundClipboardHandler = null;
+      }
+      if (manager && boundOpenUrlHandler) {
+          manager.off('openUrl', boundOpenUrlHandler);
+          boundOpenUrlHandler = null;
+      }
   }
 
-  // Setup output listener - stores reference for proper cleanup
+  // Dispatch tool-action events (OSC 52 clipboard, OSC 7777 open_url) to the
+  // right local sink. In Electron (tray), route through the preload-exposed
+  // electronAPI so the main process performs a native system action. In the
+  // dev-only web frontend, fall back to browser APIs. Both paths are silent
+  // on failure; failures here should not disrupt the terminal.
+  async function performClipboardWrite(data: string) {
+      const electron = (globalThis as unknown as { electronAPI?: { clipboardWrite?: (text: string) => Promise<void> } }).electronAPI;
+      if (electron?.clipboardWrite) {
+          try {
+              await electron.clipboardWrite(data);
+          } catch (e) {
+              console.warn(`[Terminal:${terminalInstanceId}] electronAPI.clipboardWrite failed:`, e);
+          }
+          return;
+      }
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+          try {
+              await navigator.clipboard.writeText(data);
+          } catch (e) {
+              console.warn(`[Terminal:${terminalInstanceId}] navigator.clipboard.writeText failed:`, e);
+          }
+      }
+  }
+
+  async function performOpenUrl(url: string) {
+      const electron = (globalThis as unknown as { electronAPI?: { openUrl?: (url: string) => Promise<void> } }).electronAPI;
+      if (electron?.openUrl) {
+          try {
+              await electron.openUrl(url);
+          } catch (e) {
+              console.warn(`[Terminal:${terminalInstanceId}] electronAPI.openUrl failed:`, e);
+          }
+          return;
+      }
+      // Web fallback: open a new tab. Requires a user gesture in some browsers,
+      // so this may be blocked by popup blockers — that's acceptable for the
+      // dev-only web frontend.
+      if (typeof window !== 'undefined') {
+          try {
+              window.open(url, '_blank', 'noopener,noreferrer');
+          } catch (e) {
+              console.warn(`[Terminal:${terminalInstanceId}] window.open failed:`, e);
+          }
+      }
+  }
+
+  // Setup output + tool-action listeners — stores references for proper cleanup
   function setupOutputListener(mgr: SessionManager, sessionId: string) {
       // First cleanup any existing listener
       cleanupOutputListener();
@@ -772,6 +832,26 @@
       boundOutputHandler = handler;
       currentAttachedSessionId = sessionId;
       mgr.on('output', handler);
+
+      // Tool-action listeners: filter by session id so events for other
+      // terminals in the same window don't leak here. The server already
+      // only forwards each tool-action event to clients attached to the
+      // originating session, but we still guard defensively because one
+      // manager instance is shared across multiple Terminal components.
+      const clipboardHandler = (eventSessionId: string, data: string) => {
+          if (eventSessionId === sessionId) {
+              void performClipboardWrite(data);
+          }
+      };
+      const openUrlHandler = (eventSessionId: string, url: string) => {
+          if (eventSessionId === sessionId) {
+              void performOpenUrl(url);
+          }
+      };
+      boundClipboardHandler = clipboardHandler;
+      boundOpenUrlHandler = openUrlHandler;
+      mgr.on('clipboardWrite', clipboardHandler);
+      mgr.on('openUrl', openUrlHandler);
 
       const newListenerCount = mgr.listenerCount?.('output') ?? 'unknown';
       console.log(`[Terminal:${terminalInstanceId}] Added output listener for session ${sessionId.slice(0, 8)}. Total: ${newListenerCount}`);

@@ -17,6 +17,129 @@ pub use terminar_core::engine::{clamp_dimension, filter_env};
 /// `/bin/sh` is the most universally available shell on remote systems.
 const REMOTE_DEFAULT_SHELL: &str = "/bin/sh";
 
+/// PROMPT_COMMAND value that emits an OSC 7 cwd report on every prompt.
+///
+/// Bash re-parses this string as a shell command before drawing each prompt,
+/// expanding `${HOSTNAME:-$(hostname)}` and `$PWD` at that time and invoking
+/// `printf` to write the OSC 7 escape sequence (`ESC ]7;file://HOST/PATH BEL`).
+///
+/// The server's OSC 7 sniffer (`cwd_watcher.rs`) picks up the escape sequence
+/// from the session's broadcast channel and updates `session.cwd` accordingly.
+const OSC7_PROMPT_COMMAND: &str =
+    r#"printf "\033]7;file://%s%s\007" "${HOSTNAME:-$(hostname)}" "$PWD""#;
+
+/// Shell-function definitions injected into remote sessions so programs that
+/// shell out to native clipboard / URL-open tools (Claude Code is the driving
+/// example) have their actions transparently redirected back to the user's
+/// local system via OSC sequences.
+///
+/// The functions emit:
+/// - **OSC 52** (`ESC ]52;c;<base64-data> BEL`) for clipboard writes. This is
+///   the de-facto standard clipboard escape sequence; terminar parses it on
+///   the server side and routes the payload to the local clipboard.
+/// - **OSC 7777** (`ESC ]7777;open_url;<base64-url> BEL`) for URL opens. This
+///   is terminar's custom vocabulary (no standard exists); the server parses
+///   it and routes the URL to the local default browser.
+///
+/// The shim is a static constant — no user input is interpolated, so there
+/// is no shell injection surface. Continues to rely on `shell_quote()` for
+/// any user-controlled strings (`cwd`, `shell`) interpolated elsewhere in
+/// the remote command.
+const SHIM_FUNCTIONS: &str = r#"pbcopy() { printf '\033]52;c;%s\007' "$(base64 | tr -d '\n')"; }
+xclip() { pbcopy; }
+xsel() { pbcopy; }
+wl-copy() { pbcopy; }
+_terminar_open_url() { printf '\033]7777;open_url;%s\007' "$(printf %s "$1" | base64 | tr -d '\n')"; }
+open() { _terminar_open_url "$1"; }
+xdg-open() { _terminar_open_url "$1"; }
+export BROWSER=_terminar_open_url"#;
+
+/// Return the final path component of a shell path (e.g. `/bin/bash` → `bash`).
+fn shell_basename(shell: &str) -> &str {
+    std::path::Path::new(shell)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+}
+
+/// Whether we should inject `PROMPT_COMMAND` as an environment variable for
+/// this target shell. Only bash (and `sh` which on RHEL-family systems is
+/// bash in POSIX mode) honors PROMPT_COMMAND; dash/ash ignore it silently so
+/// the injection is harmless on those. Zsh and fish have their own prompt
+/// hook mechanisms that cannot be set via env var — used by the Docker
+/// session path (SSH uses `build_ssh_remote_command` which handles zsh via
+/// ZDOTDIR and all other shells via a match).
+fn shell_supports_prompt_command(shell: &str) -> bool {
+    matches!(shell_basename(shell), "bash" | "sh")
+}
+
+/// Build the inline remote command passed to `ssh user@host <cmd>`.
+///
+/// The command:
+/// 1. Optionally `cd`s to the requested starting directory.
+/// 2. Injects [`SHIM_FUNCTIONS`] so `pbcopy`/`xclip`/`xsel`/`wl-copy`/`open`/
+///    `xdg-open` are transparently redirected to terminar's OSC sequences
+///    (which the server parses and routes back to the local client).
+/// 3. Preserves OSC 7 cwd tracking via the shell's native prompt hook
+///    mechanism (bash `PROMPT_COMMAND` or zsh `precmd`).
+/// 4. `exec`s the target shell so the remote-side login shell is replaced
+///    by the actual interactive shell (no intermediate wrapper process).
+///
+/// Shell-specific handling:
+/// - **bash / sh**: define shim functions in the login shell, `export -f`
+///   them so bash re-imports them via env on the subsequent `exec bash`,
+///   then set `PROMPT_COMMAND` and exec.
+/// - **zsh**: `export -f` is bash-specific and functions do not survive
+///   `exec zsh`. Instead, write a temporary `.zshrc` containing the shim
+///   (plus a source of the user's real `.zshrc`), set `ZDOTDIR` to its
+///   directory, and exec zsh. Cwd tracking is added via `add-zsh-hook
+///   precmd`.
+/// - **other shells** (fish, etc.): fall back to a plain `exec`, no shim.
+///   Clipboard + URL auto-redirect is not available; users can still rely
+///   on tools that emit OSC 52 natively.
+///
+/// Both `cwd` and `shell` are single-quoted via `shell_quote()` for shell
+/// safety; this is a second line of defense on top of `validate_remote_shell()`.
+fn build_ssh_remote_command(cwd: &str, shell: &str) -> String {
+    let cd_part = if !cwd.is_empty() && cwd != "/" {
+        format!("cd {} && ", shell_quote(cwd))
+    } else {
+        String::new()
+    };
+
+    let shell_arg = shell_quote(shell);
+
+    match shell_basename(shell) {
+        "bash" | "sh" => {
+            // Define shim functions, export them to env so bash re-imports
+            // them on `exec`, then set PROMPT_COMMAND (for OSC 7 cwd) and
+            // exec the target shell.
+            format!(
+                "{cd}{shim}\nexport -f pbcopy xclip xsel wl-copy _terminar_open_url open xdg-open 2>/dev/null || true\nPROMPT_COMMAND={pc} exec {sh}",
+                cd = cd_part,
+                shim = SHIM_FUNCTIONS,
+                pc = shell_quote(OSC7_PROMPT_COMMAND),
+                sh = shell_arg,
+            )
+        }
+        "zsh" => {
+            // Write a temp .zshrc with shim (and OSC 7 cwd hook), set
+            // ZDOTDIR, and exec zsh. Sourcing the user's real .zshrc first
+            // preserves their config; our shim defined after it wins.
+            format!(
+                "{cd}TERMINAR_ZDOTDIR=$(mktemp -d /tmp/terminar-zdot.XXXXXX) && cat > \"$TERMINAR_ZDOTDIR/.zshrc\" <<'TERMINAR_SHIM_EOF'\n[ -f \"$HOME/.zshrc\" ] && source \"$HOME/.zshrc\"\n{shim}\n_terminar_cwd() {{ printf '\\033]7;file://%s%s\\007' \"$(hostname)\" \"$PWD\"; }}\nautoload -Uz add-zsh-hook 2>/dev/null && add-zsh-hook precmd _terminar_cwd\nTERMINAR_SHIM_EOF\nZDOTDIR=\"$TERMINAR_ZDOTDIR\" exec {sh}",
+                cd = cd_part,
+                shim = SHIM_FUNCTIONS,
+                sh = shell_arg,
+            )
+        }
+        _ => {
+            // Unknown shell — fall back to plain exec, no shim.
+            format!("{cd}exec {sh}", cd = cd_part, sh = shell_arg)
+        }
+    }
+}
+
 /// Validate a shell path intended for remote execution (Docker container, SSH host).
 ///
 /// Unlike the local SHELL_WHITELIST, remote shells vary widely (`/bin/ash` on Alpine,
@@ -102,10 +225,26 @@ pub(crate) async fn handle_create_session(
     };
 
     match result {
-        Ok(_id) => {
+        Ok(id) => {
             state
                 .sessions_total
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+            // For SSH and Docker sessions, spawn an OSC watcher. Local
+            // polling in poll_foreground_processes() is skipped for these
+            // session types because tcgetpgrp/proc point at the ssh/docker
+            // wrapper process, not the remote shell. Instead we parse OSC
+            // escape sequences emitted by the remote shell to (a) keep cwd
+            // fresh (OSC 7) and (b) route clipboard writes (OSC 52) and
+            // URL opens (OSC 7777) back to the local client.
+            if container_id.is_some() || ssh_connection_id.is_some() {
+                crate::cwd_watcher::spawn_cwd_watcher(
+                    id,
+                    sessions.clone(),
+                    state.tool_action_tx.clone(),
+                );
+            }
+
             let list = enrich_session_list(build_session_list(sessions));
             tx_out
                 .send(ServerMessage::SessionList { sessions: list })
@@ -225,6 +364,15 @@ async fn create_docker_session(
     cmd.arg("-e");
     cmd.arg("COLORTERM=truecolor");
 
+    // Auto-inject PROMPT_COMMAND so the shell inside the container emits OSC 7
+    // cwd updates on each prompt. The server's cwd_watcher picks these up and
+    // updates the pane's displayed directory. Only valid for bash/sh targets;
+    // zsh/fish ignore PROMPT_COMMAND.
+    if shell_supports_prompt_command(&resolved_shell) {
+        cmd.arg("-e");
+        cmd.arg(format!("PROMPT_COMMAND={}", OSC7_PROMPT_COMMAND));
+    }
+
     let safe_env = terminar_core::engine::filter_env(env);
     for (k, v) in &safe_env {
         cmd.arg("-e");
@@ -303,18 +451,12 @@ fn create_ssh_session(
     cmd.arg(conn.port.to_string());
     cmd.arg(format!("{}@{}", conn.user, conn.host));
 
-    // Wrap remote command: cd + exec shell. Both cwd and shell are shell-quoted
-    // (defense layer B) so that even if validate_remote_shell has a gap, the
-    // remote shell can't interpret metacharacters.
-    let remote_cmd = if !cwd.is_empty() && cwd != "/" {
-        format!(
-            "cd {} && exec {}",
-            shell_quote(cwd),
-            shell_quote(&resolved_shell)
-        )
-    } else {
-        format!("exec {}", shell_quote(&resolved_shell))
-    };
+    // Wrap remote command: optional `cd`, optional PROMPT_COMMAND injection
+    // for bash/sh (so the remote shell auto-emits OSC 7 cwd updates), then
+    // exec the target shell. Both cwd and shell are shell-quoted inside
+    // `build_ssh_remote_command` as a defense layer on top of
+    // `validate_remote_shell()`.
+    let remote_cmd = build_ssh_remote_command(cwd, &resolved_shell);
     cmd.arg(remote_cmd);
 
     let name = format!("{}: Terminal {}", conn.name, counter);
@@ -530,5 +672,159 @@ mod tests {
         let max_len = format!("/{}", "a".repeat(255));
         assert_eq!(max_len.len(), 256);
         assert!(validate_remote_shell(&max_len).is_ok());
+    }
+
+    // ---- shell_basename / shell_supports_prompt_command ----
+
+    #[test]
+    fn shell_basename_extracts_final_component() {
+        assert_eq!(shell_basename("/bin/bash"), "bash");
+        assert_eq!(shell_basename("/usr/local/bin/zsh"), "zsh");
+        assert_eq!(shell_basename("/bin/sh"), "sh");
+        assert_eq!(shell_basename("/opt/homebrew/bin/fish"), "fish");
+        assert_eq!(shell_basename(""), "");
+    }
+
+    #[test]
+    fn supports_prompt_command_bash_family() {
+        assert!(shell_supports_prompt_command("/bin/bash"));
+        assert!(shell_supports_prompt_command("/usr/bin/bash"));
+        assert!(shell_supports_prompt_command("/opt/homebrew/bin/bash"));
+        assert!(shell_supports_prompt_command("/bin/sh"));
+    }
+
+    #[test]
+    fn supports_prompt_command_rejects_zsh_fish_and_others() {
+        assert!(!shell_supports_prompt_command("/bin/zsh"));
+        assert!(!shell_supports_prompt_command("/usr/local/bin/fish"));
+        assert!(!shell_supports_prompt_command("/bin/ash"));
+        assert!(!shell_supports_prompt_command("/bin/dash"));
+        assert!(!shell_supports_prompt_command("/bin/tcsh"));
+        assert!(!shell_supports_prompt_command(""));
+    }
+
+    // ---- build_ssh_remote_command ----
+
+    /// Every bash/zsh shim must define these aliases so programs that shell
+    /// out to these binaries get transparently redirected to OSC sequences.
+    fn assert_shim_contains_all_aliases(cmd: &str) {
+        for needle in &[
+            "pbcopy()",
+            "xclip()",
+            "xsel()",
+            "wl-copy()",
+            "_terminar_open_url()",
+            "open()",
+            "xdg-open()",
+            "export BROWSER=_terminar_open_url",
+            r#"\033]52;c;%s\007"#,    // OSC 52 emit (clipboard)
+            r#"\033]7777;open_url;%s\007"#, // OSC 7777 emit (URL open)
+        ] {
+            assert!(
+                cmd.contains(needle),
+                "expected shim to contain {:?}, got:\n{}",
+                needle,
+                cmd
+            );
+        }
+    }
+
+    #[test]
+    fn ssh_remote_cmd_bash_with_cwd_injects_shim_and_prompt_command() {
+        let cmd = build_ssh_remote_command("/home/dev", "/bin/bash");
+        assert!(cmd.starts_with("cd '/home/dev' && "));
+        assert_shim_contains_all_aliases(&cmd);
+        // bash must export the shim functions so they survive `exec bash`.
+        assert!(
+            cmd.contains("export -f pbcopy xclip xsel wl-copy _terminar_open_url open xdg-open"),
+            "bash path must export shim functions"
+        );
+        // Cwd tracking still uses PROMPT_COMMAND for bash.
+        assert!(cmd.contains("PROMPT_COMMAND='printf "));
+        assert!(cmd.contains(r#"\033]7;file://%s%s\007"#));
+        assert!(cmd.contains(r#""${HOSTNAME:-$(hostname)}""#));
+        assert!(cmd.ends_with(" exec '/bin/bash'"));
+    }
+
+    #[test]
+    fn ssh_remote_cmd_bash_no_cwd_skips_cd() {
+        let cmd = build_ssh_remote_command("", "/bin/bash");
+        assert!(!cmd.contains("cd "));
+        // First non-empty token must be `pbcopy()` — the start of the shim.
+        assert!(cmd.starts_with("pbcopy()"));
+        assert!(cmd.ends_with(" exec '/bin/bash'"));
+    }
+
+    #[test]
+    fn ssh_remote_cmd_bash_root_cwd_skips_cd() {
+        let cmd = build_ssh_remote_command("/", "/bin/bash");
+        assert!(!cmd.contains("cd "));
+        assert!(cmd.starts_with("pbcopy()"));
+    }
+
+    #[test]
+    fn ssh_remote_cmd_sh_also_injects_shim() {
+        let cmd = build_ssh_remote_command("/tmp", "/bin/sh");
+        assert_shim_contains_all_aliases(&cmd);
+        assert!(cmd.contains("PROMPT_COMMAND="));
+        assert!(cmd.ends_with(" exec '/bin/sh'"));
+    }
+
+    #[test]
+    fn ssh_remote_cmd_zsh_uses_zdotdir_with_shim() {
+        let cmd = build_ssh_remote_command("/home/dev", "/bin/zsh");
+        assert!(cmd.starts_with("cd '/home/dev' && "));
+        // zsh path writes a temp .zshrc via heredoc and sets ZDOTDIR.
+        assert!(cmd.contains("TERMINAR_ZDOTDIR=$(mktemp -d"));
+        assert!(cmd.contains(".zshrc"));
+        assert!(cmd.contains("<<'TERMINAR_SHIM_EOF'"));
+        assert!(cmd.contains("TERMINAR_SHIM_EOF\n"));
+        // User's .zshrc sourced first so their config is preserved.
+        assert!(cmd.contains(r#"[ -f "$HOME/.zshrc" ] && source "$HOME/.zshrc""#));
+        // Shim defined after user config so ours wins.
+        assert_shim_contains_all_aliases(&cmd);
+        // Cwd tracking via zsh-native precmd hook.
+        assert!(cmd.contains("add-zsh-hook precmd _terminar_cwd"));
+        // Final exec uses ZDOTDIR to pick up the custom .zshrc.
+        assert!(cmd.contains(r#"ZDOTDIR="$TERMINAR_ZDOTDIR" exec '/bin/zsh'"#));
+    }
+
+    #[test]
+    fn ssh_remote_cmd_zsh_no_cwd_skips_cd() {
+        let cmd = build_ssh_remote_command("", "/bin/zsh");
+        assert!(!cmd.contains("cd '"));
+        assert!(cmd.starts_with("TERMINAR_ZDOTDIR="));
+    }
+
+    #[test]
+    fn ssh_remote_cmd_fish_falls_back_to_plain_exec() {
+        let cmd = build_ssh_remote_command("", "/usr/local/bin/fish");
+        assert_eq!(cmd, "exec '/usr/local/bin/fish'");
+    }
+
+    #[test]
+    fn ssh_remote_cmd_ash_falls_back_to_plain_exec() {
+        let cmd = build_ssh_remote_command("/tmp", "/bin/ash");
+        assert_eq!(cmd, "cd '/tmp' && exec '/bin/ash'");
+    }
+
+    #[test]
+    fn ssh_remote_cmd_quotes_paths_with_metacharacters() {
+        let cmd = build_ssh_remote_command("/tmp/with'quote", "/bin/bash");
+        // The embedded single-quote is escaped via `'\''` in POSIX quoting.
+        assert!(cmd.contains(r"'/tmp/with'\''quote'"));
+    }
+
+    #[test]
+    fn ssh_remote_cmd_prompt_command_is_single_quoted() {
+        // The OSC7_PROMPT_COMMAND value must be wrapped in single quotes so
+        // the login shell treats it as a literal string (no expansion until
+        // bash re-evaluates it at prompt time).
+        let cmd = build_ssh_remote_command("", "/bin/bash");
+        let pc_start = cmd.find("PROMPT_COMMAND='").expect("PROMPT_COMMAND= not found");
+        let after_start = &cmd[pc_start + "PROMPT_COMMAND='".len()..];
+        let exec_pos = after_start.find(" exec ").expect("exec not found");
+        let pc_value = &after_start[..exec_pos];
+        assert!(pc_value.ends_with('\''), "PROMPT_COMMAND value not terminated by single quote: {}", pc_value);
     }
 }
