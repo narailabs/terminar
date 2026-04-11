@@ -42,6 +42,14 @@ pub enum ClientMessage {
         cols: u16,
         /// Terminal height in rows (clamped to 1-500).
         rows: u16,
+        /// Docker container ID for container sessions. When set, the session runs
+        /// `docker exec` inside the specified container instead of a local shell.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        container_id: Option<String>,
+        /// SSH connection ID for SSH sessions. When set, the session runs
+        /// `ssh user@host` to the remote host instead of a local shell.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        ssh_connection_id: Option<String>,
     },
     /// Attach to a session to receive its output stream.
     Attach {
@@ -78,6 +86,33 @@ pub enum ClientMessage {
         /// UUID of the session to kill.
         session_id: String,
     },
+
+    // === Docker container messages ===
+    /// Request the list of running Docker containers.
+    ListContainers,
+
+    // === SSH connection messages ===
+    /// Request the list of saved SSH connections.
+    ListSshConnections,
+    /// Add a new SSH connection.
+    AddSshConnection {
+        name: String,
+        host: String,
+        user: String,
+        port: u16,
+    },
+    /// Update an existing SSH connection.
+    UpdateSshConnection {
+        id: String,
+        name: String,
+        host: String,
+        user: String,
+        port: u16,
+    },
+    /// Remove an SSH connection.
+    RemoveSshConnection { id: String },
+    /// Parse ~/.ssh/config and return importable hosts.
+    ImportSshConfig,
 
     // === Server-specific messages (workspace) ===
     /// Save workspace data (session layout, splits, tabs, etc.).
@@ -124,6 +159,16 @@ pub enum ServerMessage {
     /// Notification that the current working directory in a session has changed.
     CwdChanged { session_id: String, cwd: String },
 
+    // === Docker container messages ===
+    /// List of running Docker containers.
+    ContainerList { containers: Vec<ContainerInfo> },
+
+    // === SSH connection messages ===
+    /// List of saved SSH connections.
+    SshConnectionList { connections: Vec<SshConnectionInfo> },
+    /// Result of parsing ~/.ssh/config.
+    SshConfigImportResult { hosts: Vec<SshConfigHost> },
+
     // === Server-specific messages (auth/workspace) ===
     /// Authentication succeeded. Contains the token and protocol version.
     AuthOk {
@@ -139,6 +184,43 @@ pub enum ServerMessage {
     WorkspaceData {
         workspace: Option<serde_json::Value>,
     },
+}
+
+/// Information about a running Docker container.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ContainerInfo {
+    /// Container ID (short form).
+    pub id: String,
+    /// Container name.
+    pub name: String,
+    /// Container image.
+    pub image: String,
+    /// Human-readable status (e.g., "Up 2 hours").
+    pub status: String,
+    /// Container state (e.g., "running").
+    pub state: String,
+}
+
+/// A saved SSH connection.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SshConnectionInfo {
+    pub id: String,
+    pub name: String,
+    pub host: String,
+    pub user: String,
+    pub port: u16,
+}
+
+/// A host entry parsed from ~/.ssh/config.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SshConfigHost {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hostname: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
 }
 
 #[cfg(test)]
@@ -179,6 +261,8 @@ mod tests {
             env,
             cols: 100,
             rows: 50,
+            container_id: None,
+            ssh_connection_id: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains(r#""type":"create_session""#));
@@ -207,6 +291,12 @@ mod tests {
             foreground_process: None,
             last_activity_at: None,
             exit_code: None,
+            container_id: None,
+            container_name: None,
+            container_image: None,
+            ssh_connection_id: None,
+            ssh_host: None,
+            ssh_user: None,
         };
         let msg = ServerMessage::SessionList {
             sessions: vec![info],

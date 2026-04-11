@@ -475,6 +475,10 @@
         terminalTitle={titleStore.titles.get(session.id) ?? ''}
         paneCount={$sessionPaneCounts.get(session.id) ?? 0}
         tags={tagStore.getTagsForSession(session.id)}
+        containerId={session.container_id}
+        sshConnectionId={session.ssh_connection_id}
+        sshHost={session.ssh_host}
+        sshUser={session.ssh_user}
         isActive={session.id === activeSessionId}
         startEditing={editingSessionId === session.id}
         onselect={handleSelect}

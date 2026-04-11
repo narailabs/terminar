@@ -63,6 +63,8 @@ async fn test_100_concurrent_sessions() {
                 env: HashMap::new(),
                 cols: 80,
                 rows: 24,
+                container_id: None,
+                ssh_connection_id: None,
             };
             socket
                 .send(Message::Text(serde_json::to_string(&create_msg).unwrap()))
@@ -124,6 +126,8 @@ async fn test_large_output_streaming() {
         env: HashMap::new(),
         cols: 80,
         rows: 24,
+        container_id: None,
+        ssh_connection_id: None,
     };
     socket
         .send(Message::Text(serde_json::to_string(&create_msg).unwrap()))
@@ -225,6 +229,8 @@ async fn test_50_concurrent_clients() {
                         env: HashMap::new(),
                         cols: 80,
                         rows: 24,
+                        container_id: None,
+                        ssh_connection_id: None,
                     };
                     socket
                         .send(Message::Text(serde_json::to_string(&create_msg).unwrap()))
@@ -282,6 +288,8 @@ async fn test_rapid_input_throughput() {
         env: HashMap::new(),
         cols: 80,
         rows: 24,
+        container_id: None,
+        ssh_connection_id: None,
     };
     socket
         .send(Message::Text(serde_json::to_string(&create_msg).unwrap()))
@@ -368,6 +376,8 @@ async fn test_rapid_session_lifecycle() {
             env: HashMap::new(),
             cols: 80,
             rows: 24,
+            container_id: None,
+            ssh_connection_id: None,
         };
         socket
             .send(Message::Text(serde_json::to_string(&create_msg).unwrap()))

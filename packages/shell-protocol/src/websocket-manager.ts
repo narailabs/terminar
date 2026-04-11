@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import { parseServerMessage } from './parse.js';
-import type { SessionInfo } from './messages.js';
+import type { SessionInfo, ContainerInfo, SshConnectionInfo, SshConfigHost } from './messages.js';
 import {
     type ConnectionState,
     type ReconnectConfig,
@@ -44,6 +44,15 @@ export interface WebSocketManagerEvents {
     foregroundChanged: [sessionId: string, processName: string | null];
     cwdChanged: [sessionId: string, cwd: string];
     workspaceData: [workspace: Record<string, unknown> | null];
+    containerList: [containers: ContainerInfo[]];
+    sshConnectionList: [connections: SshConnectionInfo[]];
+    sshConfigImportResult: [hosts: SshConfigHost[]];
+    /**
+     * A server-originated error carrying both the user-facing message and an
+     * optional machine-readable error_code (e.g., "DOCKER_UNAVAILABLE",
+     * "SSH_CONNECTION_ERROR"). Consumers can route to scoped UI by code prefix.
+     */
+    serverError: [message: string, code: string | null];
     shutdown: [reason: string];
     authenticated: [token: string, expires: string];
     authChallenge: [nonce: string];
@@ -204,7 +213,11 @@ export abstract class BaseWebSocketManager extends TypedEmitter {
 
         switch (parsed.type) {
             case 'Error':
+                // Legacy event carries just the Error object.
                 this.emit('error', new Error(parsed.message));
+                // New event also carries the error_code so consumers can route
+                // to scoped UI (e.g., DOCKER_* → container store).
+                this.emit('serverError', parsed.message, parsed.error_code ?? null);
                 break;
             case 'AuthOk':
                 this.authenticated = true;
@@ -239,6 +252,15 @@ export abstract class BaseWebSocketManager extends TypedEmitter {
             case 'WorkspaceData':
                 this.emit('workspaceData', parsed.workspace);
                 break;
+            case 'ContainerList':
+                this.emit('containerList', parsed.containers);
+                break;
+            case 'SshConnectionList':
+                this.emit('sshConnectionList', parsed.connections);
+                break;
+            case 'SshConfigImportResult':
+                this.emit('sshConfigImportResult', parsed.hosts);
+                break;
             case 'Shutdown':
                 this.emit('shutdown', parsed.reason);
                 this.reconnectAttempt = Math.max(this.reconnectAttempt, 2);
@@ -252,15 +274,54 @@ export abstract class BaseWebSocketManager extends TypedEmitter {
         this.sendRaw({ type: 'list_sessions' });
     }
 
-    public createSession(cwd: string, shell: string, env: Record<string, string>, cols?: number, rows?: number) {
-        this.sendRaw({
+    public createSession(
+        cwd: string,
+        shell: string,
+        env: Record<string, string>,
+        cols?: number,
+        rows?: number,
+        containerId?: string,
+        sshConnectionId?: string,
+    ) {
+        const msg: Record<string, unknown> = {
             type: 'create_session',
             cwd,
             shell,
             env,
             cols: cols ?? 80,
             rows: rows ?? 24,
-        });
+        };
+        if (containerId) {
+            msg.container_id = containerId;
+        }
+        if (sshConnectionId) {
+            msg.ssh_connection_id = sshConnectionId;
+        }
+        this.sendRaw(msg);
+    }
+
+    public listContainers() {
+        this.sendRaw({ type: 'list_containers' });
+    }
+
+    public listSshConnections() {
+        this.sendRaw({ type: 'list_ssh_connections' });
+    }
+
+    public addSshConnection(name: string, host: string, user: string, port: number) {
+        this.sendRaw({ type: 'add_ssh_connection', name, host, user, port });
+    }
+
+    public updateSshConnection(id: string, name: string, host: string, user: string, port: number) {
+        this.sendRaw({ type: 'update_ssh_connection', id, name, host, user, port });
+    }
+
+    public removeSshConnection(id: string) {
+        this.sendRaw({ type: 'remove_ssh_connection', id });
+    }
+
+    public importSshConfig() {
+        this.sendRaw({ type: 'import_ssh_config' });
     }
 
     public attach(sessionId: string) {

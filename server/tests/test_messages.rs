@@ -10,6 +10,8 @@ fn test_client_message_serialization() {
         env: HashMap::new(),
         cols: 80,
         rows: 24,
+        container_id: None,
+        ssh_connection_id: None,
     };
     let json = serde_json::to_string(&create_msg).unwrap();
     assert_eq!(
@@ -80,6 +82,12 @@ fn test_server_message_serialization() {
         foreground_process: None,
         last_activity_at: None,
         exit_code: None,
+        container_id: None,
+        container_name: None,
+        container_image: None,
+        ssh_connection_id: None,
+        ssh_host: None,
+        ssh_user: None,
     };
     let list_msg = ServerMessage::SessionList {
         sessions: vec![session],

@@ -11,6 +11,14 @@ export const SessionInfoSchema = z.object({
   foreground_process: z.string().optional(),       // e.g., "claude", "vim", "zsh"
   last_activity_at: z.string().optional(),         // ISO timestamp
   exit_code: z.number().optional(),                // set when state="exited"
+  // Docker container fields
+  container_id: z.string().optional(),
+  container_name: z.string().optional(),
+  container_image: z.string().optional(),
+  // SSH connection fields
+  ssh_connection_id: z.string().optional(),
+  ssh_host: z.string().optional(),
+  ssh_user: z.string().optional(),
 });
 
 export type SessionInfo = z.infer<typeof SessionInfoSchema>;
@@ -28,6 +36,8 @@ export const ClientMessageSchema = z.union([
     env: z.record(z.string(), z.string()),
     cols: z.number(),
     rows: z.number(),
+    container_id: z.string().optional(),
+    ssh_connection_id: z.string().optional(),
   }),
   WithSessionId.extend({ type: z.literal('attach'), mode: z.enum(['mirror', 'exclusive']) }),
   WithSessionId.extend({ type: z.literal('input'), data: z.string() }),
@@ -39,6 +49,25 @@ export const ClientMessageSchema = z.union([
   z.object({ type: z.literal('auth_pubkey_verify'), signature: z.string(), algorithm: z.string() }),
   z.object({ type: z.literal('auth_token'), token: z.string() }),
   z.object({ type: z.literal('refresh_token'), refresh_token: z.string() }),
+  z.object({ type: z.literal('list_containers') }),
+  z.object({ type: z.literal('list_ssh_connections') }),
+  z.object({
+    type: z.literal('add_ssh_connection'),
+    name: z.string(),
+    host: z.string(),
+    user: z.string(),
+    port: z.number(),
+  }),
+  z.object({
+    type: z.literal('update_ssh_connection'),
+    id: z.string(),
+    name: z.string(),
+    host: z.string(),
+    user: z.string(),
+    port: z.number(),
+  }),
+  z.object({ type: z.literal('remove_ssh_connection'), id: z.string() }),
+  z.object({ type: z.literal('import_ssh_config') }),
   z.object({ type: z.literal('save_workspace'), workspace: z.record(z.string(), z.unknown()) }),
   z.object({ type: z.literal('load_workspace') }),
 ]);
@@ -59,6 +88,58 @@ export const ServerMessageSchema = z.union([
   WithSessionId.extend({ type: z.literal('SessionExited'), exit_code: z.number().nullable() }),
   WithSessionId.extend({ type: z.literal('CwdChanged'), cwd: z.string() }),
   z.object({ type: z.literal('WorkspaceData'), workspace: z.record(z.string(), z.unknown()).nullable() }),
+  z.object({
+    type: z.literal('ContainerList'),
+    containers: z.array(z.object({
+      id: z.string(),
+      name: z.string(),
+      image: z.string(),
+      status: z.string(),
+      state: z.string(),
+    })),
+  }),
+  z.object({
+    type: z.literal('SshConnectionList'),
+    connections: z.array(z.object({
+      id: z.string(),
+      name: z.string(),
+      host: z.string(),
+      user: z.string(),
+      port: z.number(),
+    })),
+  }),
+  z.object({
+    type: z.literal('SshConfigImportResult'),
+    hosts: z.array(z.object({
+      name: z.string(),
+      hostname: z.string().optional(),
+      user: z.string().optional(),
+      port: z.number().optional(),
+    })),
+  }),
 ]);
 
 export type ServerMessage = z.infer<typeof ServerMessageSchema>;
+
+export interface ContainerInfo {
+  id: string;
+  name: string;
+  image: string;
+  status: string;
+  state: string;
+}
+
+export interface SshConnectionInfo {
+  id: string;
+  name: string;
+  host: string;
+  user: string;
+  port: number;
+}
+
+export interface SshConfigHost {
+  name: string;
+  hostname?: string;
+  user?: string;
+  port?: number;
+}

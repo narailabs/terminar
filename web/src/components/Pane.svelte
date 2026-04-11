@@ -231,6 +231,10 @@
     onSplitHorizontal: () => paneActions.splitHorizontal(paneId),
     onSplitVertical: () => paneActions.splitVertical(paneId),
     onPaneFocus: () => paneActions.toggleFocus(paneId),
+    onPaneNext: () => paneActions.navigateToNextPane(paneId),
+    onPanePrevious: () => paneActions.navigateToPreviousPane(paneId),
+    onTabNext: () => paneActions.navigateToNextTab(),
+    onTabPrevious: () => paneActions.navigateToPreviousTab(),
   });
 
   // Create key event handler using the keybinding registry

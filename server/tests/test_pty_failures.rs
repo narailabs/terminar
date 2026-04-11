@@ -54,6 +54,8 @@ async fn create_session_and_get_id(
         env: HashMap::new(),
         cols: 80,
         rows: 24,
+        container_id: None,
+        ssh_connection_id: None,
     };
     socket
         .send(Message::Text(serde_json::to_string(&create_msg).unwrap()))
@@ -97,6 +99,8 @@ async fn test_invalid_shell_path_returns_error() {
         env: HashMap::new(),
         cols: 80,
         rows: 24,
+        container_id: None,
+        ssh_connection_id: None,
     };
     socket
         .send(Message::Text(serde_json::to_string(&create_msg).unwrap()))
@@ -165,6 +169,8 @@ async fn test_shell_path_traversal_rejected() {
         env: HashMap::new(),
         cols: 80,
         rows: 24,
+        container_id: None,
+        ssh_connection_id: None,
     };
     socket
         .send(Message::Text(serde_json::to_string(&create_msg).unwrap()))
@@ -208,6 +214,8 @@ async fn test_relative_shell_path_rejected() {
         env: HashMap::new(),
         cols: 80,
         rows: 24,
+        container_id: None,
+        ssh_connection_id: None,
     };
     socket
         .send(Message::Text(serde_json::to_string(&create_msg).unwrap()))
@@ -250,6 +258,8 @@ async fn test_invalid_cwd_returns_error() {
         env: HashMap::new(),
         cols: 80,
         rows: 24,
+        container_id: None,
+        ssh_connection_id: None,
     };
     socket
         .send(Message::Text(serde_json::to_string(&create_msg).unwrap()))
@@ -441,6 +451,8 @@ async fn test_dangerous_env_vars_filtered() {
         env,
         cols: 80,
         rows: 24,
+        container_id: None,
+        ssh_connection_id: None,
     };
     socket
         .send(Message::Text(serde_json::to_string(&create_msg).unwrap()))

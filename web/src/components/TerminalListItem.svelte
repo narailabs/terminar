@@ -10,6 +10,10 @@
     terminalTitle = '',
     paneCount = 0,
     tags = [],
+    containerId = undefined,
+    sshConnectionId = undefined,
+    sshHost = undefined,
+    sshUser = undefined,
     isActive = false,
     startEditing = false,
     onselect,
@@ -26,6 +30,10 @@
     terminalTitle?: string;
     paneCount?: number;
     tags?: Tag[];
+    containerId?: string;
+    sshConnectionId?: string;
+    sshHost?: string;
+    sshUser?: string;
     isActive?: boolean;
     startEditing?: boolean;
     onselect?: (id: string) => void;
@@ -169,6 +177,13 @@
       <div class="line-2 terminal-title" title={terminalTitle}>{terminalTitle}</div>
     {/if}
     <div class="line-2">
+      {#if containerId}
+        <span class="docker-badge">docker</span>
+        <span class="separator">·</span>
+      {:else if sshConnectionId}
+        <span class="ssh-badge" title={sshUser && sshHost ? `${sshUser}@${sshHost}` : 'SSH session'}>ssh</span>
+        <span class="separator">·</span>
+      {/if}
       <span class="shell">{shellName}</span>
       {#if processBadge}
         <span class="separator">·</span>
@@ -254,6 +269,24 @@
     color: var(--ui-text-primary, white);
     font-size: 13px;
     outline: none;
+  }
+
+  .docker-badge {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: rgba(0, 150, 200, 0.15);
+    color: #0096c8;
+    white-space: nowrap;
+  }
+
+  .ssh-badge {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: rgba(100, 200, 100, 0.15);
+    color: #64c864;
+    white-space: nowrap;
   }
 
   .process-badge {

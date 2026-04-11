@@ -42,6 +42,8 @@ export function reactiveBox<T>(initial: T): ReactiveBox<T> {
 export interface AppActions {
   createNewTerminal(targetPaneId?: string): void;
   createNewTerminalWithCwd(targetPaneId: string, cwd: string): void;
+  createDockerTerminal(containerId: string, containerName: string, shell?: string, targetPaneId?: string): void;
+  createSshTerminal(connectionId: string, connectionName: string, shell?: string, targetPaneId?: string): void;
   closeTerminal(sessionId: string): void;
   renameTerminal(sessionId: string, newName: string): void;
   toggleSidebar(): void;
@@ -52,6 +54,8 @@ export interface AppActions {
 const NOOP_ACTIONS: AppActions = {
   createNewTerminal() {},
   createNewTerminalWithCwd() {},
+  createDockerTerminal() {},
+  createSshTerminal() {},
   closeTerminal() {},
   renameTerminal() {},
   toggleSidebar() {},
@@ -112,6 +116,10 @@ export interface PaneActions {
   splitVertical(paneId: string): void;
   commitResize(splitId: string, ratios: number[]): void;
   toggleFocus(paneId: string): void;
+  navigateToNextPane(paneId: string): void;
+  navigateToPreviousPane(paneId: string): void;
+  navigateToNextTab(): void;
+  navigateToPreviousTab(): void;
 }
 
 const NOOP_PANE_ACTIONS: PaneActions = {
@@ -126,6 +134,10 @@ const NOOP_PANE_ACTIONS: PaneActions = {
   splitVertical() {},
   commitResize() {},
   toggleFocus() {},
+  navigateToNextPane() {},
+  navigateToPreviousPane() {},
+  navigateToNextTab() {},
+  navigateToPreviousTab() {},
 };
 
 // --- Pane actions context ---

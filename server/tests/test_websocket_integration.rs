@@ -49,6 +49,8 @@ async fn test_websocket_flow_full() {
         env: HashMap::new(),
         cols: 80,
         rows: 24,
+        container_id: None,
+        ssh_connection_id: None,
     };
     socket
         .send(Message::Text(serde_json::to_string(&create_msg).unwrap()))

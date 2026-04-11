@@ -13,6 +13,10 @@ export interface ActionCallbacks {
   onSplitHorizontal: () => void;
   onSplitVertical: () => void;
   onPaneFocus: () => void;
+  onPaneNext: () => void;
+  onPanePrevious: () => void;
+  onTabNext: () => void;
+  onTabPrevious: () => void;
 }
 
 const ACTION_MAP: Record<string, keyof ActionCallbacks> = {
@@ -24,6 +28,10 @@ const ACTION_MAP: Record<string, keyof ActionCallbacks> = {
   'split.horizontal': 'onSplitHorizontal',
   'split.vertical': 'onSplitVertical',
   'pane.focus': 'onPaneFocus',
+  'pane.next': 'onPaneNext',
+  'pane.previous': 'onPanePrevious',
+  'tab.next': 'onTabNext',
+  'tab.previous': 'onTabPrevious',
 };
 
 /**

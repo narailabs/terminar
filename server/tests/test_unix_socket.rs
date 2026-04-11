@@ -89,6 +89,8 @@ async fn test_unix_socket_session_lifecycle() {
         env: HashMap::new(),
         cols: 80,
         rows: 24,
+        container_id: None,
+        ssh_connection_id: None,
     };
     send_message(&mut stream, &create_msg).await;
 
@@ -217,6 +219,8 @@ async fn test_unix_socket_concurrent_connections() {
                 env: HashMap::new(),
                 cols: 80,
                 rows: 24,
+                container_id: None,
+                ssh_connection_id: None,
             };
             send_message(&mut stream, &create_msg).await;
 
@@ -264,6 +268,8 @@ async fn test_unix_socket_large_message() {
         env: HashMap::new(),
         cols: 80,
         rows: 24,
+        container_id: None,
+        ssh_connection_id: None,
     };
     send_message(&mut stream, &create_msg).await;
 
@@ -333,6 +339,8 @@ async fn test_unix_socket_reconnection() {
             env: HashMap::new(),
             cols: 80,
             rows: 24,
+            container_id: None,
+            ssh_connection_id: None,
         };
         send_message(&mut stream, &create_msg).await;
 
@@ -388,6 +396,8 @@ async fn test_unix_socket_rename_session() {
         env: HashMap::new(),
         cols: 80,
         rows: 24,
+        container_id: None,
+        ssh_connection_id: None,
     };
     send_message(&mut stream, &create_msg).await;
 
@@ -439,6 +449,8 @@ async fn test_unix_socket_resize() {
         env: HashMap::new(),
         cols: 80,
         rows: 24,
+        container_id: None,
+        ssh_connection_id: None,
     };
     send_message(&mut stream, &create_msg).await;
 

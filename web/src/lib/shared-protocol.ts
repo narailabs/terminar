@@ -33,5 +33,8 @@ export {
 
 export {
     type SessionInfo,
+    type ContainerInfo,
+    type SshConnectionInfo,
+    type SshConfigHost,
     SessionInfoSchema,
 } from '../../../packages/shell-protocol/src/messages';

@@ -48,6 +48,14 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
   // Focus (zoom) pane
   { key: 'F', ctrl: true, shift: true, alt: false, meta: false, action: 'pane.focus' },
   { key: 'F', ctrl: false, shift: true, alt: false, meta: true, action: 'pane.focus' },
+
+  // Pane navigation (Ctrl+Tab / Ctrl+Shift+Tab)
+  { key: 'Tab', ctrl: true, shift: false, alt: false, meta: false, action: 'pane.next' },
+  { key: 'Tab', ctrl: true, shift: true, alt: false, meta: false, action: 'pane.previous' },
+
+  // Tab navigation (Alt/Opt+Tab / Alt/Opt+Shift+Tab)
+  { key: 'Tab', ctrl: false, shift: false, alt: true, meta: false, action: 'tab.next' },
+  { key: 'Tab', ctrl: false, shift: true, alt: true, meta: false, action: 'tab.previous' },
 ];
 
 /**
@@ -61,6 +69,10 @@ export const ACTION_LABELS: Record<string, string> = {
   'split.horizontal': 'Split Right',
   'split.vertical': 'Split Down',
   'pane.focus': 'Focus Pane',
+  'pane.next': 'Next Pane',
+  'pane.previous': 'Previous Pane',
+  'tab.next': 'Next Tab',
+  'tab.previous': 'Previous Tab',
 };
 
 /**
