@@ -158,6 +158,14 @@ pub enum ServerMessage {
     },
     /// Notification that the current working directory in a session has changed.
     CwdChanged { session_id: String, cwd: String },
+    /// Notification that a program in a session emitted an OSC 52 clipboard
+    /// write. The client should copy `data` to the user's local clipboard.
+    /// `data` is the text to copy as UTF-8 (the base64 wire encoding used by
+    /// OSC 52 has already been decoded on the server).
+    ClipboardWrite { session_id: String, data: String },
+    /// Notification that a program in a session requested a URL be opened
+    /// in the user's local default browser (via OSC 7777 `open_url`).
+    OpenUrl { session_id: String, url: String },
 
     // === Docker container messages ===
     /// List of running Docker containers.

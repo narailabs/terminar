@@ -9,10 +9,12 @@ pub mod audit;
 pub mod config;
 pub mod connection;
 pub mod constants;
+pub mod cwd_watcher;
 pub mod error;
 pub mod handlers;
 pub mod logging;
 pub mod messages;
+pub mod osc_parser;
 pub mod settings;
 pub mod shell_init;
 pub mod tags;
@@ -232,6 +234,19 @@ pub struct AppState {
     pub revoked_tokens: Arc<Mutex<HashSet<String>>>,
     /// Optional audit logger for security event tracking.
     pub audit_logger: Option<Arc<audit::AuditLogger>>,
+    /// Broadcast channel for server-originated tool-action events that are
+    /// parsed from a session's output stream (clipboard writes, URL opens)
+    /// and routed back to attached clients for execution on the local system.
+    ///
+    /// The tuple is `(session_id, ServerMessage)`; the `ServerMessage` is
+    /// already-constructed (e.g. `ServerMessage::ClipboardWrite { .. }`) so
+    /// `handle_attach` just has to filter by `session_id` and forward it
+    /// verbatim to the connected client.
+    ///
+    /// We use a single server-wide broadcast channel rather than per-session
+    /// channels because attached clients tune in dynamically and broadcast
+    /// is the simplest way to fan out without per-session bookkeeping.
+    pub tool_action_tx: broadcast::Sender<(String, messages::ServerMessage)>,
 }
 
 /// Response body for the `GET /health` endpoint.
@@ -443,6 +458,11 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
     // Create shutdown broadcast channel
     let (shutdown_tx, _) = broadcast::channel::<()>(1);
 
+    // Create tool-action broadcast channel. Capacity 256 is enough for short
+    // bursts of clipboard/URL events; lagged clients drop old messages which
+    // is the right behavior (we don't want to block PTY output on a slow UI).
+    let (tool_action_tx, _) = broadcast::channel(256);
+
     let mut state = AppState {
         sessions: sessions.clone(),
         api_key,
@@ -455,6 +475,7 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
         session_name_counter: Arc::new(std::sync::atomic::AtomicU64::new(initial_name_counter)),
         revoked_tokens: Arc::new(Mutex::new(HashSet::new())),
         audit_logger: None, // Will be replaced after async init
+        tool_action_tx,
     };
 
     // Initialize audit logger
@@ -1317,7 +1338,14 @@ async fn process_message_inner(
             session_id,
             mode: _,
         } => {
-            handlers::io::handle_attach(session_id, tx_out, sessions, attach_tasks).await?;
+            handlers::io::handle_attach(
+                session_id,
+                tx_out,
+                sessions,
+                &state.tool_action_tx,
+                attach_tasks,
+            )
+            .await?;
         }
         ClientMessage::Input { session_id, data } => {
             handlers::io::handle_input(session_id, data, tx_out, sessions).await?;
@@ -1375,6 +1403,7 @@ mod tests {
 
         // Create shutdown channel for tests
         let (shutdown_tx, _) = broadcast::channel::<()>(1);
+        let (tool_action_tx, _) = broadcast::channel(256);
 
         let state = AppState {
             sessions,
@@ -1388,6 +1417,7 @@ mod tests {
             session_name_counter: Arc::new(std::sync::atomic::AtomicU64::new(1)),
             revoked_tokens: Arc::new(Mutex::new(HashSet::new())),
             audit_logger: None,
+            tool_action_tx,
         };
 
         let (_, rx) = mpsc::channel(32);
