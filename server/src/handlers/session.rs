@@ -205,6 +205,7 @@ state=wait
 acc=''
 cancelled=0
 saw_begin=0
+saw_end=0
 while IFS= read -r line; do
     if [ "$state" = wait ]; then
         if [ "$line" = "$begin_marker" ]; then
@@ -222,6 +223,7 @@ while IFS= read -r line; do
     fi
     # state=capture
     if [ "$line" = "$end_marker" ]; then
+        saw_end=1
         break
     fi
     # Skip empty lines — they occur in the empty-save frame and are
@@ -236,23 +238,38 @@ done
 _terminar_edit_cleanup
 trap - EXIT INT TERM
 
+# Three sequential guards, each with a single clear invariant. Every
+# path that doesn't set all required flags exits 1 and leaves $file
+# untouched — we never truncate a file unless we saw a complete,
+# well-formed reply.
 if [ "$cancelled" = 1 ]; then
     exit 1
 fi
 
-# If the read loop ended without ever seeing BEGIN or CANCEL (stdin
-# closed, tray crashed mid-session, $EDITOR invoked with stdin
-# redirected from /dev/null by a hook or automation), treat it as a
-# failure — NOT an empty save. Exiting 0 with an empty $acc here
-# would truncate the caller's file and report success, silently
-# losing data. Exit 1 leaves the file untouched and the caller
-# (`git commit`, `crontab -e`, etc.) sees an editor failure.
+# No BEGIN seen: stdin was empty, closed, redirected from /dev/null,
+# or filled with garbage that didn't match any marker. No reply was
+# ever received.
 if [ "$saw_begin" = 0 ]; then
     exit 1
 fi
 
-# Empty-save: BEGIN was seen but nothing came between BEGIN and END.
-# User explicitly cleared the buffer; truncate without invoking base64.
+# BEGIN seen but END not seen: truncated / partial reply. The tray
+# may have crashed mid-send, the network dropped, or the PTY buffer
+# flushed only the first marker. We do NOT know whether the server
+# intended to send us content or not, so the only safe thing is to
+# leave $file alone and report failure to the caller.
+#
+# Note: we intentionally use $saw_end here, NOT the loop state, as
+# the loop state stays at "capture" even after a successful END
+# match (the END branch `break`s without resetting state). Using
+# state would wrongly fail the success path.
+if [ "$saw_end" = 0 ]; then
+    exit 1
+fi
+
+# All three guards passed: BEGIN→END observed with no cancel. Now an
+# empty $acc is a legitimate empty-save (user explicitly cleared the
+# buffer); truncate without invoking base64.
 if [ -z "$acc" ]; then
     : > "$file" || exit 1
     exit 0
@@ -1453,69 +1470,550 @@ mod tests {
             "TERMINAR_EDIT_SCRIPT must save/restore stty via a trap"
         );
 
-        // Must track whether BEGIN was observed so EOF-before-BEGIN
-        // cannot be mistaken for an empty save. See C1 regression test.
+        // Must track BOTH BEGIN and END — a missing END means the reply
+        // was truncated (tray crash, partial flush, broken pipe) and the
+        // empty-save path must not fire. See C1 regression test.
         assert!(
             s.contains("saw_begin"),
             "TERMINAR_EDIT_SCRIPT must track `saw_begin` to distinguish EOF from empty-save"
         );
+        assert!(
+            s.contains("saw_end"),
+            "TERMINAR_EDIT_SCRIPT must track `saw_end` to distinguish truncated reply from empty-save"
+        );
+    }
+
+    /// Strip comment lines (those whose first non-whitespace char is
+    /// `#`) from a shell script string. Used by the static C1
+    /// regression test so a commented-out check block is not mistaken
+    /// for a live check. Does NOT handle trailing `# comment` on the
+    /// same line as code — that would require tokenising the shell
+    /// and is more brittle than it's worth. Leaves the shebang line
+    /// alone too (which would be stripped otherwise); not important
+    /// because the shebang doesn't affect our substring searches.
+    fn strip_shell_comments(s: &str) -> String {
+        s.lines()
+            .filter(|line| {
+                let trimmed = line.trim_start();
+                !trimmed.starts_with('#')
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     #[test]
-    fn terminar_edit_script_guards_against_eof_without_begin() {
-        // Regression test for C1: when the read loop exits without ever
-        // seeing a BEGIN marker (stdin closed / redirected from
-        // /dev/null / tray crash), the original script truncated the
-        // caller's file and exited 0, causing silent data loss.
+    fn terminar_edit_script_guards_against_eof_without_begin_or_end() {
+        // Regression test for C1 (commit 97a2eda + follow-up): when the
+        // read loop exits without seeing the complete BEGIN→END frame,
+        // the empty-save path must NOT fire. Data-loss scenarios the
+        // guards must cover:
         //
-        // The fix introduces a `saw_begin` flag and exits 1 before
-        // reaching the empty-save path when BEGIN was never observed.
-        let s = TERMINAR_EDIT_SCRIPT;
+        //   a) stdin closed with no input at all (e.g. /dev/null
+        //      redirect from a git hook)
+        //   b) stdin closed after garbage lines but before BEGIN
+        //   c) stdin closed after BEGIN but before END (tray crash
+        //      mid-stream, broken pipe, network drop)
+        //
+        // The fix uses two flags: `saw_begin` set in the BEGIN branch
+        // and `saw_end` set in the END branch, both gating the
+        // empty-save path.
+        //
+        // IMPORTANT: this test searches `strip_shell_comments(s)`, not
+        // the raw constant, so a commented-out check block cannot
+        // satisfy it. A previous iteration searched the raw string
+        // and silently allowed `#if [ "$saw_end" = 0 ]; then` to pass
+        // — exactly the "static check missed it" failure mode the
+        // executable tests guard against. Both layers (static +
+        // executable) now cover the bug.
+        let raw = TERMINAR_EDIT_SCRIPT;
+        let s = strip_shell_comments(raw);
+        let s = s.as_str();
 
-        // Flag must be initialized to 0 before the loop.
+        // Both flags must be initialized to 0 before the loop.
         assert!(
             s.contains("saw_begin=0"),
             "TERMINAR_EDIT_SCRIPT must initialize saw_begin=0 before the read loop"
         );
+        assert!(
+            s.contains("saw_end=0"),
+            "TERMINAR_EDIT_SCRIPT must initialize saw_end=0 before the read loop"
+        );
 
-        // Flag must be set to 1 when BEGIN is observed.
+        // Flags must be set to 1 when the respective marker is observed.
         assert!(
             s.contains("saw_begin=1"),
             "TERMINAR_EDIT_SCRIPT must set saw_begin=1 when the BEGIN marker is observed"
         );
+        assert!(
+            s.contains("saw_end=1"),
+            "TERMINAR_EDIT_SCRIPT must set saw_end=1 when the END marker is observed"
+        );
 
-        // The empty-save path (`: > "$file"`) must be gated on a
-        // `saw_begin` check. Locate the empty-save truncate call and
-        // ensure the nearest preceding `saw_begin` reference is above
-        // it — this proves the guard exists before the truncate fires.
+        // The empty-save path (`: > "$file"`) must be preceded by BOTH
+        // a saw_begin check AND a saw_end check. Scan the text before
+        // the empty-save call and locate the nearest preceding
+        // references to each flag — both must appear above the call.
         let empty_save_pos = s
             .find(": > \"$file\"")
             .expect("empty-save truncate path must exist in TERMINAR_EDIT_SCRIPT");
-        let guard_pos = s[..empty_save_pos]
+        let before_empty_save = &s[..empty_save_pos];
+
+        let begin_guard_pos = before_empty_save
             .rfind("saw_begin")
-            .expect("empty-save path must be preceded by a saw_begin guard");
+            .expect("empty-save path must be preceded by a saw_begin reference");
+        let end_guard_pos = before_empty_save
+            .rfind("saw_end")
+            .expect("empty-save path must be preceded by a saw_end reference");
         assert!(
-            guard_pos < empty_save_pos,
-            "saw_begin guard must precede the empty-save truncate path (guard_pos={}, empty_save_pos={})",
-            guard_pos,
-            empty_save_pos
+            begin_guard_pos < empty_save_pos,
+            "saw_begin guard must precede the empty-save truncate path"
+        );
+        assert!(
+            end_guard_pos < empty_save_pos,
+            "saw_end guard must precede the empty-save truncate path"
         );
 
-        // The `saw_begin` guard must result in `exit 1` on the failure
-        // path (i.e., saw_begin==0). Check that somewhere after the
-        // initialisation and before the empty-save path there is both
-        // a test of saw_begin against 0 and an `exit 1`.
+        // Each guard must produce an `exit 1` on the failure path. We
+        // verify this by looking for the pattern `[ "$saw_X" = 0 ]`
+        // followed by `exit 1` in the window between the flag
+        // initialization and the empty-save call.
         let init_pos = s
             .find("saw_begin=0")
-            .expect("saw_begin initialization not found");
+            .expect("saw_begin=0 initialization not found");
         let window = &s[init_pos..empty_save_pos];
+
+        // saw_begin=0 branch must exit 1.
         assert!(
-            window.contains("\"$saw_begin\" = 0") || window.contains("saw_begin = 0") || window.contains("$saw_begin\" = 0"),
-            "must test `$saw_begin` against 0 between initialization and the empty-save path"
+            window.contains("\"$saw_begin\" = 0"),
+            "must test `[ \"$saw_begin\" = 0 ]` between init and the empty-save path"
+        );
+        // saw_end=0 branch must exit 1.
+        assert!(
+            window.contains("\"$saw_end\" = 0"),
+            "must test `[ \"$saw_end\" = 0 ]` between init and the empty-save path"
+        );
+
+        // At least two `exit 1` statements must live in the window
+        // (one for saw_begin=0, one for saw_end=0) — plus more for the
+        // cancelled branch, so >= 3 in practice.
+        let exit1_count = window.matches("exit 1").count();
+        assert!(
+            exit1_count >= 3,
+            "expected >= 3 `exit 1` statements in the post-loop guard block \
+             (cancelled + saw_begin=0 + saw_end=0), got {}",
+            exit1_count
+        );
+
+        // Negative check: verify that the old vulnerable pattern is
+        // gone. A bare `if [ -z "$acc" ]; then` immediately after the
+        // `if [ "$cancelled" = 1 ]` block (with no guards in between)
+        // was the C1 bug — make sure the fix introduced enough
+        // intervening content. The cleanest way to check this is to
+        // require that between the `cancelled = 1 ]; then` line and
+        // the empty-save call, BOTH flag checks appear.
+        let cancel_pos = s
+            .find("\"$cancelled\" = 1")
+            .expect("cancelled check not found");
+        let guard_window = &s[cancel_pos..empty_save_pos];
+        assert!(
+            guard_window.contains("\"$saw_begin\" = 0"),
+            "saw_begin=0 check must appear after the cancelled check and before empty-save"
         );
         assert!(
-            window.contains("exit 1"),
-            "must have an `exit 1` on the saw_begin=0 path before the empty-save truncate"
+            guard_window.contains("\"$saw_end\" = 0"),
+            "saw_end=0 check must appear after the cancelled check and before empty-save"
+        );
+    }
+
+    /// Write `TERMINAR_EDIT_SCRIPT` to a temp file, chmod +x, and return
+    /// the keep-alive `NamedTempFile` handle along with its path. The
+    /// caller must keep the handle alive (it auto-deletes on drop).
+    ///
+    /// This helper exists so executable integration tests can spawn the
+    /// script via `/bin/sh <path> <target>` and exercise real shell
+    /// behaviour — static substring checks have missed data-loss bugs
+    /// twice, so we also run at least one scenario for real.
+    fn write_script_to_tempfile() -> tempfile::NamedTempFile {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut script_file = tempfile::Builder::new()
+            .prefix("terminar-edit-test.")
+            .suffix(".sh")
+            .tempfile()
+            .expect("failed to create script tempfile");
+        script_file
+            .write_all(TERMINAR_EDIT_SCRIPT.as_bytes())
+            .expect("failed to write script body");
+        script_file.flush().expect("failed to flush script");
+
+        let mut perms = std::fs::metadata(script_file.path())
+            .expect("stat script tempfile")
+            .permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(script_file.path(), perms)
+            .expect("chmod script tempfile");
+
+        script_file
+    }
+
+    /// Spawn the wrapper script via `/bin/sh` with a controlled stdin,
+    /// wait for it, and return `(exit_code, final_file_contents)`.
+    ///
+    /// Stdout and stderr are swallowed: the script emits an OSC escape
+    /// sequence we don't want to leak into cargo test output, and any
+    /// real parse/decode errors surface through the exit code +
+    /// observable file state which is what we assert on.
+    fn run_script_with_stdin(
+        initial_contents: &[u8],
+        stdin_bytes: &[u8],
+    ) -> (i32, Vec<u8>) {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+
+        let script = write_script_to_tempfile();
+
+        // Target file with predictable initial contents.
+        let target = tempfile::Builder::new()
+            .prefix("terminar-edit-target.")
+            .tempfile()
+            .expect("failed to create target tempfile");
+        std::fs::write(target.path(), initial_contents)
+            .expect("write initial contents");
+        let target_path = target.path().to_owned();
+
+        let mut child = Command::new("/bin/sh")
+            .arg(script.path())
+            .arg(&target_path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn /bin/sh");
+
+        {
+            // Scope so stdin is dropped (closed) before wait().
+            let mut stdin = child.stdin.take().expect("child stdin");
+            // write_all may fail if the script has already exited on a
+            // bad argument; that's fine for some scenarios (empty
+            // filename), just ignore the error.
+            let _ = stdin.write_all(stdin_bytes);
+        }
+
+        let status = child.wait().expect("wait for child");
+        let final_contents = std::fs::read(&target_path).unwrap_or_default();
+
+        // Keep both tempfiles alive until here so auto-cleanup runs.
+        drop(target);
+        drop(script);
+
+        (status.code().unwrap_or(-1), final_contents)
+    }
+
+    #[test]
+    fn terminar_edit_script_eof_with_no_input_leaves_file_alone() {
+        // Scenario: $EDITOR invoked with stdin redirected from /dev/null
+        // (some git hooks, crontab -e under certain wrappers, automation
+        // pipelines). The script reads zero bytes, the loop never enters,
+        // and the script must exit 1 with the file untouched.
+        let (code, content) =
+            run_script_with_stdin(b"important content\n", b"");
+        assert_eq!(
+            code, 1,
+            "EOF with empty stdin must exit 1, got {}",
+            code
+        );
+        assert_eq!(
+            content, b"important content\n",
+            "file must be untouched when stdin is empty"
+        );
+    }
+
+    #[test]
+    fn terminar_edit_script_eof_after_garbage_leaves_file_alone() {
+        // Scenario: stdin closes after a handful of lines that don't
+        // match any marker. Simulates the user typing random input at
+        // the prompt before the reply arrives, then the tray crashing
+        // or the network dropping so the real reply never comes.
+        //
+        // The read loop will consume all lines in wait state (dropping
+        // them), then EOF → neither BEGIN nor CANCEL was seen → exit 1,
+        // file untouched.
+        let (code, content) = run_script_with_stdin(
+            b"important content\n",
+            b"random line 1\nrandom line 2\n__TERMINAR_EDIT_bogus_id_BEGIN__\n",
+        );
+        assert_eq!(
+            code, 1,
+            "EOF after non-matching garbage must exit 1, got {}",
+            code
+        );
+        assert_eq!(
+            content, b"important content\n",
+            "file must be untouched when stdin contains only garbage"
+        );
+        // Specifically: the bogus BEGIN line at the end uses a WRONG id
+        // (`bogus_id` vs. the script's `$$_<epoch>_<rand>` id), so it
+        // does NOT match $begin_marker and must be discarded in
+        // wait-state. If a future regression accidentally matches
+        // BEGIN by prefix instead of full-line equality, this
+        // assertion would fire with the file truncated.
+    }
+
+    #[test]
+    fn terminar_edit_script_empty_filename_exits_nonzero() {
+        // Early-exit path: if $1 is empty, exit 1 before touching
+        // anything. We still supply a target path so the test harness
+        // has something to spawn; the script ignores it because we
+        // invoke it via /bin/sh <script> "" (second arg is "").
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+
+        let script = write_script_to_tempfile();
+        let mut child = Command::new("/bin/sh")
+            .arg(script.path())
+            .arg("") // empty $1
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn /bin/sh");
+        // Close stdin immediately; script should have exited already.
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(b"");
+        }
+        let status = child.wait().expect("wait for child");
+        assert_eq!(
+            status.code().unwrap_or(-1),
+            1,
+            "empty filename must exit 1"
+        );
+    }
+
+    /// Helper: spawn the script, capture its OSC emit on stdout,
+    /// extract the edit id, and hand control back to the caller so
+    /// they can write a response back into the script's stdin and
+    /// then close it. Returns `(exit_code, final_file_contents)`.
+    ///
+    /// The `respond` closure is called with the extracted edit id and
+    /// a mutable reference to the child's stdin. It writes whatever
+    /// framed reply (or partial reply) the test wants, then returns.
+    /// The harness then closes stdin and waits for the script.
+    ///
+    /// The OSC capture uses a background thread draining the child's
+    /// stdout into an in-memory buffer until we see BEL (`\x07`), at
+    /// which point the OSC payload is complete and we parse it.
+    fn run_script_with_osc_handshake<F>(
+        initial_contents: &[u8],
+        respond: F,
+    ) -> (i32, Vec<u8>)
+    where
+        F: FnOnce(&str, &mut std::process::ChildStdin),
+    {
+        use std::io::Read;
+        use std::process::{Command, Stdio};
+        use std::sync::mpsc;
+        use std::thread;
+
+        let script = write_script_to_tempfile();
+        let target = tempfile::Builder::new()
+            .prefix("terminar-edit-target.")
+            .tempfile()
+            .expect("create target tempfile");
+        std::fs::write(target.path(), initial_contents).expect("write initial");
+        let target_path = target.path().to_owned();
+
+        let mut child = Command::new("/bin/sh")
+            .arg(script.path())
+            .arg(&target_path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn /bin/sh");
+
+        let mut child_stdout = child.stdout.take().expect("child stdout");
+        let mut child_stdin = child.stdin.take().expect("child stdin");
+
+        // Drain stdout in a background thread until we see the BEL that
+        // terminates the OSC 7777 sequence, then send the collected
+        // bytes back through the channel and continue draining
+        // (discarding). If the script exits without emitting an OSC,
+        // the channel send is dropped and the main thread's recv will
+        // fail — we handle that.
+        let (tx, rx) = mpsc::sync_channel::<Vec<u8>>(1);
+        thread::spawn(move || {
+            let mut buf = Vec::new();
+            let mut scratch = [0u8; 4096];
+            let mut sent = false;
+            loop {
+                match child_stdout.read(&mut scratch) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        if !sent {
+                            buf.extend_from_slice(&scratch[..n]);
+                            if buf.contains(&0x07) {
+                                let _ = tx.send(buf.clone());
+                                sent = true;
+                                buf.clear();
+                            }
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        // Block up to ~2 seconds for the OSC emission.
+        let osc_bytes = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("script did not emit OSC within 2s");
+
+        // OSC format:
+        //   \x1b]7777;edit_request;<id_b64>;<filename_b64>;<contents_b64>\x07
+        // Find the BEL, slice up to it, split on `;`, decode the id.
+        let bel_pos = osc_bytes
+            .iter()
+            .position(|&b| b == 0x07)
+            .expect("no BEL in OSC");
+        let osc_str = std::str::from_utf8(&osc_bytes[..bel_pos])
+            .expect("OSC was not UTF-8");
+        // osc_str looks like `\x1b]7777;edit_request;<id_b64>;<fn_b64>;<c_b64>`.
+        // Locate `edit_request;` and split from there.
+        let marker_idx = osc_str
+            .find("edit_request;")
+            .expect("OSC did not contain edit_request; prefix");
+        let after = &osc_str[marker_idx + "edit_request;".len()..];
+        let mut parts = after.split(';');
+        let id_b64 = parts.next().expect("id_b64 missing");
+
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        let id_bytes = STANDARD
+            .decode(id_b64.as_bytes())
+            .expect("id base64 decode");
+        let id = std::str::from_utf8(&id_bytes)
+            .expect("id was not UTF-8")
+            .to_string();
+
+        // Let the test write the reply (or partial reply) via the closure.
+        respond(&id, &mut child_stdin);
+
+        // Close stdin to signal EOF.
+        drop(child_stdin);
+
+        let status = child.wait().expect("wait for child");
+        let final_contents = std::fs::read(&target_path).unwrap_or_default();
+
+        drop(target);
+        drop(script);
+
+        (status.code().unwrap_or(-1), final_contents)
+    }
+
+    #[test]
+    fn terminar_edit_script_begin_then_eof_leaves_file_alone() {
+        // THE FOLLOW-UP C1 REGRESSION: the reviewer found that after
+        // the first fix (saw_begin guard), the script still had a
+        // data-loss path if stdin closed AFTER BEGIN was observed but
+        // before END arrived. Scenario: tray crash mid-stream, PTY
+        // partial flush, broken pipe on a slow network, etc.
+        //
+        // The fix adds a saw_end flag and gates the empty-save path on
+        // BOTH saw_begin and saw_end. This test reproduces the exact
+        // scenario: we extract the script's edit id, write only a
+        // BEGIN marker (no content, no END) back into its stdin, then
+        // close stdin. The script must exit 1 and leave the file
+        // untouched — NOT truncate it.
+        let (code, content) = run_script_with_osc_handshake(
+            b"critical production config\n",
+            |id, stdin| {
+                use std::io::Write;
+                let begin = format!("\n__TERMINAR_EDIT_{}_BEGIN__\n", id);
+                let _ = stdin.write_all(begin.as_bytes());
+                // Intentionally do NOT write END. The harness closes
+                // stdin after this closure returns, simulating a tray
+                // crash mid-stream.
+            },
+        );
+        assert_eq!(
+            code, 1,
+            "BEGIN-then-EOF must exit 1, got {} (this is the C1 follow-up bug)",
+            code
+        );
+        assert_eq!(
+            content, b"critical production config\n",
+            "BEGIN-then-EOF must leave the file untouched; instead got {:?}",
+            std::str::from_utf8(&content).unwrap_or("<invalid utf8>")
+        );
+    }
+
+    #[test]
+    fn terminar_edit_script_begin_end_success_path_writes_file() {
+        // Complement to the BEGIN-then-EOF test: verify the happy
+        // path still works after the guard changes. BEGIN + content +
+        // END must produce an exit-0 write with the decoded contents.
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        let payload = "hello from the tray\n";
+        let (code, content) = run_script_with_osc_handshake(
+            b"original content\n",
+            |id, stdin| {
+                use std::io::Write;
+                let b64 = STANDARD.encode(payload.as_bytes());
+                let frame = format!(
+                    "\n__TERMINAR_EDIT_{}_BEGIN__\n{}\n__TERMINAR_EDIT_{}_END__\n",
+                    id, b64, id
+                );
+                let _ = stdin.write_all(frame.as_bytes());
+            },
+        );
+        assert_eq!(code, 0, "happy path must exit 0, got {}", code);
+        assert_eq!(
+            content,
+            payload.as_bytes(),
+            "happy path must write decoded contents"
+        );
+    }
+
+    #[test]
+    fn terminar_edit_script_begin_empty_end_truncates_file() {
+        // Empty-save path: BEGIN + nothing + END is the tray's way of
+        // saying "user cleared the buffer, truncate the file". This
+        // must still work — only the EOF-before-END case should fail.
+        let (code, content) = run_script_with_osc_handshake(
+            b"original content that will be cleared\n",
+            |id, stdin| {
+                use std::io::Write;
+                let frame = format!(
+                    "\n__TERMINAR_EDIT_{}_BEGIN__\n\n__TERMINAR_EDIT_{}_END__\n",
+                    id, id
+                );
+                let _ = stdin.write_all(frame.as_bytes());
+            },
+        );
+        assert_eq!(code, 0, "empty-save must exit 0, got {}", code);
+        assert_eq!(
+            content,
+            b"",
+            "empty-save must truncate the file to 0 bytes"
+        );
+    }
+
+    #[test]
+    fn terminar_edit_script_cancel_leaves_file_alone() {
+        // Cancel path: the tray sends CANCEL instead of BEGIN. Script
+        // must exit 1 with the file untouched.
+        let (code, content) = run_script_with_osc_handshake(
+            b"important content\n",
+            |id, stdin| {
+                use std::io::Write;
+                let frame = format!("\n__TERMINAR_EDIT_{}_CANCEL__\n", id);
+                let _ = stdin.write_all(frame.as_bytes());
+            },
+        );
+        assert_eq!(code, 1, "cancel must exit 1, got {}", code);
+        assert_eq!(
+            content, b"important content\n",
+            "cancel must leave file untouched"
         );
     }
 
