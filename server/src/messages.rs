@@ -171,6 +171,14 @@ pub enum ServerMessage {
     /// Notification that a program in a session requested a URL be opened
     /// in the user's local default browser (via OSC 7777 `open_url`).
     OpenUrl { session_id: String, url: String },
+    /// Notification that a program in a session requested the user edit a
+    /// file locally and send the result back (via OSC 7777 `edit_request`).
+    EditRequest {
+        session_id: String,
+        id: String,
+        filename: String,
+        contents: String,
+    },
 
     // === Docker container messages ===
     /// List of running Docker containers.
