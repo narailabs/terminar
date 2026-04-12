@@ -53,6 +53,14 @@ export interface WebSocketManagerEvents {
      * Consumers should open `url` in the user's local default browser.
      */
     openUrl: [sessionId: string, url: string];
+    /**
+     * Server parsed an OSC 7777 edit_request — a program running in the
+     * remote session is asking to edit a file. Consumers should show a
+     * modal editor pre-filled with `contents`, then call
+     * `sendEditReply(sessionId, id, newContents, false)` on save or
+     * `sendEditReply(sessionId, id, '', true)` on cancel.
+     */
+    editRequest: [sessionId: string, id: string, filename: string, contents: string];
     workspaceData: [workspace: Record<string, unknown> | null];
     containerList: [containers: ContainerInfo[]];
     sshConnectionList: [connections: SshConnectionInfo[]];
@@ -265,6 +273,9 @@ export abstract class BaseWebSocketManager extends TypedEmitter {
             case 'OpenUrl':
                 this.emit('openUrl', parsed.session_id, parsed.url);
                 break;
+            case 'EditRequest':
+                this.emit('editRequest', parsed.session_id, parsed.id, parsed.filename, parsed.contents);
+                break;
             case 'WorkspaceData':
                 this.emit('workspaceData', parsed.workspace);
                 break;
@@ -362,6 +373,28 @@ export abstract class BaseWebSocketManager extends TypedEmitter {
 
     public renameSession(sessionId: string, newName: string) {
         this.sendRaw({ type: 'rename_session', session_id: sessionId, new_name: newName });
+    }
+
+    /**
+     * Send the user's reply to an `editRequest` event. `cancelled=true`
+     * signals that the user dismissed the modal; `contents` is ignored in
+     * that case. On the server side, this writes a framed response to the
+     * session's PTY stdin that the remote `terminar-edit` wrapper script
+     * reads, decodes, and writes to the target file.
+     */
+    public sendEditReply(
+        sessionId: string,
+        id: string,
+        contents: string,
+        cancelled: boolean,
+    ): void {
+        this.sendRaw({
+            type: 'edit_reply',
+            session_id: sessionId,
+            id,
+            contents,
+            cancelled,
+        });
     }
 
     public disconnect() {

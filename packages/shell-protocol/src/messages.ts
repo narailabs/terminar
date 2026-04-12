@@ -44,6 +44,16 @@ export const ClientMessageSchema = z.union([
   WithSessionId.extend({ type: z.literal('resize'), cols: z.number(), rows: z.number() }),
   WithSessionId.extend({ type: z.literal('rename_session'), new_name: z.string() }),
   WithSessionId.extend({ type: z.literal('kill_session') }),
+  // Reply to a server-side `EditRequest`. `id` echoes the correlation
+  // token from the request. `cancelled=true` signals the user dismissed
+  // the modal; `contents` is ignored in that case. The server frames
+  // this and writes it to the session PTY for the wrapper script to read.
+  WithSessionId.extend({
+    type: z.literal('edit_reply'),
+    id: z.string(),
+    contents: z.string(),
+    cancelled: z.boolean(),
+  }),
   z.object({ type: z.literal('auth_password'), username: z.string(), password: z.string() }),
   z.object({ type: z.literal('auth_pubkey_init'), username: z.string(), pubkey: z.string() }),
   z.object({ type: z.literal('auth_pubkey_verify'), signature: z.string(), algorithm: z.string() }),
@@ -93,6 +103,19 @@ export const ServerMessageSchema = z.union([
   // (the OSC wire encoding uses base64; we don't re-encode for JSON).
   WithSessionId.extend({ type: z.literal('ClipboardWrite'), data: z.string() }),
   WithSessionId.extend({ type: z.literal('OpenUrl'), url: z.string() }),
+  // A program in the remote session emitted an OSC 7777 `edit_request`,
+  // asking the user to edit a file locally and send the result back.
+  // `id` is an opaque correlation token the wrapper script chose; the
+  // client must echo it back in the matching `edit_reply`. `filename`
+  // is the original path on the remote (display only — the local edit
+  // round-trips through the PTY, not the filesystem). `contents` is the
+  // current file contents the modal should pre-fill.
+  WithSessionId.extend({
+    type: z.literal('EditRequest'),
+    id: z.string(),
+    filename: z.string(),
+    contents: z.string(),
+  }),
   z.object({ type: z.literal('WorkspaceData'), workspace: z.record(z.string(), z.unknown()).nullable() }),
   z.object({
     type: z.literal('ContainerList'),
