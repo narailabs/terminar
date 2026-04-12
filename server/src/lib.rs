@@ -1357,6 +1357,17 @@ async fn process_message_inner(
         } => {
             handlers::io::handle_resize(session_id, *cols, *rows, tx_out, sessions).await?;
         }
+        ClientMessage::EditReply {
+            session_id,
+            id,
+            contents,
+            cancelled,
+        } => {
+            handlers::io::handle_edit_reply(
+                session_id, id, contents, *cancelled, tx_out, sessions,
+            )
+            .await?;
+        }
         ClientMessage::SaveWorkspace { workspace } => {
             handlers::workspace::handle_save_workspace(client_id, workspace, tx_out).await?;
         }
