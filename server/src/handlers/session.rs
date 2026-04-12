@@ -54,6 +54,236 @@ open() { _terminar_open_url "$1"; }
 xdg-open() { _terminar_open_url "$1"; }
 export BROWSER=_terminar_open_url"#;
 
+/// POSIX `sh` wrapper script deployed to `/tmp/terminar-bin/terminar-edit`
+/// on the remote at SSH connect time and exported as `$EDITOR`. Implements
+/// the remote end of the editor-paste flow: emits an OSC 7777 `edit_request`
+/// to the local tray, then blocks on PTY stdin waiting for a framed reply
+/// from [`crate::handlers::io::handle_edit_reply`].
+///
+/// # Framing contract (parsed by the read loop)
+///
+/// Normal (save):
+/// ```text
+/// \n__TERMINAR_EDIT_<id>_BEGIN__\n
+/// <base64-wrapped-76-cols>\n
+/// __TERMINAR_EDIT_<id>_END__\n
+/// ```
+///
+/// Empty save (user cleared the buffer): identical but with an empty line
+/// between the markers.
+///
+/// Cancel:
+/// ```text
+/// \n__TERMINAR_EDIT_<id>_CANCEL__\n
+/// ```
+///
+/// The leading `\n` flushes any partial line the user had typed; the read
+/// loop discards it as a non-matching wait-state line.
+///
+/// # POSIX compliance
+///
+/// Must run on `dash`, `ash`, `busybox sh`, and `bash` — we do not know
+/// what `/bin/sh` is on the remote. Accordingly:
+/// - No `[[ ]]` (bashism); use `[ ]`.
+/// - No `$RANDOM` (bashism); use an `awk` srand call.
+/// - No `function foo()` syntax; use `foo()`.
+/// - No `local` (dash lacks it).
+/// - No arrays, no `${var//pat/rep}`.
+///
+/// # Size limit
+///
+/// The server's OSC parser caps incoming sequences at 64 KiB. Base64
+/// expands 4:3 and we also emit marker overhead, so files larger than
+/// ~48000 bytes can't round-trip. The script falls back to
+/// `$TERMINAR_FALLBACK_EDITOR` (default `vi`) for oversize files so the
+/// user still gets *some* editor.
+///
+/// # base64 decode portability
+///
+/// GNU coreutils uses `base64 -d`; BSD/macOS uses `base64 -D`; we also
+/// try `openssl base64 -d -A` as a last resort.
+///
+/// # Security
+///
+/// The script is deployed verbatim via a single-quoted heredoc
+/// (`<<'TERMINAR_EDIT_SCRIPT_EOF'`) so shell expansion does not happen at
+/// deploy time — no interpolation surface. The delimiter name
+/// `TERMINAR_EDIT_SCRIPT_EOF` must not appear anywhere in the script body
+/// (enforced by the `terminar_edit_script_has_no_shell_injection_holes`
+/// test).
+const TERMINAR_EDIT_SCRIPT: &str = r#"#!/bin/sh
+# terminar-edit: OSC 7777 edit bridge for remote sessions.
+# Emits an edit_request to the local tray, waits on PTY stdin for a
+# framed reply, decodes base64, and writes the file. Used as $EDITOR.
+
+file=$1
+if [ -z "$file" ]; then
+    exit 1
+fi
+
+# Size-check: the server's OSC parser caps incoming sequences at 64 KiB.
+# Base64 expands ~4/3, so source files > ~48000 bytes will not fit.
+# Fall back to a real editor rather than silently truncating.
+if [ -f "$file" ]; then
+    _sz=$(wc -c < "$file" 2>/dev/null | tr -d ' ')
+    case $_sz in
+        ''|*[!0-9]*)
+            : # non-numeric / unavailable, skip the size check
+            ;;
+        *)
+            if [ "$_sz" -gt 48000 ]; then
+                exec "${TERMINAR_FALLBACK_EDITOR:-vi}" "$@"
+            fi
+            ;;
+    esac
+fi
+
+# Detect base64 decode flag portably, then wrap it in a function.
+# GNU coreutils uses -d; BSD/macOS uses -D; openssl is a last resort.
+# A function avoids zsh's no-word-splitting default on `$B64D` — the
+# wrapper normally runs under /bin/sh, but writing this defensively
+# costs nothing.
+if printf 'aGVsbG8=' | base64 -d >/dev/null 2>&1; then
+    _b64_decode() { base64 -d; }
+elif printf 'aGVsbG8=' | base64 -D >/dev/null 2>&1; then
+    _b64_decode() { base64 -D; }
+elif command -v openssl >/dev/null 2>&1; then
+    _b64_decode() { openssl base64 -d -A; }
+else
+    exit 1
+fi
+
+# Unique edit id. POSIX-portable (uses awk srand, not a bash-only random).
+# Charset is [A-Za-z0-9_], matching the server's [A-Za-z0-9_-]+ validator.
+_id_rand=$(awk 'BEGIN{srand(); print int(rand()*1000000)}' 2>/dev/null)
+if [ -z "$_id_rand" ]; then
+    _id_rand=0
+fi
+id=$$_$(date +%s)_${_id_rand}
+
+# Read the file as base64 (empty string if the file does not exist yet —
+# Claude Code commonly creates a zero-length temp file before spawning
+# $EDITOR, and a truly missing file is also valid).
+if [ -f "$file" ]; then
+    contents_b64=$(base64 < "$file" | tr -d '\n')
+else
+    contents_b64=''
+fi
+id_b64=$(printf '%s' "$id" | base64 | tr -d '\n')
+filename_b64=$(printf '%s' "$file" | base64 | tr -d '\n')
+
+# Save stty and arrange to restore it on any exit path (normal, Ctrl-C,
+# signal death). An empty saved value means stty was unavailable and the
+# restore is a no-op.
+stty_saved=$(stty -g 2>/dev/null)
+_terminar_edit_cleanup() {
+    if [ -n "$stty_saved" ]; then
+        stty "$stty_saved" 2>/dev/null
+    fi
+}
+trap '_terminar_edit_cleanup' EXIT INT TERM
+
+# Suppress echo while the user is waiting. We keep canonical line
+# discipline so `read -r` still sees whole lines.
+stty -echo 2>/dev/null
+
+# Emit the edit_request. The local tray renders the editor UI, the user
+# saves or cancels, and the server writes the framed reply back into our
+# PTY stdin (which is also this script's stdin).
+printf '\033]7777;edit_request;%s;%s;%s\007' "$id_b64" "$filename_b64" "$contents_b64"
+
+# Parse the framed reply. State machine:
+#   state=wait    -> drop every line until we see $begin_marker (→capture)
+#                    or $cancel_marker (→cancelled)
+#   state=capture -> append every non-empty line until we see $end_marker
+begin_marker=__TERMINAR_EDIT_${id}_BEGIN__
+end_marker=__TERMINAR_EDIT_${id}_END__
+cancel_marker=__TERMINAR_EDIT_${id}_CANCEL__
+
+state=wait
+acc=''
+cancelled=0
+while IFS= read -r line; do
+    if [ "$state" = wait ]; then
+        if [ "$line" = "$begin_marker" ]; then
+            state=capture
+            continue
+        fi
+        if [ "$line" = "$cancel_marker" ]; then
+            cancelled=1
+            break
+        fi
+        # Discard any other line while waiting (partial input the user
+        # had typed, stray output from the shell, etc.).
+        continue
+    fi
+    # state=capture
+    if [ "$line" = "$end_marker" ]; then
+        break
+    fi
+    # Skip empty lines — they occur in the empty-save frame and are
+    # harmless for wrapped base64 (which never produces an empty line).
+    if [ -z "$line" ]; then
+        continue
+    fi
+    acc=${acc}${line}
+done
+
+# Explicit restore (belt-and-braces; the trap still runs on abnormal exits).
+_terminar_edit_cleanup
+trap - EXIT INT TERM
+
+if [ "$cancelled" = 1 ]; then
+    exit 1
+fi
+
+# Empty-save: user saved with zero content. Truncate without invoking base64.
+if [ -z "$acc" ]; then
+    : > "$file" || exit 1
+    exit 0
+fi
+
+# Decode and overwrite.
+printf '%s' "$acc" | _b64_decode > "$file" || exit 1
+exit 0
+"#;
+
+/// Build the `sh` snippet that deploys [`TERMINAR_EDIT_SCRIPT`] to
+/// `/tmp/terminar-bin/terminar-edit` on the remote and, on successful
+/// `chmod +x`, prepends that directory to `$PATH` and exports `$EDITOR`
+/// to point at it. Graceful degradation: if `/tmp` is read-only or
+/// `mkdir` fails, the `chmod` fails too and `$EDITOR` is left untouched,
+/// preserving the user's existing editor.
+///
+/// The deploy is shared by the bash/sh and zsh branches of
+/// [`build_ssh_remote_command`] — fish-and-other shells do not receive
+/// it (graceful fallback: no remote edit bridge, just a plain `exec`).
+///
+/// The heredoc delimiter (`TERMINAR_EDIT_SCRIPT_EOF`) is single-quoted so
+/// the script body is deployed literally with no shell expansion.
+fn build_edit_wrapper_deploy() -> String {
+    // Sequence of lines joined with "\n":
+    //   mkdir -p /tmp/terminar-bin 2>/dev/null
+    //   cat > /tmp/terminar-bin/terminar-edit <<'TERMINAR_EDIT_SCRIPT_EOF'
+    //   <script body>
+    //   TERMINAR_EDIT_SCRIPT_EOF
+    //   if chmod +x /tmp/terminar-bin/terminar-edit 2>/dev/null; then
+    //       export PATH="/tmp/terminar-bin:$PATH"
+    //       export EDITOR=/tmp/terminar-bin/terminar-edit
+    //   fi
+    let mut out = String::new();
+    out.push_str("mkdir -p /tmp/terminar-bin 2>/dev/null\n");
+    out.push_str("cat > /tmp/terminar-bin/terminar-edit <<'TERMINAR_EDIT_SCRIPT_EOF'\n");
+    out.push_str(TERMINAR_EDIT_SCRIPT);
+    out.push('\n');
+    out.push_str("TERMINAR_EDIT_SCRIPT_EOF\n");
+    out.push_str("if chmod +x /tmp/terminar-bin/terminar-edit 2>/dev/null; then\n");
+    out.push_str("    export PATH=\"/tmp/terminar-bin:$PATH\"\n");
+    out.push_str("    export EDITOR=/tmp/terminar-bin/terminar-edit\n");
+    out.push_str("fi");
+    out
+}
+
 /// Return the final path component of a shell path (e.g. `/bin/bash` → `bash`).
 fn shell_basename(shell: &str) -> &str {
     std::path::Path::new(shell)
@@ -111,30 +341,47 @@ fn build_ssh_remote_command(cwd: &str, shell: &str) -> String {
 
     match shell_basename(shell) {
         "bash" | "sh" => {
-            // Define shim functions, export them to env so bash re-imports
-            // them on `exec`, then set PROMPT_COMMAND (for OSC 7 cwd) and
-            // exec the target shell.
+            // 1. Deploy the terminar-edit wrapper and export $EDITOR.
+            // 2. Define shim functions, export them so bash re-imports them
+            //    on `exec`, then set PROMPT_COMMAND (for OSC 7 cwd) and
+            //    exec the target shell.
+            //
+            // The deploy is sequential (not nested) with respect to the
+            // shim setup: two separate heredocs with distinct delimiters
+            // (`TERMINAR_EDIT_SCRIPT_EOF` only; no heredoc in the bash
+            // branch for the shim).
             format!(
-                "{cd}{shim}\nexport -f pbcopy xclip xsel wl-copy _terminar_open_url open xdg-open 2>/dev/null || true\nPROMPT_COMMAND={pc} exec {sh}",
+                "{cd}{deploy}\n{shim}\nexport -f pbcopy xclip xsel wl-copy _terminar_open_url open xdg-open 2>/dev/null || true\nPROMPT_COMMAND={pc} exec {sh}",
                 cd = cd_part,
+                deploy = build_edit_wrapper_deploy(),
                 shim = SHIM_FUNCTIONS,
                 pc = shell_quote(OSC7_PROMPT_COMMAND),
                 sh = shell_arg,
             )
         }
         "zsh" => {
-            // Write a temp .zshrc with shim (and OSC 7 cwd hook), set
-            // ZDOTDIR, and exec zsh. Sourcing the user's real .zshrc first
-            // preserves their config; our shim defined after it wins.
+            // 1. Deploy the terminar-edit wrapper and export $EDITOR.
+            // 2. Write a temp .zshrc with shim (and OSC 7 cwd hook), set
+            //    ZDOTDIR, and exec zsh. Sourcing the user's real .zshrc
+            //    first preserves their config; our shim defined after it
+            //    wins.
+            //
+            // The two heredocs are sequential, not nested. They use
+            // distinct delimiters (`TERMINAR_EDIT_SCRIPT_EOF` vs
+            // `TERMINAR_SHIM_EOF`) so there is no collision.
             format!(
-                "{cd}TERMINAR_ZDOTDIR=$(mktemp -d /tmp/terminar-zdot.XXXXXX) && cat > \"$TERMINAR_ZDOTDIR/.zshrc\" <<'TERMINAR_SHIM_EOF'\n[ -f \"$HOME/.zshrc\" ] && source \"$HOME/.zshrc\"\n{shim}\n_terminar_cwd() {{ printf '\\033]7;file://%s%s\\007' \"$(hostname)\" \"$PWD\"; }}\nautoload -Uz add-zsh-hook 2>/dev/null && add-zsh-hook precmd _terminar_cwd\nTERMINAR_SHIM_EOF\nZDOTDIR=\"$TERMINAR_ZDOTDIR\" exec {sh}",
+                "{cd}{deploy}\nTERMINAR_ZDOTDIR=$(mktemp -d /tmp/terminar-zdot.XXXXXX) && cat > \"$TERMINAR_ZDOTDIR/.zshrc\" <<'TERMINAR_SHIM_EOF'\n[ -f \"$HOME/.zshrc\" ] && source \"$HOME/.zshrc\"\n{shim}\n_terminar_cwd() {{ printf '\\033]7;file://%s%s\\007' \"$(hostname)\" \"$PWD\"; }}\nautoload -Uz add-zsh-hook 2>/dev/null && add-zsh-hook precmd _terminar_cwd\nTERMINAR_SHIM_EOF\nZDOTDIR=\"$TERMINAR_ZDOTDIR\" exec {sh}",
                 cd = cd_part,
+                deploy = build_edit_wrapper_deploy(),
                 shim = SHIM_FUNCTIONS,
                 sh = shell_arg,
             )
         }
         _ => {
-            // Unknown shell — fall back to plain exec, no shim.
+            // Unknown shell (fish, etc.) — fall back to plain exec, no
+            // shim, no edit-wrapper deploy. Remote editing via OSC 7777
+            // is not available for these shells, but the user's existing
+            // $EDITOR (if any) on the remote side still works.
             format!("{cd}exec {sh}", cd = cd_part, sh = shell_arg)
         }
     }
@@ -812,17 +1059,21 @@ mod tests {
     #[test]
     fn ssh_remote_cmd_bash_no_cwd_skips_cd() {
         let cmd = build_ssh_remote_command("", "/bin/bash");
-        assert!(!cmd.contains("cd "));
-        // First non-empty token must be `pbcopy()` — the start of the shim.
-        assert!(cmd.starts_with("pbcopy()"));
+        // No `cd ` on its own — but "mkdir" doesn't contain "cd " either,
+        // so a simple `!contains("cd ")` would be too strict if the script
+        // ever mentions cd. Instead, check that no "cd '...' && " prefix
+        // appears at the start.
+        assert!(!cmd.starts_with("cd "));
+        // The new first token is the edit-wrapper deploy.
+        assert!(cmd.starts_with("mkdir -p /tmp/terminar-bin"));
         assert!(cmd.ends_with(" exec '/bin/bash'"));
     }
 
     #[test]
     fn ssh_remote_cmd_bash_root_cwd_skips_cd() {
         let cmd = build_ssh_remote_command("/", "/bin/bash");
-        assert!(!cmd.contains("cd "));
-        assert!(cmd.starts_with("pbcopy()"));
+        assert!(!cmd.starts_with("cd "));
+        assert!(cmd.starts_with("mkdir -p /tmp/terminar-bin"));
     }
 
     #[test]
@@ -855,8 +1106,13 @@ mod tests {
     #[test]
     fn ssh_remote_cmd_zsh_no_cwd_skips_cd() {
         let cmd = build_ssh_remote_command("", "/bin/zsh");
+        // No literal `cd '...' && ` prefix from build_ssh_remote_command.
+        // (The deploy + shim heredocs are plain text, no cd-quoted substring.)
         assert!(!cmd.contains("cd '"));
-        assert!(cmd.starts_with("TERMINAR_ZDOTDIR="));
+        // First token is the edit-wrapper deploy (shared with bash/sh).
+        assert!(cmd.starts_with("mkdir -p /tmp/terminar-bin"));
+        // ZDOTDIR setup still appears (after the deploy).
+        assert!(cmd.contains("TERMINAR_ZDOTDIR="));
     }
 
     #[test]
@@ -934,5 +1190,258 @@ mod tests {
     fn expand_tilde_trailing_slash_in_home() {
         let env = env_with_home("/Users/me/");
         assert_eq!(expand_tilde("~/code", &env), "/Users/me/code");
+    }
+
+    // ---- TERMINAR_EDIT_SCRIPT deployment ----
+
+    /// Required substrings that prove the edit-wrapper deploy block is
+    /// present and correctly configured. Checked for both bash/sh and zsh
+    /// since both branches get the same deploy.
+    fn assert_deploy_block_present(cmd: &str) {
+        let must_contain = &[
+            "mkdir -p /tmp/terminar-bin",
+            "cat > /tmp/terminar-bin/terminar-edit <<'TERMINAR_EDIT_SCRIPT_EOF'",
+            "chmod +x /tmp/terminar-bin/terminar-edit",
+            "export EDITOR=/tmp/terminar-bin/terminar-edit",
+        ];
+        for needle in must_contain {
+            assert!(
+                cmd.contains(needle),
+                "expected deploy to contain {:?}, got:\n{}",
+                needle,
+                cmd
+            );
+        }
+        // The closing delimiter appears TWICE in the command: once as the
+        // opening `<<'TERMINAR_EDIT_SCRIPT_EOF'` marker on `cat`, and once
+        // on its own line as the heredoc terminator.
+        assert_eq!(
+            cmd.matches("TERMINAR_EDIT_SCRIPT_EOF").count(),
+            2,
+            "expected exactly two occurrences of the heredoc delimiter (opening + closing), got:\n{}",
+            cmd
+        );
+    }
+
+    #[test]
+    fn ssh_remote_cmd_bash_deploys_edit_wrapper() {
+        let cmd = build_ssh_remote_command("/home/dev", "/bin/bash");
+        assert_deploy_block_present(&cmd);
+        // Deploy must come BEFORE the shim (so the shim is not clobbered
+        // by the heredoc write). Concretely, the mkdir line must appear
+        // before the first shim function definition.
+        let mkdir_pos = cmd
+            .find("mkdir -p /tmp/terminar-bin")
+            .expect("mkdir not found");
+        let pbcopy_pos = cmd.find("pbcopy()").expect("pbcopy not found");
+        assert!(
+            mkdir_pos < pbcopy_pos,
+            "deploy block must appear before shim in bash branch"
+        );
+    }
+
+    #[test]
+    fn ssh_remote_cmd_zsh_deploys_edit_wrapper() {
+        let cmd = build_ssh_remote_command("/home/dev", "/bin/zsh");
+        assert_deploy_block_present(&cmd);
+        // Deploy must come BEFORE the ZDOTDIR setup so the edit wrapper
+        // is ready by the time the user reaches their zsh prompt.
+        let mkdir_pos = cmd
+            .find("mkdir -p /tmp/terminar-bin")
+            .expect("mkdir not found");
+        let zdotdir_pos = cmd
+            .find("TERMINAR_ZDOTDIR=")
+            .expect("TERMINAR_ZDOTDIR not found");
+        assert!(
+            mkdir_pos < zdotdir_pos,
+            "deploy block must appear before ZDOTDIR in zsh branch"
+        );
+    }
+
+    #[test]
+    fn ssh_remote_cmd_fish_does_not_deploy_edit_wrapper() {
+        // fish (and other fallback shells) gets a plain exec with no
+        // deploy. Remote editing is unavailable for fish; the user's
+        // existing $EDITOR on the remote side still works.
+        let cmd = build_ssh_remote_command("", "/usr/local/bin/fish");
+        assert!(
+            !cmd.contains("terminar-edit"),
+            "fish branch must not deploy terminar-edit, got:\n{}",
+            cmd
+        );
+        assert!(
+            !cmd.contains("TERMINAR_EDIT_SCRIPT_EOF"),
+            "fish branch must not emit the edit-wrapper heredoc, got:\n{}",
+            cmd
+        );
+        // The fish fallback must still be a plain exec (no regressions).
+        assert_eq!(cmd, "exec '/usr/local/bin/fish'");
+    }
+
+    #[test]
+    fn ssh_remote_cmd_ash_does_not_deploy_edit_wrapper() {
+        // ash/dash/busybox also fall through to the plain-exec branch;
+        // no deploy, no shim. The base64 detection in the edit script
+        // would have worked on ash but the shim export (`export -f`) is
+        // bash-only, so the whole branch is gated on bash/sh/zsh.
+        let cmd = build_ssh_remote_command("/tmp", "/bin/ash");
+        assert!(!cmd.contains("terminar-edit"));
+    }
+
+    #[test]
+    fn terminar_edit_script_is_posix_sh() {
+        let s = TERMINAR_EDIT_SCRIPT;
+
+        // No bash-only test syntax.
+        assert!(
+            !s.contains("[[") && !s.contains("]]"),
+            "TERMINAR_EDIT_SCRIPT must not use [[ ]] (bash-only)"
+        );
+
+        // No $RANDOM (bash-only). Comments are exempt so prose can
+        // mention the name — a full-line comment is `#` as the first
+        // non-whitespace character.
+        for line in s.lines() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with('#') {
+                continue;
+            }
+            assert!(
+                !line.contains("$RANDOM"),
+                "TERMINAR_EDIT_SCRIPT must not use $RANDOM (bash-only), offending line: {:?}",
+                line
+            );
+        }
+
+        // No `function foo` style definitions (bash/ksh-only).
+        // A POSIX function is `foo() { ... }`. Guard against the bashism
+        // `function foo()` or `function foo {` by checking each line's
+        // first non-whitespace token — `function` is never the start of
+        // a POSIX command. Comments (lines starting with `#`) are
+        // exempt so prose can mention the keyword.
+        for line in s.lines() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with('#') {
+                continue;
+            }
+            assert!(
+                !trimmed.starts_with("function "),
+                "TERMINAR_EDIT_SCRIPT must not use `function` keyword (bash/ksh-only), offending line: {:?}",
+                line
+            );
+        }
+
+        // No `local` keyword (dash does not implement it).
+        // Guard against ` local ` with a leading space to avoid matching
+        // identifiers like `local_var` or substrings inside comments.
+        for line in s.lines() {
+            let trimmed = line.trim_start();
+            assert!(
+                !trimmed.starts_with("local "),
+                "TERMINAR_EDIT_SCRIPT must not use `local` (dash-incompatible), offending line: {:?}",
+                line
+            );
+        }
+
+        // Must carry the framing marker prefix.
+        assert!(
+            s.contains("__TERMINAR_EDIT_"),
+            "TERMINAR_EDIT_SCRIPT must reference the __TERMINAR_EDIT_ marker prefix"
+        );
+
+        // Must emit the edit_request OSC subcommand.
+        assert!(
+            s.contains("edit_request"),
+            "TERMINAR_EDIT_SCRIPT must emit the edit_request OSC subcommand"
+        );
+
+        // Must have a POSIX line-reading pattern.
+        assert!(
+            s.contains("IFS= read -r line"),
+            "TERMINAR_EDIT_SCRIPT must use `IFS= read -r line` for whole-line reads"
+        );
+
+        // Must encode with the base64 | tr -d '\n' idiom (single-line b64).
+        assert!(
+            s.contains("base64 | tr -d '\\n'"),
+            "TERMINAR_EDIT_SCRIPT must strip newlines from base64 output"
+        );
+
+        // Must feature-test both GNU (-d) and BSD (-D) base64 decode flags.
+        assert!(
+            s.contains("base64 -d") && s.contains("base64 -D"),
+            "TERMINAR_EDIT_SCRIPT must detect both GNU -d and BSD -D base64 flags"
+        );
+
+        // Must fall back to vi (or $TERMINAR_FALLBACK_EDITOR) on oversize.
+        assert!(
+            s.contains("TERMINAR_FALLBACK_EDITOR"),
+            "TERMINAR_EDIT_SCRIPT must honor $TERMINAR_FALLBACK_EDITOR for oversize files"
+        );
+
+        // Must honor the 48000-byte size cap.
+        assert!(
+            s.contains("48000"),
+            "TERMINAR_EDIT_SCRIPT must size-check against the 48000-byte cap"
+        );
+
+        // Must restore stty via a trap.
+        assert!(
+            s.contains("trap") && s.contains("EXIT") && s.contains("stty"),
+            "TERMINAR_EDIT_SCRIPT must save/restore stty via a trap"
+        );
+    }
+
+    #[test]
+    fn terminar_edit_script_has_no_shell_injection_holes() {
+        let s = TERMINAR_EDIT_SCRIPT;
+
+        // Primary guarantee: the heredoc delimiter must not appear
+        // inside the script body. If it did, the deploy's
+        // `cat > ... <<'TERMINAR_EDIT_SCRIPT_EOF'` heredoc would
+        // terminate early and the rest of the script would execute as
+        // outer shell commands (or syntax-error at deploy time).
+        assert!(
+            !s.contains("TERMINAR_EDIT_SCRIPT_EOF"),
+            "TERMINAR_EDIT_SCRIPT body must not contain the heredoc delimiter"
+        );
+
+        // The delimiter must not appear even in mangled forms that the
+        // shell treats equivalently at heredoc termination time. The
+        // POSIX heredoc terminator match is exact after leading-tab
+        // stripping for `<<-`, but we use `<<'...'` (no tab stripping),
+        // so any line that is EXACTLY `TERMINAR_EDIT_SCRIPT_EOF` would
+        // terminate. We already checked the substring form, which is
+        // strictly stronger.
+
+        // Must not contain CR-only line endings (old-Mac / Windows crlf).
+        // A stray \r would make `read -r` see a trailing carriage return
+        // in every marker and break the == comparison against the
+        // marker constants — the whole round-trip would silently hang.
+        assert!(
+            !s.contains('\r'),
+            "TERMINAR_EDIT_SCRIPT must not contain carriage returns"
+        );
+
+        // Balanced curly braces across the whole script. Unbalanced
+        // braces are almost always a typo in a function body or
+        // parameter expansion — cheap structural sanity check.
+        // (We deliberately do NOT check parentheses: POSIX case
+        // patterns like `''|*[!0-9]*)` and `*)` are valid but
+        // unbalanced at the text level.)
+        let open_braces = s.matches('{').count();
+        let close_braces = s.matches('}').count();
+        assert_eq!(
+            open_braces, close_braces,
+            "unbalanced braces in TERMINAR_EDIT_SCRIPT: {} open vs {} close",
+            open_braces, close_braces
+        );
+
+        // The script must end with a newline so the heredoc's closing
+        // delimiter line is on its own line and not glued to the last
+        // script line. The deploy builder adds an explicit `\n` after
+        // the script body, so either is acceptable — we just want to
+        // make sure the trailing content is non-empty.
+        assert!(!s.is_empty(), "TERMINAR_EDIT_SCRIPT must not be empty");
     }
 }
