@@ -18,6 +18,8 @@
 //!   standard escape sequence: `ESC ] 7777 ; <subcommand> ; <base64-data> ST`.
 //!   Subcommands currently implemented:
 //!   - `open_url` — open a URL in the user's default local browser.
+//!   - `edit_request` — request that the user edit a file locally. Payload
+//!     after the subcommand is `<base64-id>;<base64-filename>;<base64-contents>`.
 //!   Unknown subcommands are silently ignored so this vocabulary can grow
 //!   without breaking older clients.
 //!
@@ -49,6 +51,15 @@ pub enum OscEvent {
     ClipboardWrite(Vec<u8>),
     /// OSC 7777 `open_url` — "open this URL in the local default browser".
     OpenUrl(String),
+    /// OSC 7777 `edit_request` — "edit this file locally and send it back".
+    /// `id` is an opaque session-unique identifier the remote chose so it can
+    /// correlate the eventual reply; `filename` is purely for display in the
+    /// local UI; `contents` is the current file contents (may be empty).
+    EditRequest {
+        id: String,
+        filename: String,
+        contents: Vec<u8>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -240,8 +251,12 @@ fn finish_osc52(payload: &[u8]) -> Option<OscEvent> {
 }
 
 /// Decode an OSC 7777 payload of the form `<subcommand>;<base64-data>`.
-/// Only `open_url` is currently recognized; other subcommands are silently
-/// ignored so the vocabulary can grow without breaking older clients.
+/// Recognized subcommands:
+/// - `open_url` — `<subcommand>;<base64-url>`.
+/// - `edit_request` — `<subcommand>;<base64-id>;<base64-filename>;<base64-contents>`.
+///
+/// Other subcommands are silently ignored so the vocabulary can grow without
+/// breaking older clients.
 fn finish_osc7777(payload: &[u8]) -> Option<OscEvent> {
     let payload_str = std::str::from_utf8(payload).ok()?;
     let semi = payload_str.find(';')?;
@@ -254,6 +269,26 @@ fn finish_osc7777(payload: &[u8]) -> Option<OscEvent> {
                 .ok()?;
             let url = String::from_utf8(decoded).ok()?;
             Some(OscEvent::OpenUrl(url))
+        }
+        "edit_request" => {
+            // Payload is three base64 fields separated by `;`:
+            // <base64-id>;<base64-filename>;<base64-contents>
+            // Base64 never contains `;`, so exactly two semicolons are expected.
+            let parts: Vec<&str> = data.split(';').collect();
+            if parts.len() != 3 {
+                return None;
+            }
+            let engine = base64::engine::general_purpose::STANDARD;
+            let id_bytes = engine.decode(parts[0].as_bytes()).ok()?;
+            let filename_bytes = engine.decode(parts[1].as_bytes()).ok()?;
+            let contents = engine.decode(parts[2].as_bytes()).ok()?;
+            let id = String::from_utf8(id_bytes).ok()?;
+            let filename = String::from_utf8(filename_bytes).ok()?;
+            Some(OscEvent::EditRequest {
+                id,
+                filename,
+                contents,
+            })
         }
         _ => None,
     }
@@ -628,6 +663,156 @@ mod tests {
         assert_eq!(events.len(), 1);
         match &events[0] {
             OscEvent::OpenUrl(url) => assert_eq!(url, "https://example.com"),
+            other => panic!("unexpected event: {:?}", other),
+        }
+    }
+
+    // ---- OSC 7777 edit_request ----
+
+    /// Build a BEL-terminated OSC 7777 `edit_request` sequence from raw
+    /// field values (id, filename as UTF-8; contents as arbitrary bytes).
+    fn osc7777_edit_request(id: &str, filename: &str, contents: &[u8]) -> Vec<u8> {
+        let engine = base64::engine::general_purpose::STANDARD;
+        let id_b64 = engine.encode(id.as_bytes());
+        let filename_b64 = engine.encode(filename.as_bytes());
+        let contents_b64 = engine.encode(contents);
+        let mut v = Vec::new();
+        v.extend_from_slice(b"\x1b]7777;edit_request;");
+        v.extend_from_slice(id_b64.as_bytes());
+        v.push(b';');
+        v.extend_from_slice(filename_b64.as_bytes());
+        v.push(b';');
+        v.extend_from_slice(contents_b64.as_bytes());
+        v.push(0x07);
+        v
+    }
+
+    #[test]
+    fn parses_osc7777_edit_request() {
+        let mut p = OscParser::new();
+        let events = p.feed(&osc7777_edit_request("req-1", "/tmp/foo.txt", b"hello world"));
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            OscEvent::EditRequest {
+                id,
+                filename,
+                contents,
+            } => {
+                assert_eq!(id, "req-1");
+                assert_eq!(filename, "/tmp/foo.txt");
+                assert_eq!(contents, b"hello world");
+            }
+            other => panic!("unexpected event: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parses_osc7777_edit_request_utf8_filename() {
+        let mut p = OscParser::new();
+        let events = p.feed(&osc7777_edit_request(
+            "abc",
+            "/tmp/café.txt",
+            "🌍".as_bytes(),
+        ));
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            OscEvent::EditRequest {
+                id,
+                filename,
+                contents,
+            } => {
+                assert_eq!(id, "abc");
+                assert_eq!(filename, "/tmp/café.txt");
+                assert_eq!(std::str::from_utf8(contents).unwrap(), "🌍");
+            }
+            other => panic!("unexpected event: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parses_osc7777_edit_request_empty_contents() {
+        // An empty file: the third base64 field is the empty string.
+        let mut p = OscParser::new();
+        let events = p.feed(&osc7777_edit_request("id-0", "/tmp/empty.txt", b""));
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            OscEvent::EditRequest {
+                id,
+                filename,
+                contents,
+            } => {
+                assert_eq!(id, "id-0");
+                assert_eq!(filename, "/tmp/empty.txt");
+                assert!(contents.is_empty());
+            }
+            other => panic!("unexpected event: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn osc7777_edit_request_invalid_base64_id_ignored() {
+        let mut p = OscParser::new();
+        let mut buf = b"\x1b]7777;edit_request;!!!;".to_vec();
+        buf.extend_from_slice(b64("/tmp/foo.txt").as_bytes());
+        buf.push(b';');
+        buf.extend_from_slice(b64("hello").as_bytes());
+        buf.push(0x07);
+        assert!(p.feed(&buf).is_empty());
+    }
+
+    #[test]
+    fn osc7777_edit_request_invalid_base64_filename_ignored() {
+        let mut p = OscParser::new();
+        let mut buf = b"\x1b]7777;edit_request;".to_vec();
+        buf.extend_from_slice(b64("req-1").as_bytes());
+        buf.extend_from_slice(b";!!!;");
+        buf.extend_from_slice(b64("hello").as_bytes());
+        buf.push(0x07);
+        assert!(p.feed(&buf).is_empty());
+    }
+
+    #[test]
+    fn osc7777_edit_request_invalid_base64_contents_ignored() {
+        let mut p = OscParser::new();
+        let mut buf = b"\x1b]7777;edit_request;".to_vec();
+        buf.extend_from_slice(b64("req-1").as_bytes());
+        buf.push(b';');
+        buf.extend_from_slice(b64("/tmp/foo.txt").as_bytes());
+        buf.extend_from_slice(b";!!!");
+        buf.push(0x07);
+        assert!(p.feed(&buf).is_empty());
+    }
+
+    #[test]
+    fn osc7777_edit_request_missing_semicolon_ignored() {
+        // Only one semicolon after the subcommand → two fields, not three.
+        let mut p = OscParser::new();
+        let mut buf = b"\x1b]7777;edit_request;".to_vec();
+        buf.extend_from_slice(b64("req-1").as_bytes());
+        buf.push(b';');
+        buf.extend_from_slice(b64("/tmp/foo.txt").as_bytes());
+        buf.push(0x07);
+        assert!(p.feed(&buf).is_empty());
+    }
+
+    #[test]
+    fn osc7777_edit_request_split_across_chunks() {
+        let mut p = OscParser::new();
+        let full = osc7777_edit_request("req-1", "/tmp/foo.txt", b"hello world");
+        let mid = full.len() / 2;
+        assert!(p.feed(&full[..mid]).is_empty());
+        let events = p.feed(&full[mid..]);
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            OscEvent::EditRequest {
+                id,
+                filename,
+                contents,
+            } => {
+                assert_eq!(id, "req-1");
+                assert_eq!(filename, "/tmp/foo.txt");
+                assert_eq!(contents, b"hello world");
+            }
             other => panic!("unexpected event: {:?}", other),
         }
     }
