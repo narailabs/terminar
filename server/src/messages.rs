@@ -86,6 +86,18 @@ pub enum ClientMessage {
         /// UUID of the session to kill.
         session_id: String,
     },
+    /// Client-supplied reply for an `EditRequest` that was sent to the user.
+    /// When `cancelled == false`, `contents` is the text the user typed into
+    /// the modal editor and the server will write a framed response to the
+    /// session's PTY stdin so the remote wrapper script can decode and save
+    /// it. When `cancelled == true`, `contents` is ignored and the server
+    /// signals cancellation to the wrapper.
+    EditReply {
+        session_id: String,
+        id: String,
+        contents: String,
+        cancelled: bool,
+    },
 
     // === Docker container messages ===
     /// Request the list of running Docker containers. When `ssh_connection_id`
@@ -393,6 +405,100 @@ mod tests {
         let msg = ServerMessage::WorkspaceData { workspace: None };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains(r#""type":"WorkspaceData""#));
+    }
+
+    #[test]
+    fn test_server_message_edit_request() {
+        let msg = ServerMessage::EditRequest {
+            session_id: "sess-1".into(),
+            id: "req-42".into(),
+            filename: "note.txt".into(),
+            contents: "hello\nworld".into(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains(r#""type":"EditRequest""#));
+        assert!(json.contains(r#""session_id":"sess-1""#));
+        assert!(json.contains(r#""id":"req-42""#));
+        assert!(json.contains(r#""filename":"note.txt""#));
+        assert!(json.contains(r#""contents":"hello\nworld""#));
+
+        let deserialized: ServerMessage = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            ServerMessage::EditRequest {
+                session_id,
+                id,
+                filename,
+                contents,
+            } => {
+                assert_eq!(session_id, "sess-1");
+                assert_eq!(id, "req-42");
+                assert_eq!(filename, "note.txt");
+                assert_eq!(contents, "hello\nworld");
+            }
+            _ => panic!("Wrong type"),
+        }
+    }
+
+    #[test]
+    fn test_client_message_edit_reply() {
+        let msg = ClientMessage::EditReply {
+            session_id: "sess-1".into(),
+            id: "req-42".into(),
+            contents: "edited text".into(),
+            cancelled: false,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains(r#""type":"edit_reply""#));
+        assert!(json.contains(r#""session_id":"sess-1""#));
+        assert!(json.contains(r#""id":"req-42""#));
+        assert!(json.contains(r#""contents":"edited text""#));
+        assert!(json.contains(r#""cancelled":false"#));
+
+        let deserialized: ClientMessage = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            ClientMessage::EditReply {
+                session_id,
+                id,
+                contents,
+                cancelled,
+            } => {
+                assert_eq!(session_id, "sess-1");
+                assert_eq!(id, "req-42");
+                assert_eq!(contents, "edited text");
+                assert!(!cancelled);
+            }
+            _ => panic!("Wrong type"),
+        }
+    }
+
+    #[test]
+    fn test_client_message_edit_reply_cancelled() {
+        let msg = ClientMessage::EditReply {
+            session_id: "sess-1".into(),
+            id: "req-42".into(),
+            contents: String::new(),
+            cancelled: true,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains(r#""type":"edit_reply""#));
+        assert!(json.contains(r#""cancelled":true"#));
+        assert!(json.contains(r#""contents":"""#));
+
+        let deserialized: ClientMessage = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            ClientMessage::EditReply {
+                session_id,
+                id,
+                contents,
+                cancelled,
+            } => {
+                assert_eq!(session_id, "sess-1");
+                assert_eq!(id, "req-42");
+                assert_eq!(contents, "");
+                assert!(cancelled);
+            }
+            _ => panic!("Wrong type"),
+        }
     }
 
     #[test]
