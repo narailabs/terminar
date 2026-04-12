@@ -783,6 +783,9 @@
           manager.off('editRequest', boundEditRequestHandler);
           boundEditRequestHandler = null;
       }
+      // Dismiss any open editor modal when detaching — prevents a stale
+      // modal from sending replies to the wrong session after a switch.
+      editRequest = null;
   }
 
   // Dispatch tool-action events (OSC 52 clipboard, OSC 7777 open_url) to the
