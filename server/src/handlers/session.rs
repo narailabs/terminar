@@ -54,8 +54,9 @@ open() { _terminar_open_url "$1"; }
 xdg-open() { _terminar_open_url "$1"; }
 export BROWSER=_terminar_open_url"#;
 
-/// POSIX `sh` wrapper script deployed to `/tmp/terminar-bin/terminar-edit`
-/// on the remote at SSH connect time and exported as `$EDITOR`. Implements
+/// POSIX `sh` wrapper script deployed to a per-session private directory
+/// (`$(mktemp -d /tmp/terminar-edit.XXXXXX)/terminar-edit`) on the
+/// remote at SSH connect time and exported as `$EDITOR`. Implements
 /// the remote end of the editor-paste flow: emits an OSC 7777 `edit_request`
 /// to the local tray, then blocks on PTY stdin waiting for a framed reply
 /// from [`crate::handlers::io::handle_edit_reply`].
@@ -203,10 +204,12 @@ cancel_marker=__TERMINAR_EDIT_${id}_CANCEL__
 state=wait
 acc=''
 cancelled=0
+saw_begin=0
 while IFS= read -r line; do
     if [ "$state" = wait ]; then
         if [ "$line" = "$begin_marker" ]; then
             state=capture
+            saw_begin=1
             continue
         fi
         if [ "$line" = "$cancel_marker" ]; then
@@ -237,7 +240,19 @@ if [ "$cancelled" = 1 ]; then
     exit 1
 fi
 
-# Empty-save: user saved with zero content. Truncate without invoking base64.
+# If the read loop ended without ever seeing BEGIN or CANCEL (stdin
+# closed, tray crashed mid-session, $EDITOR invoked with stdin
+# redirected from /dev/null by a hook or automation), treat it as a
+# failure — NOT an empty save. Exiting 0 with an empty $acc here
+# would truncate the caller's file and report success, silently
+# losing data. Exit 1 leaves the file untouched and the caller
+# (`git commit`, `crontab -e`, etc.) sees an editor failure.
+if [ "$saw_begin" = 0 ]; then
+    exit 1
+fi
+
+# Empty-save: BEGIN was seen but nothing came between BEGIN and END.
+# User explicitly cleared the buffer; truncate without invoking base64.
 if [ -z "$acc" ]; then
     : > "$file" || exit 1
     exit 0
@@ -248,12 +263,32 @@ printf '%s' "$acc" | _b64_decode > "$file" || exit 1
 exit 0
 "#;
 
-/// Build the `sh` snippet that deploys [`TERMINAR_EDIT_SCRIPT`] to
-/// `/tmp/terminar-bin/terminar-edit` on the remote and, on successful
-/// `chmod +x`, prepends that directory to `$PATH` and exports `$EDITOR`
-/// to point at it. Graceful degradation: if `/tmp` is read-only or
-/// `mkdir` fails, the `chmod` fails too and `$EDITOR` is left untouched,
-/// preserving the user's existing editor.
+/// Build the `sh` snippet that deploys [`TERMINAR_EDIT_SCRIPT`] to a
+/// per-session private directory on the remote, then on successful
+/// `chmod +x` prepends that directory to `$PATH` and exports `$EDITOR`
+/// to point at it.
+///
+/// # Symlink TOCTOU defence
+///
+/// We use `mktemp -d /tmp/terminar-edit.XXXXXX` (mirroring the existing
+/// `TERMINAR_ZDOTDIR` pattern in the zsh branch) rather than a fixed
+/// `/tmp/terminar-bin` path. `mktemp -d` creates the directory with mode
+/// 700 owned by the current user, so subsequent writes are safe from
+/// symlink TOCTOU: an attacker on a shared multi-user host cannot
+/// pre-create the unguessable path, and cannot write to the current
+/// user's mode-700 directory even if they somehow learn its name.
+///
+/// A previous version deployed to a fixed `/tmp/terminar-bin/terminar-edit`
+/// which was vulnerable: an attacker could `ln -sf ~victim/.bashrc
+/// /tmp/terminar-bin/terminar-edit` and the victim's `cat >` would
+/// follow the symlink and clobber their `.bashrc`.
+///
+/// # Graceful degradation
+///
+/// If `mktemp` fails (e.g. `/tmp` is read-only), the `&&` short-circuits
+/// the `cat` and the `if chmod` wrapper also fails, so `$EDITOR` is left
+/// untouched — the user still gets their existing editor. `TERMINAR_EDIT_DIR`
+/// may be left set to an empty string in this case, which is harmless.
 ///
 /// The deploy is shared by the bash/sh and zsh branches of
 /// [`build_ssh_remote_command`] — fish-and-other shells do not receive
@@ -263,23 +298,24 @@ exit 0
 /// the script body is deployed literally with no shell expansion.
 fn build_edit_wrapper_deploy() -> String {
     // Sequence of lines joined with "\n":
-    //   mkdir -p /tmp/terminar-bin 2>/dev/null
-    //   cat > /tmp/terminar-bin/terminar-edit <<'TERMINAR_EDIT_SCRIPT_EOF'
+    //   TERMINAR_EDIT_DIR=$(mktemp -d /tmp/terminar-edit.XXXXXX) && cat > "$TERMINAR_EDIT_DIR/terminar-edit" <<'TERMINAR_EDIT_SCRIPT_EOF'
     //   <script body>
     //   TERMINAR_EDIT_SCRIPT_EOF
-    //   if chmod +x /tmp/terminar-bin/terminar-edit 2>/dev/null; then
-    //       export PATH="/tmp/terminar-bin:$PATH"
-    //       export EDITOR=/tmp/terminar-bin/terminar-edit
+    //   if chmod +x "$TERMINAR_EDIT_DIR/terminar-edit" 2>/dev/null; then
+    //       export PATH="$TERMINAR_EDIT_DIR:$PATH"
+    //       export EDITOR="$TERMINAR_EDIT_DIR/terminar-edit"
     //   fi
     let mut out = String::new();
-    out.push_str("mkdir -p /tmp/terminar-bin 2>/dev/null\n");
-    out.push_str("cat > /tmp/terminar-bin/terminar-edit <<'TERMINAR_EDIT_SCRIPT_EOF'\n");
+    out.push_str(
+        "TERMINAR_EDIT_DIR=$(mktemp -d /tmp/terminar-edit.XXXXXX) && \
+         cat > \"$TERMINAR_EDIT_DIR/terminar-edit\" <<'TERMINAR_EDIT_SCRIPT_EOF'\n",
+    );
     out.push_str(TERMINAR_EDIT_SCRIPT);
     out.push('\n');
     out.push_str("TERMINAR_EDIT_SCRIPT_EOF\n");
-    out.push_str("if chmod +x /tmp/terminar-bin/terminar-edit 2>/dev/null; then\n");
-    out.push_str("    export PATH=\"/tmp/terminar-bin:$PATH\"\n");
-    out.push_str("    export EDITOR=/tmp/terminar-bin/terminar-edit\n");
+    out.push_str("if chmod +x \"$TERMINAR_EDIT_DIR/terminar-edit\" 2>/dev/null; then\n");
+    out.push_str("    export PATH=\"$TERMINAR_EDIT_DIR:$PATH\"\n");
+    out.push_str("    export EDITOR=\"$TERMINAR_EDIT_DIR/terminar-edit\"\n");
     out.push_str("fi");
     out
 }
@@ -1059,13 +1095,12 @@ mod tests {
     #[test]
     fn ssh_remote_cmd_bash_no_cwd_skips_cd() {
         let cmd = build_ssh_remote_command("", "/bin/bash");
-        // No `cd ` on its own — but "mkdir" doesn't contain "cd " either,
-        // so a simple `!contains("cd ")` would be too strict if the script
-        // ever mentions cd. Instead, check that no "cd '...' && " prefix
-        // appears at the start.
+        // No `cd ` on its own prefix. (Deploy and script body never
+        // contain a literal `cd '...'` substring either.)
         assert!(!cmd.starts_with("cd "));
-        // The new first token is the edit-wrapper deploy.
-        assert!(cmd.starts_with("mkdir -p /tmp/terminar-bin"));
+        // First token is the edit-wrapper deploy — a per-session
+        // `mktemp -d` into an unguessable private directory.
+        assert!(cmd.starts_with("TERMINAR_EDIT_DIR=$(mktemp -d"));
         assert!(cmd.ends_with(" exec '/bin/bash'"));
     }
 
@@ -1073,7 +1108,7 @@ mod tests {
     fn ssh_remote_cmd_bash_root_cwd_skips_cd() {
         let cmd = build_ssh_remote_command("/", "/bin/bash");
         assert!(!cmd.starts_with("cd "));
-        assert!(cmd.starts_with("mkdir -p /tmp/terminar-bin"));
+        assert!(cmd.starts_with("TERMINAR_EDIT_DIR=$(mktemp -d"));
     }
 
     #[test]
@@ -1110,7 +1145,7 @@ mod tests {
         // (The deploy + shim heredocs are plain text, no cd-quoted substring.)
         assert!(!cmd.contains("cd '"));
         // First token is the edit-wrapper deploy (shared with bash/sh).
-        assert!(cmd.starts_with("mkdir -p /tmp/terminar-bin"));
+        assert!(cmd.starts_with("TERMINAR_EDIT_DIR=$(mktemp -d"));
         // ZDOTDIR setup still appears (after the deploy).
         assert!(cmd.contains("TERMINAR_ZDOTDIR="));
     }
@@ -1197,12 +1232,25 @@ mod tests {
     /// Required substrings that prove the edit-wrapper deploy block is
     /// present and correctly configured. Checked for both bash/sh and zsh
     /// since both branches get the same deploy.
+    ///
+    /// The deploy uses `mktemp -d /tmp/terminar-edit.XXXXXX` to create a
+    /// per-session private directory (mode 700) — this closes the
+    /// symlink TOCTOU hole a fixed `/tmp/terminar-bin` path had on
+    /// multi-user hosts. The script and the `$EDITOR` export reference
+    /// the temp dir via the `$TERMINAR_EDIT_DIR` variable, so assertions
+    /// check the variable-expanded form rather than a literal path.
     fn assert_deploy_block_present(cmd: &str) {
         let must_contain = &[
-            "mkdir -p /tmp/terminar-bin",
-            "cat > /tmp/terminar-bin/terminar-edit <<'TERMINAR_EDIT_SCRIPT_EOF'",
-            "chmod +x /tmp/terminar-bin/terminar-edit",
-            "export EDITOR=/tmp/terminar-bin/terminar-edit",
+            // Private per-session temp dir created safely.
+            "TERMINAR_EDIT_DIR=$(mktemp -d /tmp/terminar-edit.XXXXXX)",
+            // Script body piped into the temp dir via a single-quoted heredoc.
+            "cat > \"$TERMINAR_EDIT_DIR/terminar-edit\" <<'TERMINAR_EDIT_SCRIPT_EOF'",
+            // chmod +x is the gate for the subsequent $EDITOR export.
+            "chmod +x \"$TERMINAR_EDIT_DIR/terminar-edit\"",
+            // $EDITOR points at the temp dir, not a fixed path.
+            "export EDITOR=\"$TERMINAR_EDIT_DIR/terminar-edit\"",
+            // PATH is prepended so `which terminar-edit` works too.
+            "export PATH=\"$TERMINAR_EDIT_DIR:$PATH\"",
         ];
         for needle in must_contain {
             assert!(
@@ -1212,13 +1260,20 @@ mod tests {
                 cmd
             );
         }
-        // The closing delimiter appears TWICE in the command: once as the
+        // The heredoc delimiter appears TWICE in the command: once as the
         // opening `<<'TERMINAR_EDIT_SCRIPT_EOF'` marker on `cat`, and once
         // on its own line as the heredoc terminator.
         assert_eq!(
             cmd.matches("TERMINAR_EDIT_SCRIPT_EOF").count(),
             2,
             "expected exactly two occurrences of the heredoc delimiter (opening + closing), got:\n{}",
+            cmd
+        );
+        // Fixed-path anti-assertions: any remaining reference to the
+        // old `/tmp/terminar-bin` location would be a regression.
+        assert!(
+            !cmd.contains("/tmp/terminar-bin"),
+            "deploy must not reference the old fixed path /tmp/terminar-bin (symlink TOCTOU), got:\n{}",
             cmd
         );
     }
@@ -1228,14 +1283,14 @@ mod tests {
         let cmd = build_ssh_remote_command("/home/dev", "/bin/bash");
         assert_deploy_block_present(&cmd);
         // Deploy must come BEFORE the shim (so the shim is not clobbered
-        // by the heredoc write). Concretely, the mkdir line must appear
+        // by the heredoc write). Concretely, the mktemp line must appear
         // before the first shim function definition.
-        let mkdir_pos = cmd
-            .find("mkdir -p /tmp/terminar-bin")
-            .expect("mkdir not found");
+        let deploy_pos = cmd
+            .find("TERMINAR_EDIT_DIR=$(mktemp -d")
+            .expect("mktemp not found");
         let pbcopy_pos = cmd.find("pbcopy()").expect("pbcopy not found");
         assert!(
-            mkdir_pos < pbcopy_pos,
+            deploy_pos < pbcopy_pos,
             "deploy block must appear before shim in bash branch"
         );
     }
@@ -1246,15 +1301,22 @@ mod tests {
         assert_deploy_block_present(&cmd);
         // Deploy must come BEFORE the ZDOTDIR setup so the edit wrapper
         // is ready by the time the user reaches their zsh prompt.
-        let mkdir_pos = cmd
-            .find("mkdir -p /tmp/terminar-bin")
-            .expect("mkdir not found");
+        let deploy_pos = cmd
+            .find("TERMINAR_EDIT_DIR=$(mktemp -d")
+            .expect("mktemp not found");
         let zdotdir_pos = cmd
             .find("TERMINAR_ZDOTDIR=")
             .expect("TERMINAR_ZDOTDIR not found");
         assert!(
-            mkdir_pos < zdotdir_pos,
+            deploy_pos < zdotdir_pos,
             "deploy block must appear before ZDOTDIR in zsh branch"
+        );
+        // The two temp dirs use DISTINCT variable names so a buggy shell
+        // can't cross-wire them. TERMINAR_EDIT_DIR holds the wrapper
+        // script; TERMINAR_ZDOTDIR holds the custom .zshrc.
+        assert!(
+            cmd.contains("TERMINAR_EDIT_DIR=") && cmd.contains("TERMINAR_ZDOTDIR="),
+            "both temp dir variables must be present"
         );
     }
 
@@ -1389,6 +1451,71 @@ mod tests {
         assert!(
             s.contains("trap") && s.contains("EXIT") && s.contains("stty"),
             "TERMINAR_EDIT_SCRIPT must save/restore stty via a trap"
+        );
+
+        // Must track whether BEGIN was observed so EOF-before-BEGIN
+        // cannot be mistaken for an empty save. See C1 regression test.
+        assert!(
+            s.contains("saw_begin"),
+            "TERMINAR_EDIT_SCRIPT must track `saw_begin` to distinguish EOF from empty-save"
+        );
+    }
+
+    #[test]
+    fn terminar_edit_script_guards_against_eof_without_begin() {
+        // Regression test for C1: when the read loop exits without ever
+        // seeing a BEGIN marker (stdin closed / redirected from
+        // /dev/null / tray crash), the original script truncated the
+        // caller's file and exited 0, causing silent data loss.
+        //
+        // The fix introduces a `saw_begin` flag and exits 1 before
+        // reaching the empty-save path when BEGIN was never observed.
+        let s = TERMINAR_EDIT_SCRIPT;
+
+        // Flag must be initialized to 0 before the loop.
+        assert!(
+            s.contains("saw_begin=0"),
+            "TERMINAR_EDIT_SCRIPT must initialize saw_begin=0 before the read loop"
+        );
+
+        // Flag must be set to 1 when BEGIN is observed.
+        assert!(
+            s.contains("saw_begin=1"),
+            "TERMINAR_EDIT_SCRIPT must set saw_begin=1 when the BEGIN marker is observed"
+        );
+
+        // The empty-save path (`: > "$file"`) must be gated on a
+        // `saw_begin` check. Locate the empty-save truncate call and
+        // ensure the nearest preceding `saw_begin` reference is above
+        // it — this proves the guard exists before the truncate fires.
+        let empty_save_pos = s
+            .find(": > \"$file\"")
+            .expect("empty-save truncate path must exist in TERMINAR_EDIT_SCRIPT");
+        let guard_pos = s[..empty_save_pos]
+            .rfind("saw_begin")
+            .expect("empty-save path must be preceded by a saw_begin guard");
+        assert!(
+            guard_pos < empty_save_pos,
+            "saw_begin guard must precede the empty-save truncate path (guard_pos={}, empty_save_pos={})",
+            guard_pos,
+            empty_save_pos
+        );
+
+        // The `saw_begin` guard must result in `exit 1` on the failure
+        // path (i.e., saw_begin==0). Check that somewhere after the
+        // initialisation and before the empty-save path there is both
+        // a test of saw_begin against 0 and an `exit 1`.
+        let init_pos = s
+            .find("saw_begin=0")
+            .expect("saw_begin initialization not found");
+        let window = &s[init_pos..empty_save_pos];
+        assert!(
+            window.contains("\"$saw_begin\" = 0") || window.contains("saw_begin = 0") || window.contains("$saw_begin\" = 0"),
+            "must test `$saw_begin` against 0 between initialization and the empty-save path"
+        );
+        assert!(
+            window.contains("exit 1"),
+            "must have an `exit 1` on the saw_begin=0 path before the empty-save truncate"
         );
     }
 
