@@ -178,7 +178,13 @@ fn build_edit_reply_frame(id: &str, contents: &str, cancelled: bool) -> Vec<u8> 
 ///
 /// The `contents` may contain user secrets (the text being edited) and is
 /// NEVER logged. Only the id, byte count, and cancelled flag are logged.
-#[instrument(skip(contents, tx_out, sessions), fields(session_id = %session_id, id = %id, cancelled = cancelled, bytes = contents.len()))]
+///
+/// Note: the span records `id` with Debug formatting (`?id`) so that a
+/// malicious id containing embedded newlines or control characters is quoted
+/// and escaped in log output rather than spliced into the log stream as
+/// separate lines. The id validator runs AFTER the span is entered, so the
+/// span must defend against raw untrusted input on its own.
+#[instrument(skip(contents, tx_out, sessions), fields(session_id = %session_id, id = ?id, cancelled = cancelled, bytes = contents.len()))]
 pub(crate) async fn handle_edit_reply(
     session_id: &str,
     id: &str,
@@ -187,18 +193,45 @@ pub(crate) async fn handle_edit_reply(
     tx_out: &mpsc::Sender<ServerMessage>,
     sessions: &SessionMap,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    /// Typed inner error for the EditReply write path. Each variant maps to
+    /// a distinct wire `error_code` so we don't have to string-match on
+    /// human-readable messages.
+    enum ReplyError {
+        NotFound(String),
+        NotRunning(String),
+        WriteFailed(String),
+    }
+
+    impl ReplyError {
+        fn error_code(&self) -> &'static str {
+            match self {
+                ReplyError::NotFound(_) => "SESSION_NOT_FOUND",
+                ReplyError::NotRunning(_) => "SESSION_NOT_RUNNING",
+                ReplyError::WriteFailed(_) => "EDIT_REPLY_WRITE_FAILED",
+            }
+        }
+
+        fn into_message(self) -> String {
+            match self {
+                ReplyError::NotFound(m)
+                | ReplyError::NotRunning(m)
+                | ReplyError::WriteFailed(m) => m,
+            }
+        }
+    }
+
     // 1. Validate id before touching any state.
     if !is_valid_edit_reply_id(id) {
         info!(
             session_id = %session_id,
-            id = %id,
+            id = ?id,
             event = "edit_reply_invalid_id",
             "EditReply rejected: id failed validation"
         );
         tx_out
             .send(ServerMessage::Error {
                 message: format!(
-                    "Invalid edit_reply id '{}': must be non-empty and match [A-Za-z0-9_-]+",
+                    "Invalid edit_reply id {:?}: must be non-empty and match [A-Za-z0-9_-]+",
                     id
                 ),
                 error_code: Some("EDIT_REPLY_INVALID_ID".to_string()),
@@ -212,54 +245,73 @@ pub(crate) async fn handle_edit_reply(
     //    tight).
     let frame = build_edit_reply_frame(id, contents, cancelled);
 
-    // 3. Lock the session map, look up the session, write to the cached
-    //    writer, and drop both locks before any .await — same pattern as
-    //    `handle_input`.
-    let result: Result<(), String> = {
+    // 3. Lock the session map, look up the session, check state, write to
+    //    the cached writer, and drop both locks before any .await — same
+    //    pattern as `handle_input`.
+    let result: Result<(), ReplyError> = {
         let guard = sessions.lock();
         if let Some(session) = guard.get(session_id) {
-            let mut writer_guard = session.writer.lock();
-            use std::io::Write;
-            if let Err(e) = writer_guard.write_all(&frame) {
-                error!("Failed to write edit_reply frame to PTY: {}", e);
-                Err(format!("Failed to write edit_reply to PTY: {}", e))
+            // Mirror handle_input: reject writes to non-Running sessions.
+            // If the user opened an edit modal and the session died before
+            // they clicked Save, we must not shove bytes into a dead PTY.
+            if !session.allows_input() {
+                Err(ReplyError::NotRunning(format!(
+                    "Session '{}' is not accepting input (state: {:?})",
+                    session_id, session.state
+                )))
             } else {
-                let _ = writer_guard.flush();
-                Ok(())
+                let mut writer_guard = session.writer.lock();
+                use std::io::Write;
+                match writer_guard.write_all(&frame) {
+                    Ok(()) => {
+                        let _ = writer_guard.flush();
+                        Ok(())
+                    }
+                    Err(e) => {
+                        error!("Failed to write edit_reply frame to PTY: {}", e);
+                        Err(ReplyError::WriteFailed(format!(
+                            "Failed to write edit_reply to PTY: {}",
+                            e
+                        )))
+                    }
+                }
             }
         } else {
-            Err(format!("Session '{}' not found", session_id))
+            Err(ReplyError::NotFound(format!(
+                "Session '{}' not found",
+                session_id
+            )))
         }
     };
 
-    if let Err(message) = result {
-        let error_code = if message.starts_with("Session '") {
-            "SESSION_NOT_FOUND"
-        } else {
-            "EDIT_REPLY_WRITE_FAILED"
-        };
-        info!(
-            session_id = %session_id,
-            id = %id,
-            event = "edit_reply_error",
-            error_code = %error_code,
-            error = %message,
-            "EditReply failed"
-        );
-        tx_out
-            .send(ServerMessage::Error {
-                message,
-                error_code: Some(error_code.to_string()),
-            })
-            .await?;
-    } else {
-        info!(
-            session_id = %session_id,
-            id = %id,
-            cancelled = cancelled,
-            event = "edit_reply_sent",
-            "EditReply written to PTY"
-        );
+    match result {
+        Err(err) => {
+            let error_code = err.error_code();
+            let message = err.into_message();
+            info!(
+                session_id = %session_id,
+                id = ?id,
+                event = "edit_reply_error",
+                error_code = %error_code,
+                error = %message,
+                "EditReply failed"
+            );
+            tx_out
+                .send(ServerMessage::Error {
+                    message,
+                    error_code: Some(error_code.to_string()),
+                })
+                .await?;
+        }
+        Ok(()) => {
+            info!(
+                session_id = %session_id,
+                id = ?id,
+                cancelled = cancelled,
+                event = "edit_reply_sent",
+                "EditReply written to PTY"
+            );
+        }
     }
     Ok(())
 }
@@ -426,7 +478,7 @@ pub(crate) async fn handle_attach(
 mod tests {
     use super::*;
     use crate::pty::{MockPtyProvider, PtyProvider};
-    use crate::session::Session;
+    use crate::session::{Session, SessionState};
     use base64::Engine;
     use std::collections::HashMap;
     use std::io::Read;
@@ -558,6 +610,16 @@ mod tests {
             .unwrap();
 
         let got = read_exact_with_timeout(reader, expected.len()).await;
+
+        // Contract with the Task 5 wrapper script: the frame MUST start with
+        // a newline so any partial line the user typed in the terminal
+        // buffer gets flushed before the BEGIN marker lands on its own line.
+        assert_eq!(
+            got.first(),
+            Some(&b'\n'),
+            "frame must start with newline to flush any partial user input"
+        );
+
         let got_str = String::from_utf8(got).expect("frame should be UTF-8");
 
         assert!(
@@ -604,6 +666,14 @@ mod tests {
             .unwrap();
 
         let got = read_exact_with_timeout(reader, expected.len()).await;
+
+        // Same contract as the happy path: frame starts with \n.
+        assert_eq!(
+            got.first(),
+            Some(&b'\n'),
+            "cancel frame must start with newline to flush any partial user input"
+        );
+
         let got_str = String::from_utf8(got).unwrap();
 
         assert_eq!(got_str, "\n__TERMINAR_EDIT_abc123_CANCEL__\n");
@@ -694,6 +764,57 @@ mod tests {
             }
             other => panic!("expected SESSION_NOT_FOUND error, got {:?}", other),
         }
+    }
+
+    #[tokio::test]
+    async fn handle_edit_reply_rejects_non_running_session() {
+        // Simulates: user opens edit modal, the shell exits (ssh drops, or
+        // the user closed the remote program), then the user clicks Save.
+        // The handler must refuse to write to the dead PTY.
+        let sessions = make_session_map();
+        let reader = insert_mock_session(&sessions, "s1");
+        let (tx_out, mut rx_out) = mpsc::channel::<ServerMessage>(16);
+
+        // Transition the session out of Running. Running -> Exited is the
+        // natural "shell process died" path, and Exited.allows_input() is
+        // false (see terminar_core::session::SessionState::allows_input).
+        {
+            let mut guard = sessions.lock();
+            let session = guard.get_mut("s1").expect("session inserted above");
+            session
+                .transition_to(SessionState::Exited)
+                .expect("Running -> Exited is a valid transition");
+            assert!(
+                !session.allows_input(),
+                "sanity: Exited must not allow input"
+            );
+        }
+
+        handle_edit_reply("s1", "abc123", "hello", false, &tx_out, &sessions)
+            .await
+            .unwrap();
+
+        let msg = tokio::time::timeout(Duration::from_secs(2), rx_out.recv())
+            .await
+            .expect("timed out waiting for error message")
+            .expect("channel closed");
+        match msg {
+            ServerMessage::Error {
+                error_code: Some(code),
+                message,
+            } => {
+                assert_eq!(code, "SESSION_NOT_RUNNING");
+                assert!(
+                    message.contains("not accepting input"),
+                    "message should explain the rejection: {:?}",
+                    message
+                );
+            }
+            other => panic!("expected SESSION_NOT_RUNNING error, got {:?}", other),
+        }
+
+        // No bytes should have been written to the dead PTY.
+        assert_reader_empty(reader).await;
     }
 
     #[tokio::test]
