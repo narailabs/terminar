@@ -155,16 +155,36 @@ fn handle_osc_event(
             filename,
             contents,
         } => {
-            // Parser layer recognizes this subcommand (Task 1). The broadcast
-            // to clients is wired up in a later task; for now the event is
-            // observed but not forwarded.
-            trace!(
+            // File contents may contain secrets (users editing .env, key files,
+            // etc.), so we decode with `from_utf8_lossy` but NEVER log the
+            // bytes themselves — only the byte count and a lossy flag.
+            let byte_count = contents.len();
+            let text = String::from_utf8_lossy(&contents);
+            let lossy = matches!(text, std::borrow::Cow::Owned(_));
+            let text = text.into_owned();
+            if lossy {
+                debug!(
+                    session_id = %session_id,
+                    bytes = byte_count,
+                    lossy = true,
+                    "osc watcher: OSC 7777 edit_request contents were not valid UTF-8"
+                );
+            }
+            debug!(
                 session_id = %session_id,
-                request_id = %id,
-                filename = %filename,
-                bytes = contents.len(),
-                "osc watcher: OSC 7777 edit_request (not yet forwarded)"
+                bytes = byte_count,
+                lossy,
+                "osc watcher: OSC 7777 edit_request → forwarding to clients"
             );
+            let _ = tool_action_tx.send((
+                session_id.to_string(),
+                ServerMessage::EditRequest {
+                    session_id: session_id.to_string(),
+                    id,
+                    filename,
+                    contents: text,
+                },
+            ));
         }
     }
 }
@@ -358,6 +378,44 @@ mod tests {
                 assert_eq!(url, "https://example.com/auth?code=xyz");
             }
             other => panic!("expected OpenUrl, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn watcher_forwards_edit_request() {
+        let sessions = make_session_map();
+        let tx = insert_test_session(&sessions, "s5");
+        let (tool_tx, mut tool_rx) = broadcast::channel(16);
+
+        spawn_cwd_watcher("s5".to_string(), sessions.clone(), tool_tx);
+        tokio::task::yield_now().await;
+
+        let osc = format!(
+            "\x1b]7777;edit_request;{};{};{}\x07",
+            b64("req-42"),
+            b64("/tmp/notes.txt"),
+            b64("hello from remote")
+        );
+        tx.send(SessionEvent::Output(osc)).unwrap();
+
+        let (sid, msg) = tokio::time::timeout(Duration::from_secs(2), tool_rx.recv())
+            .await
+            .expect("timeout waiting for edit_request event")
+            .expect("broadcast recv error");
+        assert_eq!(sid, "s5");
+        match msg {
+            ServerMessage::EditRequest {
+                session_id,
+                id,
+                filename,
+                contents,
+            } => {
+                assert_eq!(session_id, "s5");
+                assert_eq!(id, "req-42");
+                assert_eq!(filename, "/tmp/notes.txt");
+                assert_eq!(contents, "hello from remote");
+            }
+            other => panic!("expected EditRequest, got {:?}", other),
         }
     }
 }
