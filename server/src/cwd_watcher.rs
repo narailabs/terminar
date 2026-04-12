@@ -150,6 +150,22 @@ fn handle_osc_event(
                 },
             ));
         }
+        OscEvent::EditRequest {
+            id,
+            filename,
+            contents,
+        } => {
+            // Parser layer recognizes this subcommand (Task 1). The broadcast
+            // to clients is wired up in a later task; for now the event is
+            // observed but not forwarded.
+            trace!(
+                session_id = %session_id,
+                request_id = %id,
+                filename = %filename,
+                bytes = contents.len(),
+                "osc watcher: OSC 7777 edit_request (not yet forwarded)"
+            );
+        }
     }
 }
 
