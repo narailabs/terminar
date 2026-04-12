@@ -52,6 +52,9 @@ export interface SessionManager {
   sendInput(sessionId: string, data: string): void;
   resize(sessionId: string, cols: number, rows: number): void;
 
+  // Editor integration (remote $EDITOR via OSC 7777 edit_request)
+  sendEditReply(sessionId: string, id: string, contents: string, cancelled: boolean): void;
+
   // Docker integration
   listContainers(sshConnectionId?: string): void;
 
