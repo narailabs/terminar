@@ -175,6 +175,41 @@ describe('ServerMessage Validation', () => {
     const msg = { type: 'Shutdown', reason: 'Server shutting down' };
     expect(ServerMessageSchema.parse(msg)).toEqual(msg);
   });
+
+  it('validates EditRequest', () => {
+    const msg = {
+      type: 'EditRequest',
+      session_id: 'sess-1',
+      id: 'req-42',
+      filename: '/tmp/notes.txt',
+      contents: 'hello world\n',
+    };
+    const parsed = ServerMessageSchema.parse(msg);
+    expect(parsed).toEqual(msg);
+    expect(parsed.type).toBe('EditRequest');
+  });
+
+  it('rejects EditRequest with missing fields', () => {
+    const msg = {
+      type: 'EditRequest',
+      session_id: 'sess-1',
+      id: 'req-42',
+      filename: '/tmp/notes.txt',
+      // contents missing
+    };
+    expect(() => ServerMessageSchema.parse(msg)).toThrow();
+  });
+
+  it('rejects EditRequest with wrong field types', () => {
+    const msg = {
+      type: 'EditRequest',
+      session_id: 'sess-1',
+      id: 42, // should be string
+      filename: '/tmp/notes.txt',
+      contents: 'hello',
+    };
+    expect(() => ServerMessageSchema.parse(msg)).toThrow();
+  });
 });
 
 describe('SessionInfo Validation', () => {
@@ -243,5 +278,50 @@ describe('ClientMessage New Variants', () => {
   it('validates load_workspace', () => {
     const msg = { type: 'load_workspace' };
     expect(ClientMessageSchema.parse(msg)).toEqual(msg);
+  });
+
+  it('validates edit_reply (snake_case wire form)', () => {
+    const msg = {
+      type: 'edit_reply',
+      session_id: 'sess-1',
+      id: 'req-42',
+      contents: 'edited text',
+      cancelled: false,
+    };
+    const parsed = ClientMessageSchema.parse(msg);
+    expect(parsed).toEqual(msg);
+    expect(parsed.type).toBe('edit_reply');
+  });
+
+  it('validates edit_reply with cancelled=true', () => {
+    const msg = {
+      type: 'edit_reply',
+      session_id: 'sess-1',
+      id: 'req-42',
+      contents: '',
+      cancelled: true,
+    };
+    expect(ClientMessageSchema.parse(msg)).toEqual(msg);
+  });
+
+  it('rejects edit_reply with missing cancelled field', () => {
+    const msg = {
+      type: 'edit_reply',
+      session_id: 'sess-1',
+      id: 'req-42',
+      contents: 'edited text',
+    };
+    expect(() => ClientMessageSchema.parse(msg)).toThrow();
+  });
+
+  it('rejects edit_reply with non-string contents', () => {
+    const msg = {
+      type: 'edit_reply',
+      session_id: 'sess-1',
+      id: 'req-42',
+      contents: 12345, // should be string
+      cancelled: false,
+    };
+    expect(() => ClientMessageSchema.parse(msg)).toThrow();
   });
 });
