@@ -9,6 +9,7 @@
   import { WebLinksAddon } from '@xterm/addon-web-links';
   import '@xterm/xterm/css/xterm.css';
   import type { SessionManager } from '../lib/SessionManager';
+  import EditorModal from './EditorModal.svelte';
   import { xtermOptions, settingsStore } from '../lib/settingsStore.svelte';
   import { themeState, getTerminalTheme } from '../lib/themeStore.svelte';
   import { resizeState } from '../lib/resizeStore.svelte';
@@ -205,6 +206,10 @@
   // we unbind, so events for other sessions don't leak into our terminal.
   let boundClipboardHandler: ((sessionId: string, data: string) => void) | null = null;
   let boundOpenUrlHandler: ((sessionId: string, url: string) => void) | null = null;
+  let boundEditRequestHandler: ((sessionId: string, id: string, filename: string, contents: string) => void) | null = null;
+
+  // State for the remote-editor modal (driven by OSC 7777 edit_request events).
+  let editRequest: { id: string; filename: string; contents: string } | null = $state(null);
 
   // File-path link provider: detects paths like "wiki-workspace/REPORT.md" in
   // terminal output and makes them Cmd/Ctrl-clickable. Re-registered per
@@ -774,6 +779,10 @@
           manager.off('openUrl', boundOpenUrlHandler);
           boundOpenUrlHandler = null;
       }
+      if (manager && boundEditRequestHandler) {
+          manager.off('editRequest', boundEditRequestHandler);
+          boundEditRequestHandler = null;
+      }
   }
 
   // Dispatch tool-action events (OSC 52 clipboard, OSC 7777 open_url) to the
@@ -958,10 +967,17 @@
               void performOpenUrl(url);
           }
       };
+      const editRequestHandler = (eventSessionId: string, id: string, filename: string, contents: string) => {
+          if (eventSessionId === sessionId) {
+              editRequest = { id, filename, contents };
+          }
+      };
       boundClipboardHandler = clipboardHandler;
       boundOpenUrlHandler = openUrlHandler;
+      boundEditRequestHandler = editRequestHandler;
       mgr.on('clipboardWrite', clipboardHandler);
       mgr.on('openUrl', openUrlHandler);
+      mgr.on('editRequest', editRequestHandler);
 
       const newListenerCount = mgr.listenerCount?.('output') ?? 'unknown';
       console.log(`[Terminal:${terminalInstanceId}] Added output listener for session ${sessionId.slice(0, 8)}. Total: ${newListenerCount}`);
@@ -1468,6 +1484,25 @@
     Scroll to bottom
   </button>
 </div>
+
+{#if editRequest}
+    <EditorModal
+        filename={editRequest.filename}
+        initialContents={editRequest.contents}
+        onSave={(newContents) => {
+            if (editRequest && activeSessionId && manager) {
+                manager.sendEditReply(activeSessionId, editRequest.id, newContents, false);
+            }
+            editRequest = null;
+        }}
+        onCancel={() => {
+            if (editRequest && activeSessionId && manager) {
+                manager.sendEditReply(activeSessionId, editRequest.id, '', true);
+            }
+            editRequest = null;
+        }}
+    />
+{/if}
 
 <style>
   .terminal-wrapper {
