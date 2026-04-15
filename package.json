@@ -5,24 +5,22 @@
   "scripts": {
     "server:build": "cd server && PATH=\"$HOME/.cargo/bin:$PATH\" cargo build --release && ([ \"$(uname)\" = Darwin ] && codesign --force --sign - target/release/terminar-server 2>/dev/null; true)",
     "server:dev": "cd server && PATH=\"$HOME/.cargo/bin:$PATH\" cargo build --bin terminar-server && ([ \"$(uname)\" = Darwin ] && codesign --force --sign - target/debug/terminar-server 2>/dev/null; true) && PATH=\"$HOME/.cargo/bin:$PATH\" ./target/debug/terminar-server --no-auth --port 6750",
+    "server:stop": "node -e \"require('./npm/terminar/lib/server-manager.js').stop()\"",
+    "server:status": "node -e \"require('./npm/terminar/lib/server-manager.js').status()\"",
+    "server:logs": "node -e \"require('./npm/terminar/lib/server-manager.js').logs()\"",
+    "server:restart": "node -e \"const s=require('./npm/terminar/lib/server-manager.js');const p=require('path');s.restart(p.resolve('server/target/debug/terminar-server'),6750)\"",
     "web:dev": "cd web && pnpm dev",
     "tray:dev": "cd tray && pnpm dev",
     "tray:build": "cd tray && pnpm build:electron",
-    "dev": "concurrently --kill-others-on-fail -n server,tray -c blue,magenta \"pnpm server:dev\" \"pnpm wait-then:tray\"",
-    "dev:web": "concurrently -k -n server,web -c blue,green \"pnpm server:dev\" \"pnpm wait-then:web\"",
-    "dev:all": "concurrently --kill-others-on-fail -n server,web,tray -c blue,green,magenta \"pnpm server:dev\" \"pnpm wait-then:web\" \"pnpm wait-then:tray\"",
-    "wait-then:web": "wait-on tcp:6750 && pnpm web:dev",
-    "wait-then:tray": "wait-on tcp:6750 && pnpm tray:dev",
+    "dev": "node scripts/dev.cjs tray",
+    "dev:web": "node scripts/dev.cjs web",
+    "dev:all": "node scripts/dev.cjs web tray",
     "build": "pnpm server:build && cd tray && pnpm build",
     "test": "cd server && PATH=\"$HOME/.cargo/bin:$PATH\" cargo test",
     "test:server": "cd server && PATH=\"$HOME/.cargo/bin:$PATH\" cargo test",
     "test:web": "cd web && pnpm test",
     "test:extension": "cd extension && pnpm test",
     "tray:test": "cd tray && pnpm test"
-  },
-  "devDependencies": {
-    "concurrently": "^9.2.1",
-    "wait-on": "^9.0.4"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

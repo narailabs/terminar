@@ -1,25 +1,59 @@
 <script lang="ts">
-  import { containerStore } from '../lib/containerStore.svelte';
+  import { containerStore, LOCAL_HOST, type HostKey } from '../lib/containerStore.svelte';
+  import { sshConnectionStore } from '../lib/sshConnectionStore.svelte';
 
   let {
     onselect,
+    onhostchange,
     onclose,
   }: {
-    onselect?: (containerId: string, containerName: string, shell: string) => void;
+    onselect?: (
+      containerId: string,
+      containerName: string,
+      shell: string,
+      sshConnectionId?: string,
+    ) => void;
+    /** Fires when the user picks a different Docker host. Caller should request the list for the new host. */
+    onhostchange?: (host: HostKey) => void;
     onclose?: () => void;
   } = $props();
 
   let selectedShell = $state('/bin/bash');
   const shellOptions = ['/bin/bash', '/bin/sh', '/bin/ash', '/bin/zsh'];
+
+  let selectedHost = $derived(containerStore.selectedHost);
+
+  function handleHostChange(e: Event) {
+    const key = (e.target as HTMLSelectElement).value;
+    containerStore.setSelectedHost(key);
+    onhostchange?.(key);
+  }
+
+  function handleSelect(container: { id: string; name: string }) {
+    const ssh = selectedHost === LOCAL_HOST ? undefined : selectedHost;
+    onselect?.(container.id, container.name, selectedShell, ssh);
+  }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="overlay" onclick={() => onclose?.()}>
+<div class="overlay" onmousedown={(e) => { if (e.target === e.currentTarget) onclose?.(); }}>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="picker" onclick={(e) => e.stopPropagation()} onkeydown={(e) => { if (e.key === 'Escape') onclose?.(); }}>
     <div class="header">
       <h3>Docker Containers</h3>
       <button class="close-btn" onclick={() => onclose?.()}>x</button>
+    </div>
+
+    <div class="host-bar">
+      <label>
+        Host:
+        <select value={selectedHost} onchange={handleHostChange}>
+          <option value={LOCAL_HOST}>Local Docker</option>
+          {#each sshConnectionStore.connections as conn}
+            <option value={conn.id}>{conn.name} ({conn.user}@{conn.host})</option>
+          {/each}
+        </select>
+      </label>
     </div>
 
     {#if containerStore.loading}
@@ -33,7 +67,7 @@
         {#each containerStore.containers as container}
           <button
             class="container-item"
-            onclick={() => onselect?.(container.id, container.name, selectedShell)}
+            onclick={() => handleSelect(container)}
           >
             <div class="container-name">{container.name}</div>
             <div class="container-meta">
@@ -102,6 +136,29 @@
     cursor: pointer;
     font-size: 14px;
     padding: 2px 6px;
+  }
+
+  .host-bar {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border-color, #333);
+    font-size: 12px;
+    color: var(--text-secondary, #888);
+  }
+
+  .host-bar label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .host-bar select {
+    background: var(--bg-primary, #1a1a1a);
+    color: var(--text-primary, #ccc);
+    border: 1px solid var(--border-color, #333);
+    border-radius: 4px;
+    padding: 3px 6px;
+    font-size: 12px;
+    flex: 1;
   }
 
   .status {

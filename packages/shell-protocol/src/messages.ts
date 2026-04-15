@@ -49,7 +49,7 @@ export const ClientMessageSchema = z.union([
   z.object({ type: z.literal('auth_pubkey_verify'), signature: z.string(), algorithm: z.string() }),
   z.object({ type: z.literal('auth_token'), token: z.string() }),
   z.object({ type: z.literal('refresh_token'), refresh_token: z.string() }),
-  z.object({ type: z.literal('list_containers') }),
+  z.object({ type: z.literal('list_containers'), ssh_connection_id: z.string().optional() }),
   z.object({ type: z.literal('list_ssh_connections') }),
   z.object({
     type: z.literal('add_ssh_connection'),

@@ -339,7 +339,7 @@
 </script>
 
 {#if isOpen}
-  <div class="modal-backdrop" on:click={handleBackdropClick} role="dialog" aria-modal="true">
+  <div class="modal-backdrop" on:mousedown={handleBackdropClick} role="dialog" aria-modal="true">
     <div class="editor-panel">
       <div class="panel-header">
         <h2>{headerText}</h2>

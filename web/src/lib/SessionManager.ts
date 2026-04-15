@@ -53,7 +53,7 @@ export interface SessionManager {
   resize(sessionId: string, cols: number, rows: number): void;
 
   // Docker integration
-  listContainers(): void;
+  listContainers(sshConnectionId?: string): void;
 
   // SSH integration
   listSshConnections(): void;

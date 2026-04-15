@@ -316,8 +316,12 @@ export abstract class BaseWebSocketManager extends TypedEmitter {
         this.sendRaw(msg);
     }
 
-    public listContainers() {
-        this.sendRaw({ type: 'list_containers' });
+    public listContainers(sshConnectionId?: string) {
+        const msg: Record<string, unknown> = { type: 'list_containers' };
+        if (sshConnectionId) {
+            msg.ssh_connection_id = sshConnectionId;
+        }
+        this.sendRaw(msg);
     }
 
     public listSshConnections() {

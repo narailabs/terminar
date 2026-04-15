@@ -76,7 +76,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-<div class="backdrop" role="dialog" onkeydown={handleKeyDown} onclick={handleBackdropClick}>
+<div class="backdrop" role="dialog" onkeydown={handleKeyDown} onmousedown={handleBackdropClick}>
   <div class="modal">
     <div class="modal-header">
       <h2>Environment Variables</h2>

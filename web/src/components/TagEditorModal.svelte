@@ -109,7 +109,7 @@
 
 {#if isOpen}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div class="modal-backdrop" onclick={handleBackdropClick} role="dialog" aria-modal="true">
+  <div class="modal-backdrop" onmousedown={handleBackdropClick} role="dialog" aria-modal="true">
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div class="editor-panel" role="document" onclick={(e) => e.stopPropagation()}>
       <div class="panel-header">

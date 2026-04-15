@@ -84,17 +84,29 @@ The server listens on a Unix socket and localhost HTTP. The Electron tray app is
 ### Root-level shortcuts (preferred)
 
 ```bash
-pnpm dev                     # Start server + tray (USE THIS BY DEFAULT)
-pnpm dev:web                 # Start server + web (for web frontend development)
-pnpm dev:all                 # Start server + web + tray (everything)
+pnpm dev                     # Start server (detached) + tray (USE THIS BY DEFAULT)
+pnpm dev:web                 # Start server (detached) + web (for web frontend development)
+pnpm dev:all                 # Start server (detached) + web + tray (everything)
+pnpm server:status           # Check if the detached dev server is running
+pnpm server:stop             # Stop the detached dev server
+pnpm server:restart          # Rebuild and restart the detached dev server
+pnpm server:logs             # Tail the detached dev server's log file
 pnpm build                   # Build server (release) + tray
 pnpm test                    # Test server
 pnpm test:server             # Test server only
 pnpm test:web                # Test web only
 pnpm test:extension          # Test extension only
-pnpm tray:dev                # Run tray app only (Electron dev)
+pnpm tray:dev                # Run tray app only (Electron dev; assumes server already running)
 pnpm tray:test               # Test tray app
 ```
+
+> **Server is detached from the UI.** `pnpm dev` starts the Rust server as a
+> detached background process (shared PID file at `~/.terminar/server.pid`).
+> Closing the tray, crashing Electron, or Ctrl+C on the `pnpm dev` terminal
+> all leave the server running — reopen the UI and it reattaches to existing
+> sessions. To actually stop the server, use `pnpm server:stop`.
+> The legacy `pnpm server:dev` script is still available for server-focused
+> iteration (runs attached; Ctrl+C kills it).
 
 ### Rust Server
 
@@ -164,7 +176,8 @@ pnpm test                    # Mocha tests (requires protocol dist/)
 | `web/src/lib/sessionContext.ts` | Svelte context API for session access |
 | `tray/src/main/index.ts` | Tray app entry (Electron lifecycle, orchestration) |
 | `tray/src/main/TrayManager.ts` | System tray icon + dynamic context menu |
-| `tray/src/main/ServerManager.ts` | Server process lifecycle management |
+| `npm/terminar/lib/server-manager.js` | Server process lifecycle (start/stop/status/logs) — shared by prod CLI and `scripts/dev.cjs` |
+| `scripts/dev.cjs` | Dev orchestrator: builds server, starts it detached, runs UI in foreground |
 | `docs/ARCHITECTURE.md` | Full architecture reference |
 | `docs/API.md` | API reference documentation |
 

@@ -84,7 +84,6 @@ Electron app — runs as a menu bar icon (macOS) or system tray (Linux/Windows).
 | `index.ts` | App lifecycle, orchestration, single instance lock |
 | `TrayManager.ts` | System tray icon + dynamic context menu from health/config state |
 | `HealthPoller.ts` | Polls server `/health` endpoint every 5s via `fetch()` |
-| `ServerManager.ts` | Server process lifecycle (start, stop, restart) |
 | `ConfigStore.ts` | `TrayConfig` persistence (`~/.terminar/tray-config.json`) |
 | `WindowManager.ts` | Settings/terminal window lifecycle |
 | `WebUIManager.ts` | Embedded web UI management |

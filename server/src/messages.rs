@@ -88,8 +88,13 @@ pub enum ClientMessage {
     },
 
     // === Docker container messages ===
-    /// Request the list of running Docker containers.
-    ListContainers,
+    /// Request the list of running Docker containers. When `ssh_connection_id`
+    /// is set, queries the Docker daemon on the remote host via
+    /// `DOCKER_HOST=ssh://...` instead of the local daemon.
+    ListContainers {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        ssh_connection_id: Option<String>,
+    },
 
     // === SSH connection messages ===
     /// Request the list of saved SSH connections.

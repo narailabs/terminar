@@ -182,24 +182,24 @@ describe('SettingsPanel - Settings Controls', () => {
     expect(closeFn).toHaveBeenCalled();
   });
 
-  it('backdrop click closes panel', async () => {
+  it('backdrop mousedown closes panel', async () => {
     const closeFn = vi.fn();
     render(SettingsPanel, {
       props: { isOpen: true, onclose: closeFn },
     });
     const backdrop = document.querySelector('.modal-backdrop');
-    // Click the backdrop itself (not a child element)
-    await fireEvent.click(backdrop!);
+    // Press down directly on the backdrop (not a child element)
+    await fireEvent.mouseDown(backdrop!);
     expect(closeFn).toHaveBeenCalled();
   });
 
-  it('clicking inside settings panel does not close via backdrop', async () => {
+  it('mousedown inside settings panel does not close via backdrop', async () => {
     const closeFn = vi.fn();
     render(SettingsPanel, {
       props: { isOpen: true, onclose: closeFn },
     });
     const panel = document.querySelector('.settings-panel');
-    await fireEvent.click(panel!);
+    await fireEvent.mouseDown(panel!);
     expect(closeFn).not.toHaveBeenCalled();
   });
 
