@@ -17,6 +17,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
    */
   openUrl: (url: string): Promise<void> =>
     ipcRenderer.invoke('tray:open-url', url),
+  /**
+   * Stat an absolute filesystem path. Used by the terminal's file-path link
+   * provider to decide whether a candidate path in PTY output should be
+   * rendered as clickable. Returns `{ exists: false }` for any invalid input
+   * or stat failure — never throws.
+   */
+  statPath: (absPath: string): Promise<{ exists: boolean; isFile: boolean }> =>
+    ipcRenderer.invoke('tray:stat-path', absPath),
+  /**
+   * Open an absolute filesystem path with the OS default handler (Finder /
+   * Preview on macOS, xdg-open on Linux, Explorer on Windows). Returns an
+   * error string on failure or null on success.
+   */
+  openPath: (absPath: string): Promise<string | null> =>
+    ipcRenderer.invoke('tray:open-path', absPath),
 });
 
 contextBridge.exposeInMainWorld('multiWindow', {

@@ -30,7 +30,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="overlay" onclick={() => oncancel?.()}>
+<div class="overlay" onmousedown={(e) => { if (e.target === e.currentTarget) oncancel?.(); }}>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="editor" onclick={(e) => e.stopPropagation()} onkeydown={(e) => { if (e.key === 'Escape') oncancel?.(); }}>
     <div class="header">

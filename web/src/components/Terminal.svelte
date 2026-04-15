@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { Terminal } from '@xterm/xterm';
+  import { Terminal, type IDisposable } from '@xterm/xterm';
   import { FitAddon } from '@xterm/addon-fit';
   import { WebglAddon } from '@xterm/addon-webgl';
   import { Unicode11Addon } from '@xterm/addon-unicode11';
@@ -13,8 +13,10 @@
   import { themeState, getTerminalTheme } from '../lib/themeStore.svelte';
   import { resizeState } from '../lib/resizeStore.svelte';
   import { TerminalResizeDebouncer } from '../lib/TerminalResizeDebouncer';
-  import { getManagerContext } from '../lib/sessionContext.svelte';
+  import { getManagerContext, getSessionsContext } from '../lib/sessionContext.svelte';
   import { workspaceStore } from '../lib/workspaceStore';
+  import { sessionCwdStore } from '../lib/sessionCwdStore.svelte';
+  import { FILE_PATH_REGEX, resolveTerminalPath } from '../lib/pathResolve';
 
   // Optional prop override (for tests that render without context).
   // Named _managerProp to avoid shadowing the `manager` local used throughout.
@@ -42,6 +44,13 @@
 
   const managerBox = getManagerContext();
   let manager = $derived(_managerProp !== undefined ? _managerProp : managerBox.value);
+
+  // Used by the file-path link provider to skip remote (Docker/SSH) sessions:
+  // paths in that output live on the remote filesystem, so opening them
+  // locally would either silently fail or — worse — open an unrelated local
+  // file with the same path.
+  const sessionsBox = getSessionsContext();
+  const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().includes('MAC');
 
   let terminalContainer: HTMLDivElement;
   let term = $state<Terminal>();
@@ -196,6 +205,15 @@
   // we unbind, so events for other sessions don't leak into our terminal.
   let boundClipboardHandler: ((sessionId: string, data: string) => void) | null = null;
   let boundOpenUrlHandler: ((sessionId: string, url: string) => void) | null = null;
+
+  // File-path link provider: detects paths like "wiki-workspace/REPORT.md" in
+  // terminal output and makes them Cmd/Ctrl-clickable. Re-registered per
+  // session so each provider captures the right sessionId for cwd lookup.
+  let fileLinkProvider: IDisposable | null = null;
+  // Cache of existence checks to avoid stat-storm on hover. Keyed by absolute
+  // path; TTL is short so edits outside terminar are picked up quickly.
+  const FILE_STAT_TTL_MS = 5000;
+  const fileStatCache = new Map<string, { exists: boolean; ts: number }>();
 
   // Write buffer: coalesces rapid output into a single term.write() per animation frame.
   // Without this, high-throughput programs (Claude Code, cat large-file, etc.) flood
@@ -804,6 +822,98 @@
       }
   }
 
+  type ElectronFileAPI = {
+      statPath?: (p: string) => Promise<{ exists: boolean; isFile: boolean }>;
+      openPath?: (p: string) => Promise<string | null>;
+  };
+
+  function getElectronFileAPI(): ElectronFileAPI | undefined {
+      return (globalThis as unknown as { electronAPI?: ElectronFileAPI }).electronAPI;
+  }
+
+  async function checkFileExists(absPath: string): Promise<boolean> {
+      const now = Date.now();
+      const cached = fileStatCache.get(absPath);
+      if (cached && now - cached.ts < FILE_STAT_TTL_MS) return cached.exists;
+      const api = getElectronFileAPI();
+      if (!api?.statPath) return false;
+      try {
+          const result = await api.statPath(absPath);
+          const ok = !!result?.exists && !!result?.isFile;
+          fileStatCache.set(absPath, { exists: ok, ts: now });
+          return ok;
+      } catch (e) {
+          console.warn(`[Terminal:${terminalInstanceId}] statPath failed for ${absPath}:`, e);
+          return false;
+      }
+  }
+
+  async function performOpenPath(absPath: string) {
+      const api = getElectronFileAPI();
+      if (!api?.openPath) {
+          console.warn(`[Terminal:${terminalInstanceId}] electronAPI.openPath unavailable — cannot open ${absPath}`);
+          return;
+      }
+      try {
+          const err = await api.openPath(absPath);
+          if (err) {
+              console.warn(`[Terminal:${terminalInstanceId}] openPath(${absPath}) failed: ${err}`);
+          }
+      } catch (e) {
+          console.warn(`[Terminal:${terminalInstanceId}] openPath threw:`, e);
+      }
+  }
+
+  /**
+   * Register the file-path link provider for a given local session. Disposes
+   * any previously installed provider. No-op for remote sessions (Docker/SSH)
+   * and for web (non-Electron) contexts where the required APIs are absent.
+   */
+  function registerFilePathProvider(sessionId: string, isRemote: boolean) {
+      if (fileLinkProvider) {
+          fileLinkProvider.dispose();
+          fileLinkProvider = null;
+      }
+      const api = getElectronFileAPI();
+      if (!term || isRemote || !api?.openPath || !api?.statPath) return;
+
+      fileLinkProvider = term.registerLinkProvider({
+          provideLinks: (bufferLineNumber, callback) => {
+              void (async () => {
+                  if (!term) { callback(undefined); return; }
+                  const line = term.buffer.active.getLine(bufferLineNumber - 1);
+                  if (!line) { callback(undefined); return; }
+                  const text = line.translateToString(true);
+                  FILE_PATH_REGEX.lastIndex = 0;
+                  const matches = [...text.matchAll(FILE_PATH_REGEX)];
+                  if (matches.length === 0) { callback(undefined); return; }
+
+                  const cwd = sessionCwdStore.get(sessionId);
+                  const links = await Promise.all(matches.map(async (m) => {
+                      const abs = resolveTerminalPath(m[1], cwd);
+                      if (!abs) return null;
+                      if (!(await checkFileExists(abs))) return null;
+                      const idx = m.index ?? 0;
+                      return {
+                          range: {
+                              start: { x: idx + 1, y: bufferLineNumber },
+                              end:   { x: idx + m[0].length, y: bufferLineNumber },
+                          },
+                          text: m[0],
+                          activate: (event: MouseEvent) => {
+                              if (!(isMac ? event.metaKey : event.ctrlKey)) return;
+                              void performOpenPath(abs);
+                          },
+                      };
+                  }));
+
+                  const filtered = links.filter((l): l is NonNullable<typeof l> => l !== null);
+                  callback(filtered.length > 0 ? filtered : undefined);
+              })();
+          },
+      });
+  }
+
   // Setup output + tool-action listeners — stores references for proper cleanup
   function setupOutputListener(mgr: SessionManager, sessionId: string) {
       // First cleanup any existing listener
@@ -867,6 +977,14 @@
 
           // Setup new listener (this also cleans up old one)
           setupOutputListener(manager, activeSessionId);
+
+          // File-path link provider: register for local sessions only. Remote
+          // sessions (Docker/SSH) display paths from the remote filesystem, so
+          // clicking them would target the wrong files.
+          const currentSession = sessionsBox.value.find(s => s.id === activeSessionId);
+          const isRemote = !!(currentSession?.container_id || currentSession?.ssh_connection_id);
+          registerFilePathProvider(activeSessionId, isRemote);
+          fileStatCache.clear();
 
           // Clear terminal and attach to new session when switching
           if (previousSessionId !== activeSessionId) {
@@ -1310,6 +1428,8 @@
     if (resizeDebouncer) resizeDebouncer.dispose();
     if (searchAddon) searchAddon.dispose();
     if (webglAddon) webglAddon.dispose();
+    if (fileLinkProvider) { fileLinkProvider.dispose(); fileLinkProvider = null; }
+    fileStatCache.clear();
     if (term) term.dispose();
     if (resizeObserver) resizeObserver.disconnect();
     // Use new cleanup function to properly remove listener

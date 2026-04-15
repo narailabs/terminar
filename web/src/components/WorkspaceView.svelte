@@ -475,7 +475,7 @@
   {/if}
 
   {#if renameModal}
-    <div class="rename-backdrop" onclick={() => renameModal = null} role="presentation">
+    <div class="rename-backdrop" onmousedown={(e) => { if (e.target === e.currentTarget) renameModal = null; }} role="presentation">
       <div class="rename-modal" onclick={(e) => e.stopPropagation()}>
         <div class="rename-header">Rename Terminal</div>
         <input
@@ -495,7 +495,7 @@
   {/if}
 
   {#if newTagModal}
-    <div class="rename-backdrop" onclick={() => newTagModal = null} role="presentation">
+    <div class="rename-backdrop" onmousedown={(e) => { if (e.target === e.currentTarget) newTagModal = null; }} role="presentation">
       <div class="rename-modal" onclick={(e) => e.stopPropagation()}>
         <div class="rename-header">New Tag</div>
         <input
