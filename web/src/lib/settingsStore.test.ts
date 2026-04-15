@@ -179,6 +179,20 @@ describe('settingsStore', () => {
     expect(stored.cursorStyle).toBe('underline');
   });
 
+  // ── 6b. defaultCwd round-trips through the store ───────────────────────
+
+  it('should default defaultCwd to empty string', () => {
+    expect(settingsStore.value.defaultCwd).toBe('');
+  });
+
+  it('updateSetting() should accept a defaultCwd path', () => {
+    settingsStore.updateSetting('defaultCwd', '/Users/me/code');
+    expect(settingsStore.get().defaultCwd).toBe('/Users/me/code');
+
+    const stored = JSON.parse(localStorageMock._getStore()['terminal-settings']);
+    expect(stored.defaultCwd).toBe('/Users/me/code');
+  });
+
   // ── 7. updateSettings() updates multiple keys ──────────────────────────
 
   it('updateSettings() should update multiple keys at once', () => {

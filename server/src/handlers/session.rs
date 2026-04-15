@@ -213,15 +213,18 @@ pub(crate) async fn handle_create_session(
         .session_name_counter
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-    let result = if let Some(cid) = container_id {
-        // Docker container session
-        create_docker_session(cid, cwd, shell, env, cols, rows, counter, sessions, state).await
-    } else if let Some(sid) = ssh_connection_id {
-        // SSH session
-        create_ssh_session(sid, cwd, shell, cols, rows, counter, sessions, state)
-    } else {
-        // Local shell session
-        create_local_session(cwd, shell, env, cols, rows, counter, sessions, state)
+    // Routing: container_id present → Docker session (local or remote,
+    // depending on whether ssh_connection_id is also set). ssh_connection_id
+    // alone → SSH shell session. Neither → local shell session.
+    let result = match (container_id, ssh_connection_id) {
+        (Some(cid), ssh) => {
+            create_docker_session(cid, ssh, cwd, shell, env, cols, rows, counter, sessions, state)
+                .await
+        }
+        (None, Some(sid)) => {
+            create_ssh_session(sid, cwd, shell, cols, rows, counter, sessions, state)
+        }
+        (None, None) => create_local_session(cwd, shell, env, cols, rows, counter, sessions, state),
     };
 
     match result {
@@ -282,6 +285,33 @@ fn enrich_session_list(mut list: Vec<SessionInfo>) -> Vec<SessionInfo> {
     list
 }
 
+/// Expand a leading `~/` in a path using the session env's `HOME`, falling
+/// back to the server process's `HOME`. Returns the original string if it
+/// doesn't start with `~/`. A bare `~` (without a slash) is also expanded
+/// to `$HOME`. Empty strings pass through unchanged.
+fn expand_tilde(cwd: &str, env: &HashMap<String, String>) -> String {
+    if cwd == "~" {
+        return home_dir(env);
+    }
+    if let Some(rest) = cwd.strip_prefix("~/") {
+        let home = home_dir(env);
+        if home.is_empty() {
+            // Can't expand without HOME; return original so resolve_cwd can
+            // produce an error a caller can react to.
+            return cwd.to_string();
+        }
+        return format!("{}/{}", home.trim_end_matches('/'), rest);
+    }
+    cwd.to_string()
+}
+
+fn home_dir(env: &HashMap<String, String>) -> String {
+    env.get("HOME")
+        .cloned()
+        .or_else(|| std::env::var("HOME").ok())
+        .unwrap_or_default()
+}
+
 /// Create a local shell session (existing behavior).
 #[allow(clippy::too_many_arguments)]
 fn create_local_session(
@@ -295,7 +325,13 @@ fn create_local_session(
     state: &AppState,
 ) -> Result<String, String> {
     let resolved_shell = terminar_core::engine::resolve_shell(shell);
-    let resolved_cwd = terminar_core::engine::resolve_cwd(cwd);
+
+    // Expand a leading `~/` so users can configure a default folder like
+    // `~/code` in settings. `terminar_core::engine::resolve_cwd` doesn't do
+    // this (and lives in an external crate), so handle it here.
+    let expanded_cwd = expand_tilde(cwd, env);
+
+    let resolved_cwd = terminar_core::engine::resolve_cwd(&expanded_cwd);
 
     if let Some(error_msg) = terminar_core::engine::validate_shell(&resolved_shell) {
         return Err(error_msg);
@@ -327,10 +363,15 @@ fn create_local_session(
     .map_err(|e| format!("Failed to create session: {}", e))
 }
 
-/// Create a Docker container session via `docker exec`.
+/// Create a Docker container session via `docker exec`. When
+/// `ssh_connection_id` is `Some`, targets the Docker daemon on the remote host
+/// by setting `DOCKER_HOST=ssh://user@host:port` on the spawned `docker`
+/// process; Docker 18.09+ tunnels the daemon socket over SSH using the local
+/// `ssh` binary.
 #[allow(clippy::too_many_arguments)]
 async fn create_docker_session(
     container_id: &str,
+    ssh_connection_id: Option<&str>,
     cwd: &str,
     shell: &str,
     env: &HashMap<String, String>,
@@ -340,8 +381,17 @@ async fn create_docker_session(
     sessions: &SessionMap,
     state: &AppState,
 ) -> Result<String, String> {
-    // Validate container exists and is running
-    super::docker::validate_container(container_id).await?;
+    // Resolve SSH connection if this is a remote Docker session.
+    let ssh_conn = match ssh_connection_id {
+        Some(id) => Some(
+            super::ssh::get_connection(id)
+                .ok_or_else(|| format!("SSH connection '{}' not found", id))?,
+        ),
+        None => None,
+    };
+
+    // Validate container exists and is running on the target daemon.
+    super::docker::validate_container(container_id, ssh_conn.as_ref()).await?;
 
     // Resolve shell — default to /bin/sh for containers (more universally available)
     let resolved_shell = if shell.is_empty() {
@@ -355,6 +405,16 @@ async fn create_docker_session(
 
     // Build docker exec command
     let mut cmd = CommandBuilder::new("docker");
+
+    // For remote Docker, set DOCKER_HOST so the local `docker` binary tunnels
+    // the daemon socket over SSH. The value is passed as a process env var
+    // (not through a shell), so no shell quoting is needed — but
+    // `validate_ssh_uri_parts` has already rejected URIs with unusual chars.
+    if let Some(conn) = ssh_conn.as_ref() {
+        super::docker::validate_ssh_uri_parts(&conn.user, &conn.host)?;
+        cmd.env("DOCKER_HOST", super::docker::build_docker_host_uri(conn));
+    }
+
     cmd.arg("exec");
     cmd.arg("-it");
 
@@ -393,9 +453,12 @@ async fn create_docker_session(
     cmd.arg(&resolved_shell);
 
     // Look up container name for display
-    let container_name = super::docker::get_container_name(container_id).await;
+    let container_name = super::docker::get_container_name(container_id, ssh_conn.as_ref()).await;
     let display_name = container_name.as_deref().unwrap_or(container_id);
-    let name = format!("{}: Terminal {}", display_name, counter);
+    let name = match ssh_conn.as_ref() {
+        Some(conn) => format!("{}/{}: Terminal {}", conn.name, display_name, counter),
+        None => format!("{}: Terminal {}", display_name, counter),
+    };
 
     terminar_core::engine::create_session_with_command(
         None,
@@ -409,7 +472,7 @@ async fn create_docker_session(
         state.mock_provider.as_ref(),
         None,
         Some(container_id.to_string()),
-        None,
+        ssh_connection_id.map(|s| s.to_string()),
     )
     .map_err(|e| format!("Failed to create Docker session: {}", e))
 }
@@ -826,5 +889,50 @@ mod tests {
         let exec_pos = after_start.find(" exec ").expect("exec not found");
         let pc_value = &after_start[..exec_pos];
         assert!(pc_value.ends_with('\''), "PROMPT_COMMAND value not terminated by single quote: {}", pc_value);
+    }
+
+    // ---- expand_tilde ----
+
+    fn env_with_home(home: &str) -> HashMap<String, String> {
+        let mut m = HashMap::new();
+        m.insert("HOME".to_string(), home.to_string());
+        m
+    }
+
+    #[test]
+    fn expand_tilde_prefix() {
+        let env = env_with_home("/Users/me");
+        assert_eq!(expand_tilde("~/code", &env), "/Users/me/code");
+    }
+
+    #[test]
+    fn expand_tilde_bare() {
+        let env = env_with_home("/Users/me");
+        assert_eq!(expand_tilde("~", &env), "/Users/me");
+    }
+
+    #[test]
+    fn expand_tilde_absolute_untouched() {
+        let env = env_with_home("/Users/me");
+        assert_eq!(expand_tilde("/tmp/x", &env), "/tmp/x");
+    }
+
+    #[test]
+    fn expand_tilde_empty_untouched() {
+        let env = env_with_home("/Users/me");
+        assert_eq!(expand_tilde("", &env), "");
+    }
+
+    #[test]
+    fn expand_tilde_tilde_in_middle_untouched() {
+        let env = env_with_home("/Users/me");
+        // Only a leading `~/` triggers expansion.
+        assert_eq!(expand_tilde("/path/~/foo", &env), "/path/~/foo");
+    }
+
+    #[test]
+    fn expand_tilde_trailing_slash_in_home() {
+        let env = env_with_home("/Users/me/");
+        assert_eq!(expand_tilde("~/code", &env), "/Users/me/code");
     }
 }

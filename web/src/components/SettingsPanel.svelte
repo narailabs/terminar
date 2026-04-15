@@ -141,6 +141,11 @@
     settingsStore.updateSetting('autoScroll', target.checked);
   }
 
+  function handleDefaultCwdChange(event: Event) {
+    const target = event.target as HTMLInputElement;
+    settingsStore.updateSetting('defaultCwd', target.value.trim());
+  }
+
   // Line height disabled - breaks TUI apps
 
   // All available UI and terminal themes (built-in + custom)
@@ -350,7 +355,7 @@
 </script>
 
 {#if isOpen}
-  <div class="modal-backdrop" onclick={handleBackdropClick} role="dialog" aria-modal="true">
+  <div class="modal-backdrop" onmousedown={handleBackdropClick} role="dialog" aria-modal="true">
     <div class="settings-panel" bind:this={panelElement}>
       <div class="panel-header">
         <h2>Terminal Settings</h2>
@@ -490,6 +495,21 @@
                 oninput={handleControlsZoomChange}
                 ondblclick={() => settingsStore.updateSetting('controlsZoom', 1)}
               />
+            </div>
+
+            <!-- Default Folder -->
+            <div class="setting-group">
+              <label for="defaultCwd">Default Folder for New Terminals</label>
+              <input
+                type="text"
+                id="defaultCwd"
+                class="text-input"
+                data-testid="default-cwd"
+                placeholder="e.g. ~/code or /Users/you/projects"
+                value={settings.defaultCwd ?? ''}
+                onchange={handleDefaultCwdChange}
+              />
+              <span class="field-hint">Leave empty to use $HOME. Split panes and "New Terminal in Pane" still inherit the current folder.</span>
             </div>
 
             <!-- Environment Variables -->
@@ -1095,5 +1115,23 @@
     font-size: 11px;
     color: var(--ui-text-muted, #6c7086);
     margin-top: 2px;
+  }
+
+  .text-input {
+    width: 100%;
+    background: var(--ui-bg-tertiary, #242629);
+    color: var(--ui-text-primary, #fdfbfe);
+    border: 1px solid var(--ui-border, #555);
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s;
+    box-sizing: border-box;
+  }
+
+  .text-input:focus {
+    border-color: var(--ui-accent, #a0a7ff);
   }
 </style>
