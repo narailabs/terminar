@@ -1,36 +1,95 @@
 #!/usr/bin/env bash
-# dev-fresh.sh — kill everything, clean all artifacts, full rebuild, then run server + tray.
+# dev-fresh.sh — kill everything, clean all artifacts, full rebuild, then run
+# server + tray.
+#
+# The server is started DETACHED via npm/terminar/lib/server-manager.js (the
+# same module `pnpm dev` and the production `terminar` CLI use). That means
+# closing the tray or Ctrl+C'ing this script does NOT kill the server — your
+# PTY sessions survive. Use `pnpm server:stop` to stop the server explicitly.
+
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO"
 
 # ── Colours ───────────────────────────────────────────────────────────────────
-RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
+RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'; YELLOW='\033[0;33m'; BOLD='\033[1m'; NC='\033[0m'
 step() { echo -e "\n${BOLD}${CYAN}▶ $*${NC}"; }
 ok()   { echo -e "${GREEN}✓ $*${NC}"; }
+warn() { echo -e "${YELLOW}⚠ $*${NC}"; }
 
 # ── Cleanup on exit ───────────────────────────────────────────────────────────
-SERVER_PID=""
+# We only clean up the web dev server here (it's a child of this shell). The
+# Rust PTY server is detached and intentionally stays alive.
 WEB_PID=""
 cleanup() {
-  echo -e "\n${RED}→ Shutting down...${NC}"
-  [[ -n "$SERVER_PID" ]] && kill "$SERVER_PID" 2>/dev/null || true
-  [[ -n "$WEB_PID" ]] && kill "$WEB_PID" 2>/dev/null || true
-  pkill -f "$REPO/server/target/release/terminar-server" 2>/dev/null || true
-  pkill -f "$REPO/web/node_modules" 2>/dev/null || true
-  pkill -f "$REPO/tray/node_modules" 2>/dev/null || true
+  local exit_code=$?
+  set +e
+  if [[ -n "$WEB_PID" ]]; then
+    kill "$WEB_PID" 2>/dev/null
+    pkill -P "$WEB_PID" 2>/dev/null
+  fi
+  # If the server was started in this run, tell the user where to go next.
+  if [[ -f "$HOME/.terminar/server.pid" ]]; then
+    local server_pid
+    server_pid=$(cat "$HOME/.terminar/server.pid" 2>/dev/null || echo "?")
+    echo ""
+    if [[ $exit_code -eq 0 ]]; then
+      echo -e "${GREEN}▶ UI closed. Server still running (PID ${server_pid}).${NC}"
+    else
+      echo -e "${GREEN}▶ Exited (code ${exit_code}). Server still running (PID ${server_pid}).${NC}"
+    fi
+    echo "  - Reopen UI:   pnpm dev  (or ./dev-fresh.sh for a fresh rebuild)"
+    echo "  - Stop server: pnpm server:stop"
+    echo "  - Server logs: pnpm server:logs"
+  fi
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+
+# ── Kill any existing terminar Electron processes ─────────────────────────────
+# Needs its own function because the real Electron binary lives under
+# node_modules/.pnpm/electron@.../... — the old `pkill -f $REPO/tray/...`
+# patterns didn't match. We identify terminar's Electron processes by their
+# shared user-data-dir (`~/Library/Application Support/terminar`), then kill
+# both the helpers and their main-process parents.
+kill_terminar_electron() {
+  local helpers
+  helpers=$(pgrep -f "Library/Application Support/terminar" 2>/dev/null || true)
+  if [[ -z "$helpers" ]]; then
+    return 0
+  fi
+  # Kill the main Electron process (parent of each helper)
+  local pid parent
+  for pid in $helpers; do
+    parent=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ' || true)
+    if [[ -n "$parent" && "$parent" != "1" && "$parent" != "0" ]]; then
+      kill -9 "$parent" 2>/dev/null || true
+    fi
+  done
+  # Kill the helpers themselves (in case the main was already gone)
+  for pid in $helpers; do
+    kill -9 "$pid" 2>/dev/null || true
+  done
+}
 
 # ── 1. Kill all project processes ─────────────────────────────────────────────
 step "Killing all project processes..."
-pkill -9 -f "terminar-server" 2>/dev/null || true
+kill_terminar_electron
+pkill -9 -f "$REPO/server/target/.*/terminar-server" 2>/dev/null || true
 pkill -9 -f "$REPO/tray/node_modules" 2>/dev/null || true
 pkill -9 -f "$REPO/web/node_modules" 2>/dev/null || true
-pkill -9 -f "$REPO/node_modules/.bin" 2>/dev/null || true
+pkill -9 -f "$REPO/scripts/dev\.cjs" 2>/dev/null || true
+pkill -9 -f "$REPO/node_modules/\.bin" 2>/dev/null || true
 # Give ports a moment to free
 sleep 1
+# Clean up stale PID file if process is gone — server-manager.js also handles
+# this, but doing it explicitly here makes the "fresh" semantic obvious.
+if [[ -f "$HOME/.terminar/server.pid" ]]; then
+  PID=$(cat "$HOME/.terminar/server.pid" 2>/dev/null || echo "")
+  if [[ -n "$PID" ]] && ! kill -0 "$PID" 2>/dev/null; then
+    rm -f "$HOME/.terminar/server.pid"
+  fi
+fi
 ok "Processes killed"
 
 # ── 2. Clean all build artifacts ──────────────────────────────────────────────
@@ -72,24 +131,25 @@ cd "$REPO/web"
 pnpm build
 ok "Web frontend built"
 
-# ── 6. Start server ───────────────────────────────────────────────────────────
-step "Starting server on :6750..."
+# ── 6. Start server (DETACHED — survives Ctrl+C and UI close) ─────────────────
+step "Starting server on :6750 (detached)..."
 cd "$REPO"
-server/target/release/terminar-server --no-auth --port 6750 &
-SERVER_PID=$!
-
-# Wait up to 10s for server to be ready
-for i in $(seq 1 20); do
-  if curl -sf http://127.0.0.1:6750/health >/dev/null 2>&1; then
-    ok "Server ready (pid $SERVER_PID)"
-    break
-  fi
-  if ! kill -0 "$SERVER_PID" 2>/dev/null; then
-    echo -e "${RED}✗ Server process died. Check output above.${NC}"
-    exit 1
-  fi
-  sleep 0.5
-done
+SERVER_BIN="$REPO/server/target/release/terminar-server"
+# server-manager.js handles: detached:true + unref() + PID file + macOS codesign
+node -e '
+  const sm = require("./npm/terminar/lib/server-manager.js");
+  const bin = process.argv[1];
+  (async () => {
+    const existing = sm.getRunningPid();
+    if (existing) {
+      console.log("Server already running (PID " + existing + ")");
+      return;
+    }
+    sm.start(bin, 6750);
+    await sm.waitForHealth(6750, 10000);
+  })().catch(e => { console.error(e.message || e); process.exit(1); });
+' "$SERVER_BIN"
+ok "Server ready (logs: ~/.terminar/logs/server.log)"
 
 # ── 7. Start web dev server ───────────────────────────────────────────────────
 step "Starting web dev server on :3001..."
@@ -98,7 +158,7 @@ pnpm dev &
 WEB_PID=$!
 ok "Web dev server started (pid $WEB_PID) → http://localhost:3001"
 
-# ── 8. Start tray (foreground) ────────────────────────────────────────────────
+# ── 8. Start tray (foreground — this waits until the tray exits) ──────────────
 step "Starting tray..."
 cd "$REPO/tray"
 pnpm dev

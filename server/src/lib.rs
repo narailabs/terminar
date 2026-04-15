@@ -1363,8 +1363,8 @@ async fn process_message_inner(
         ClientMessage::LoadWorkspace => {
             handlers::workspace::handle_load_workspace(client_id, tx_out).await?;
         }
-        ClientMessage::ListContainers => {
-            handlers::docker::handle_list_containers(tx_out).await?;
+        ClientMessage::ListContainers { ssh_connection_id } => {
+            handlers::docker::handle_list_containers(ssh_connection_id.as_deref(), tx_out).await?;
         }
         ClientMessage::ListSshConnections => {
             handlers::ssh::handle_list_ssh_connections(tx_out).await?;

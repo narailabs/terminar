@@ -291,6 +291,83 @@ Sent to connected clients when the server is shutting down gracefully.
 
 ---
 
+## Working Directory Tracking for Remote Sessions
+
+For local shell sessions, the server polls `tcgetpgrp(pty_fd)` and `/proc/<pid>/cwd` to keep `session.cwd` fresh and emits `CwdChanged` events as the user runs `cd`.
+
+For SSH and Docker sessions this polling path does not work — the pty fd points at the local `ssh` or `docker` wrapper process, not at the remote shell. Instead, the server parses **OSC 7** escape sequences emitted by the remote shell from the session's output stream:
+
+```
+ESC ] 7 ; file://HOSTNAME/PATH ST
+```
+
+where `ST` is `BEL` (0x07) or `ESC \` (0x1b 0x5c) and `PATH` is percent-encoded.
+
+### Auto-injection for bash / sh targets
+
+When the SSH or Docker connection targets `/bin/bash` or `/bin/sh`, terminar auto-injects `PROMPT_COMMAND` as an environment variable at session creation so bash emits OSC 7 on every prompt. No remote configuration is required for the common case (vanilla Linux + bash, SSH to another Mac, `docker exec` into a bash/Alpine container).
+
+Mechanism:
+
+- **SSH**: the inline remote command becomes `cd <cwd> && PROMPT_COMMAND='printf "\033]7;file://%s%s\007" "${HOSTNAME:-$(hostname)}" "$PWD"' exec /bin/bash`, which bash inherits from the environment on startup.
+- **Docker**: `docker exec` receives an additional `-e PROMPT_COMMAND=...` flag with the same value.
+
+### Manual configuration (zsh, fish, or a ~/.bashrc that overwrites PROMPT_COMMAND)
+
+Auto-injection only covers bash/sh targets, and it does not survive a remote `~/.bashrc` that unconditionally assigns `PROMPT_COMMAND`. In those cases, add a snippet to the remote rc file manually.
+
+**bash** — append to `~/.bashrc`:
+
+```bash
+case "$TERM" in
+  xterm*|rxvt*|screen*|tmux*)
+    PROMPT_COMMAND='printf "\033]7;file://%s%s\033\\" "${HOSTNAME}" "${PWD}"'"${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
+    ;;
+esac
+```
+
+**zsh** — append to `~/.zshrc`:
+
+```zsh
+precmd() { printf '\033]7;file://%s%s\033\\' "${HOST}" "${PWD}" }
+```
+
+macOS hosts already emit OSC 7 by default via `/etc/bashrc` and `/etc/zshrc_Apple_Terminal`.
+
+### Process-name tracking
+
+The `ForegroundChanged` event / process badge is not currently available for SSH or Docker sessions — there is no cheap remote-aware mechanism. The pane's process badge is omitted for remote sessions.
+
+---
+
+## Clickable File Paths in Terminal Output
+
+Paths that appear in terminal output — e.g. `wiki-workspace/REPORT.md`, `./docs/API.md`, `/etc/hosts.md`, or `src/main.rs:42:5` — render as Cmd-click (macOS) / Ctrl-click (Linux/Windows) links and open with the OS default viewer (Finder/Preview on macOS, `xdg-open` on Linux, Explorer on Windows).
+
+Detection rules (matched in the renderer, see `web/src/lib/pathResolve.ts`):
+
+- Path must either carry an explicit prefix (`./`, `../`, `~/`, `/`) or contain at least one interior `/`.
+- Path must end in a recognized extension (markdown, source code, config, image, …). Unknown extensions are not linkified to keep signal-to-noise high.
+- Optional `:line` or `:line:col` suffix is captured but not currently passed to the opener.
+- URLs (http / https / file) are excluded — they are handled separately by xterm's `WebLinksAddon`.
+
+Before a candidate is rendered as clickable, the renderer verifies the resolved absolute path exists and is a regular file via `tray:stat-path` (short TTL cache keyed by path). This prevents spurious underlines on text that happens to match the regex. Relative paths are resolved against the session's current working directory from `sessionCwdStore` (populated via the OSC 7 mechanism described above).
+
+File-path links are **not** registered for remote sessions (Docker / SSH) because the displayed paths live on the remote filesystem — opening them on the user's local machine would target the wrong files (or silently fail).
+
+### Tray IPC
+
+Two `ipcMain.handle` channels back this feature (renderer calls them via `window.electronAPI` exposed in `tray/src/preload/terminal.ts`):
+
+| Channel | Argument | Returns | Purpose |
+|---------|----------|---------|---------|
+| `tray:stat-path` | `absPath: string` | `{ exists: boolean, isFile: boolean }` | Check existence before marking a path clickable. 500 ms timeout; any error yields `{exists:false, isFile:false}`. |
+| `tray:open-path` | `absPath: string` | `string \| null` | Open with OS default handler (`shell.openPath`). Returns an error string on failure or `null` on success. |
+
+Both handlers validate input: only absolute paths (leading `/`) or home-relative paths (`~/…`) are accepted; strings containing a null byte or exceeding 4096 chars are rejected. `~/` is expanded using `os.homedir()` in the main process; renderers never need to know the user's home path.
+
+---
+
 ## REST Endpoints
 
 ### GET /health

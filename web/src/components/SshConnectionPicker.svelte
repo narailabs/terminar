@@ -23,7 +23,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="overlay" onclick={() => onclose?.()}>
+<div class="overlay" onmousedown={(e) => { if (e.target === e.currentTarget) onclose?.(); }}>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="picker" onclick={(e) => e.stopPropagation()} onkeydown={(e) => { if (e.key === 'Escape') onclose?.(); }}>
     <div class="header">
