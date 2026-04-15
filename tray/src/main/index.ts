@@ -1,6 +1,6 @@
 // index.ts — App entry point, lifecycle, and orchestration.
 
-import { app, BrowserWindow, globalShortcut, nativeImage } from 'electron';
+import { app, BrowserWindow, globalShortcut, ipcMain, nativeImage } from 'electron';
 import path from 'path';
 import { ConfigStore } from './ConfigStore.js';
 import { HealthPoller } from './HealthPoller.js';
@@ -56,12 +56,14 @@ void app.whenReady().then(() => {
   const config = configStore.load();
   const healthPoller = new HealthPoller();
   windowManager = new WindowManager();
+  // Local non-null handle so TypeScript + closures below can use `wm` safely.
+  const wm = windowManager;
 
   // Create the tray (builds initial menu internally)
   const trayManager = new TrayManager(
     configStore,
     healthPoller,
-    windowManager,
+    wm,
     { serverPort },
   );
 
@@ -69,7 +71,7 @@ void app.whenReady().then(() => {
   registerIpcHandlers(
     configStore,
     healthPoller,
-    windowManager,
+    wm,
   );
 
   // Wire health updates to menu rebuild
@@ -80,13 +82,30 @@ void app.whenReady().then(() => {
   // Start health polling
   healthPoller.start(serverPort ?? config.server_port);
 
+  // Main-process memory + state telemetry.
+  // Logs one [mem] line every 60s so multi-day leaks are visible from stdout.
+  // Cheap: ~1 console.log/min, no dependencies. Keep default-on.
+  const memTimer = setInterval(() => {
+    const mu = process.memoryUsage();
+    const fmt = (n: number) => Math.round(n / (1024 * 1024));
+    console.log('[mem]', {
+      rss_mb: fmt(mu.rss),
+      heapUsed_mb: fmt(mu.heapUsed),
+      heapTotal_mb: fmt(mu.heapTotal),
+      external_mb: fmt(mu.external),
+      arrayBuffers_mb: fmt(mu.arrayBuffers),
+      windows: BrowserWindow.getAllWindows().length,
+      tracked_windows: wm.windowCount(),
+      ipc_events: ipcMain.eventNames().length,
+    });
+  }, 60_000);
+  app.on('before-quit', () => clearInterval(memTimer));
+
   // Multi-window coordination (tab-per-window model)
   const multiWindow = new MultiWindowCoordinator();
   multiWindow.setupIpc();
 
   // Cmd+N / Ctrl+N: open a new terminal window with the next available tab.
-  // Capture a local const so TypeScript knows it's non-null inside the callback.
-  const wm = windowManager;
   globalShortcut.register('CommandOrControl+N', async () => {
     // Find the primary terminal window to query tab state from the renderer
     const primaryWin = wm.getWindow('terminal');
