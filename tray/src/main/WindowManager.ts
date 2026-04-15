@@ -177,6 +177,15 @@ export class WindowManager {
     return false;
   }
 
+  /** Number of tracked (not yet destroyed) windows — used by main-process telemetry. */
+  windowCount(): number {
+    let count = 0;
+    for (const [, win] of this.windows) {
+      if (!win.isDestroyed()) count++;
+    }
+    return count;
+  }
+
   // ------------------------------------------------------------------
   // Internal helpers
   // ------------------------------------------------------------------

@@ -28,6 +28,11 @@ export class TrayManager {
   private healthPoller: HealthPoller;
   private windowManager: WindowManager;
   private serverPort: number;
+  // Memoize the last-rendered spec so updateMenu() can skip the native
+  // Menu.buildFromTemplate + setContextMenu calls when nothing changed.
+  // Called every 5s by HealthPoller — without this guard, native Menu
+  // allocations pile up over multi-day runs (>100K per week).
+  private lastSpecKey: string | null = null;
 
   constructor(
     configStore: ConfigStore,
@@ -79,6 +84,11 @@ export class TrayManager {
     const health = this.healthPoller.latestHealth;
 
     const spec = computeMenuSpec(health, this.serverPort);
+
+    const specKey = `${spec.status_text}|${spec.is_running ? '1' : '0'}|${this.serverPort}`;
+    if (this.lastSpecKey === specKey) return;
+    this.lastSpecKey = specKey;
+    console.log('[tray] menu rebuilt', { reason: specKey });
 
     const menuTemplate: Electron.MenuItemConstructorOptions[] = [];
 
