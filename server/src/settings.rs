@@ -39,6 +39,12 @@ pub struct TerminalSettings {
     /// Line height multiplier (1.0-2.0, default 1.0)
     #[serde(default = "default_line_height")]
     pub line_height: f32,
+
+    /// Default cwd for new terminal sessions. Empty = $HOME.
+    /// Applies only to fresh new terminals — splits and new-in-pane
+    /// still inherit the source pane's cwd.
+    #[serde(default = "default_default_cwd")]
+    pub default_cwd: String,
 }
 
 // Default value functions for serde
@@ -63,6 +69,9 @@ fn default_cursor_blink() -> bool {
 fn default_line_height() -> f32 {
     1.0
 }
+fn default_default_cwd() -> String {
+    String::new()
+}
 
 impl Default for TerminalSettings {
     fn default() -> Self {
@@ -74,6 +83,7 @@ impl Default for TerminalSettings {
             cursor_style: default_cursor_style(),
             cursor_blink: default_cursor_blink(),
             line_height: default_line_height(),
+            default_cwd: default_default_cwd(),
         }
     }
 }
@@ -117,6 +127,11 @@ impl TerminalSettings {
 
         // Clamp line height to 1.0-2.0
         self.line_height = self.line_height.clamp(1.0, 2.0);
+
+        // Trim whitespace from default_cwd. Don't validate path existence here —
+        // external drives may be disconnected at load time. Path is re-validated
+        // at session creation time in create_local_session.
+        self.default_cwd = self.default_cwd.trim().to_string();
     }
 }
 
@@ -220,6 +235,25 @@ mod tests {
         assert_eq!(settings.cursor_style, "block");
         assert!(settings.cursor_blink);
         assert_eq!(settings.line_height, 1.0);
+        assert_eq!(settings.default_cwd, "");
+    }
+
+    #[test]
+    fn test_default_cwd_missing_field() {
+        // Pre-existing settings files won't have default_cwd; serde default must fill it.
+        let json = "{\"fontSize\":14}";
+        let settings: TerminalSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.default_cwd, "");
+    }
+
+    #[test]
+    fn test_validate_trims_default_cwd() {
+        let mut settings = TerminalSettings {
+            default_cwd: "  /Users/me/code  ".to_string(),
+            ..Default::default()
+        };
+        settings.validate();
+        assert_eq!(settings.default_cwd, "/Users/me/code");
     }
 
     #[test]
@@ -308,6 +342,7 @@ mod tests {
         assert!(json.contains("cursorStyle"));
         assert!(json.contains("cursorBlink"));
         assert!(json.contains("lineHeight"));
+        assert!(json.contains("defaultCwd"));
     }
 
     #[test]

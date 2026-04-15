@@ -45,6 +45,7 @@ export interface TerminalSettings {
   titleBarFields: TitleBarFieldEntry[];
   terminalZoom: number;    // 0.5-2.0, default 1.0 — multiplier for terminal font size
   controlsZoom: number;    // 0.5-2.0, default 1.0 — multiplier for all non-terminal UI
+  defaultCwd: string;      // '' = use $HOME. Applies only to fresh new terminals; splits and new-in-pane still inherit.
 }
 
 /**
@@ -60,6 +61,7 @@ export const DEFAULT_SETTINGS: TerminalSettings = {
   titleBarFields: [...DEFAULT_TITLE_BAR_FIELDS],
   terminalZoom: 1.0,
   controlsZoom: 1.0,
+  defaultCwd: '',
 };
 
 /**

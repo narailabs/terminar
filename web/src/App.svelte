@@ -411,7 +411,8 @@
     const estimatedCols = Math.max(40, Math.floor((window.innerWidth * 0.75) / 8));
     const estimatedRows = Math.max(10, Math.floor((window.innerHeight * 0.85) / 17));
     const envVars = getEffectiveEnv();
-    manager?.createSession('', '', envVars, estimatedCols, estimatedRows);
+    const defaultCwd = settingsStore.get().defaultCwd || '';
+    manager?.createSession(defaultCwd, '', envVars, estimatedCols, estimatedRows);
   }
 
   function createNewTerminalWithCwd(targetPaneId: string, cwd: string) {
@@ -444,20 +445,40 @@
     manager?.createSession(cwd, shell, envVars, estimatedCols, estimatedRows);
   }
 
-  function createDockerTerminal(containerId: string, containerName: string, shell = '/bin/sh', targetPaneId?: string) {
+  function createDockerTerminal(
+    containerId: string,
+    containerName: string,
+    shell = '/bin/sh',
+    sshConnectionId?: string,
+    targetPaneId?: string,
+  ) {
     pendingNewTerminal = true;
     pendingNewTerminalPaneId = targetPaneId || null;
     const estimatedCols = Math.max(40, Math.floor((window.innerWidth * 0.75) / 8));
     const estimatedRows = Math.max(10, Math.floor((window.innerHeight * 0.85) / 17));
     const envVars = getEffectiveEnv();
-    manager?.createSession('', shell, envVars, estimatedCols, estimatedRows, containerId);
+    manager?.createSession('', shell, envVars, estimatedCols, estimatedRows, containerId, sshConnectionId);
     showContainerPicker = false;
   }
 
   function handleDockerCreate() {
+    // Refresh the SSH connections list so the picker's host selector is
+    // current with any connections added since the last refresh.
+    manager?.listSshConnections();
+
+    // Request a fresh container list for the currently selected host.
+    // Cache TTL in containerStore avoids re-tunneling on every open, but
+    // we still request once on every open so the user sees recent state
+    // when the cache has expired.
     containerStore.setLoading();
-    manager?.listContainers();
+    const host = containerStore.selectedHost;
+    manager?.listContainers(host === 'local' ? undefined : host);
     showContainerPicker = true;
+  }
+
+  function handleContainerHostChange(host: string) {
+    containerStore.setLoading();
+    manager?.listContainers(host === 'local' ? undefined : host);
   }
 
   function createSshTerminal(connectionId: string, _connectionName: string, shell = '/bin/bash', targetPaneId?: string) {
@@ -598,7 +619,9 @@
   <!-- Docker Container Picker -->
   {#if showContainerPicker}
     <ContainerPicker
-      onselect={(containerId, containerName, shell) => createDockerTerminal(containerId, containerName, shell)}
+      onselect={(containerId, containerName, shell, sshConnectionId) =>
+        createDockerTerminal(containerId, containerName, shell, sshConnectionId)}
+      onhostchange={handleContainerHostChange}
       onclose={() => { showContainerPicker = false; }}
     />
   {/if}
