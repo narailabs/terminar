@@ -1,57 +1,38 @@
-// Patch the npm-installed Electron.app bundle so macOS shows "terminar"
-// in the menu bar instead of "Electron".
+// Postinstall: patch the npm-installed Electron.app so macOS shows "terminar"
+// in the menu bar instead of "Electron". Failures here are non-fatal — the
+// runtime launcher (lib/app-launcher.js) re-runs the patch on first launch if
+// needed, so a user's npm install never fails because of this step.
 
 'use strict';
 
-const { execSync } = require('child_process');
-const fs = require('fs');
-const path = require('path');
-
 if (process.platform !== 'darwin') process.exit(0);
 
-const electronApp = path.join(
-  __dirname, '..', 'node_modules', 'electron', 'dist', 'Electron.app',
-);
-const plist = path.join(electronApp, 'Contents', 'Info.plist');
+const {
+  resolveElectronAppPath,
+  patchBundleName,
+  verifyPatch,
+} = require('../lib/patch-electron.js');
 
-if (!fs.existsSync(plist)) {
-  // Electron not installed yet
-  process.exit(0);
-}
-
-// Patch CFBundleName and CFBundleDisplayName
-try {
-  execSync(
-    `plutil -replace CFBundleName -string terminar "${plist}" && ` +
-    `plutil -replace CFBundleDisplayName -string terminar "${plist}"`,
+const electronApp = resolveElectronAppPath(__dirname);
+if (!electronApp) {
+  console.warn(
+    '[terminar postinstall] Electron.app not found; skipping menu-bar patch. ' +
+    'The launcher will retry on first run.',
   );
-} catch {
-  // Non-fatal — menu will just show "Electron"
   process.exit(0);
 }
 
-// Re-sign to restore valid ad-hoc signature
-const sign = (target) => {
-  try {
-    execSync(`codesign --force --sign - "${target}"`, { stdio: 'ignore' });
-  } catch {
-    // Non-fatal
-  }
-};
-
-const frameworks = path.join(electronApp, 'Contents', 'Frameworks');
-const fwVersionA = path.join(
-  frameworks, 'Electron Framework.framework', 'Versions', 'A',
-);
-if (fs.existsSync(fwVersionA)) sign(fwVersionA);
-
 try {
-  for (const entry of fs.readdirSync(frameworks)) {
-    const full = path.join(frameworks, entry);
-    if (entry.endsWith('.app') || entry.endsWith('.framework')) sign(full);
+  patchBundleName(electronApp, { verbose: true });
+  if (!verifyPatch(electronApp)) {
+    console.warn(
+      '[terminar postinstall] Info.plist patch did not take effect; ' +
+      'launcher will retry on first run.',
+    );
   }
-} catch {
-  // Ignore readdir errors
+} catch (err) {
+  console.warn(
+    `[terminar postinstall] Menu-bar patch failed: ${err.message}. ` +
+    'Launcher will retry on first run.',
+  );
 }
-
-sign(electronApp);

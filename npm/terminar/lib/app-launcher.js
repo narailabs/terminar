@@ -17,6 +17,30 @@ function getAppEntry() {
   return path.join(__dirname, '..', 'app', 'dist-electron', 'index.js');
 }
 
+// Self-heal the Electron.app Info.plist if postinstall didn't stick. macOS reads
+// the menu-bar app name from CFBundleName, so without this users see "Electron".
+// Runs at most once per Electron install (subsequent launches short-circuit on
+// verifyPatch).
+function ensurePatched() {
+  if (process.platform !== 'darwin') return;
+  let mod;
+  try {
+    mod = require('./patch-electron.js');
+  } catch {
+    return;
+  }
+  const electronApp = mod.resolveElectronAppPath(__dirname);
+  if (!electronApp) return;
+  if (mod.verifyPatch(electronApp)) return;
+  try {
+    mod.patchBundleName(electronApp);
+  } catch (err) {
+    console.error(
+      `[terminar] Could not patch Electron menu-bar name: ${err.message}`,
+    );
+  }
+}
+
 function launch(serverBinaryPath, port) {
   // Check for display on Linux
   if (process.platform === 'linux') {
@@ -28,6 +52,8 @@ function launch(serverBinaryPath, port) {
       process.exit(1);
     }
   }
+
+  ensurePatched();
 
   const electronPath = getElectronPath();
   const appEntry = getAppEntry();
