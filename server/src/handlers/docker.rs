@@ -71,6 +71,17 @@ pub(crate) async fn handle_list_containers(
 /// produces a real local-to-container PTY with clean SIGWINCH semantics.
 pub(crate) fn docker_command(ssh: Option<&SshConnectionInfo>) -> tokio::process::Command {
     let mut cmd = tokio::process::Command::new("docker");
+
+    // The server may inherit a minimal PATH (e.g. when launched via launchd,
+    // systemd, or a Node.js CLI wrapper). Append common Docker install dirs
+    // so the binary is found even if the parent didn't export a full PATH.
+    let extra = "/usr/local/bin:/opt/homebrew/bin:/snap/bin";
+    let path = match std::env::var("PATH") {
+        Ok(p) => format!("{}:{}", p, extra),
+        Err(_) => extra.to_string(),
+    };
+    cmd.env("PATH", path);
+
     if let Some(conn) = ssh {
         cmd.env("DOCKER_HOST", build_docker_host_uri(conn));
     }
@@ -149,7 +160,11 @@ async fn list_containers(
         .await
         .map_err(|e| DockerError {
             code: "DOCKER_UNAVAILABLE",
-            message: format!("Failed to run docker: {}", e),
+            message: if e.kind() == std::io::ErrorKind::NotFound {
+                "Docker is not available. Install Docker Desktop or Colima to manage containers.".to_string()
+            } else {
+                format!("Failed to run docker: {}", e)
+            },
         })?;
 
     if !output.status.success() {
@@ -279,6 +294,21 @@ pub(crate) fn classify_docker_error(
         return DockerError {
             code: "CONTAINER_NOT_FOUND",
             message: s.to_string(),
+        };
+    }
+
+    // Local Docker daemon not running / not installed.
+    if !remote
+        && (lower.contains("cannot connect to the docker daemon")
+            || lower.contains("connect: no such file or directory")
+            || lower.contains("is the docker daemon running")
+            || lower.contains("failed to connect to the docker api")
+            || lower.contains("command not found")
+            || exit_code == Some(127))
+    {
+        return DockerError {
+            code: "DOCKER_UNAVAILABLE",
+            message: "Docker is not available. Install Docker Desktop or Colima to manage containers.".to_string(),
         };
     }
 
@@ -467,14 +497,38 @@ mod tests {
     }
 
     #[test]
-    fn classify_local_fallback() {
+    fn classify_local_daemon_not_running() {
         let err = classify_docker_error(
             "Cannot connect to the Docker daemon at unix:///var/run/docker.sock",
             Some(1),
             None,
         );
         assert_eq!(err.code, "DOCKER_UNAVAILABLE");
-        assert!(err.message.contains("Docker error"));
+        assert!(err.message.contains("Install Docker Desktop or Colima"));
+    }
+
+    #[test]
+    fn classify_local_colima_socket_missing() {
+        let err = classify_docker_error(
+            "failed to connect to the docker API at unix:///Users/user/.colima/default/docker.sock; \
+             check if the path is correct and if the daemon is running: \
+             dial unix /Users/user/.colima/default/docker.sock: connect: no such file or directory",
+            Some(1),
+            None,
+        );
+        assert_eq!(err.code, "DOCKER_UNAVAILABLE");
+        assert!(err.message.contains("Install Docker Desktop or Colima"));
+    }
+
+    #[test]
+    fn classify_local_docker_not_installed() {
+        let err = classify_docker_error(
+            "docker: command not found",
+            Some(127),
+            None,
+        );
+        assert_eq!(err.code, "DOCKER_UNAVAILABLE");
+        assert!(err.message.contains("Install Docker Desktop or Colima"));
     }
 
     #[test]

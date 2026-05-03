@@ -34,6 +34,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('tray:open-path', absPath),
 });
 
+// Forward power events as DOM events so Terminal.svelte can recover
+// from WebGL context loss after screen lock / sleep without depending
+// on Electron APIs directly.
+ipcRenderer.on('power:screen-unlocked', () => {
+  document.dispatchEvent(new Event('terminar:screen-unlocked'));
+});
+
 contextBridge.exposeInMainWorld('multiWindow', {
   /** Get the tab ID assigned to this window by the MultiWindowCoordinator. */
   getAssignedTab: (): Promise<string | null> => ipcRenderer.invoke('multi-window:get-tab'),

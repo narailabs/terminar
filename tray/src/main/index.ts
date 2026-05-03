@@ -1,6 +1,6 @@
 // index.ts — App entry point, lifecycle, and orchestration.
 
-import { app, BrowserWindow, globalShortcut, ipcMain, nativeImage } from 'electron';
+import { app, BrowserWindow, ipcMain, nativeImage, powerMonitor } from 'electron';
 import path from 'path';
 import { ConfigStore } from './ConfigStore.js';
 import { HealthPoller } from './HealthPoller.js';
@@ -106,11 +106,11 @@ void app.whenReady().then(() => {
   multiWindow.setupIpc();
 
   // Cmd+N / Ctrl+N: open a new terminal window with the next available tab.
-  globalShortcut.register('CommandOrControl+N', async () => {
-    // Find the primary terminal window to query tab state from the renderer
+  // Registered as a menu accelerator in WindowManager.setupTerminalMenu() so it
+  // only fires when the Electron app is focused (not system-wide).
+  wm.onNewWindow = async () => {
     const primaryWin = wm.getWindow('terminal');
     if (!primaryWin || primaryWin.isDestroyed()) {
-      // No primary window — just open one
       wm.openTerminal();
       return;
     }
@@ -123,7 +123,6 @@ void app.whenReady().then(() => {
       const nextTab = multiWindow.getNextAvailableTab(allTabIds);
 
       if (!nextTab) {
-        // All tabs are shown — create a new tab in the renderer, then open a window for it
         const newTabId: string = await primaryWin.webContents.executeJavaScript(
           'window.__terminar?.createTab?.() ?? ""',
         );
@@ -138,7 +137,19 @@ void app.whenReady().then(() => {
     } catch (err) {
       console.error('[multi-window] Failed to open new window:', err);
     }
-  });
+  };
+
+  // Broadcast screen-unlock / resume to all renderers so they can
+  // refresh terminals.  macOS does NOT fire document.visibilitychange
+  // during lock-screen, so the renderer's existing visibility handler
+  // never triggers recovery.
+  const broadcastScreenUnlocked = () => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send('power:screen-unlocked');
+    }
+  };
+  powerMonitor.on('unlock-screen', broadcastScreenUnlocked);
+  powerMonitor.on('resume', broadcastScreenUnlocked);
 });
 
 // ------------------------------------------------------------------

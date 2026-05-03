@@ -1424,6 +1424,28 @@
     };
     document.addEventListener('visibilitychange', visibilityHandler);
 
+    // Electron: recover after screen lock / sleep.  macOS does not fire
+    // document.visibilitychange when the screen locks, so the handler
+    // above never runs.  The main process broadcasts a custom DOM event
+    // via the preload on powerMonitor unlock-screen / resume.
+    screenUnlockHandler = () => {
+      console.log(`[Terminal:${terminalInstanceId}] Screen unlocked — running full refreshTerminal()`);
+      if (term) {
+        writesInFlight = 0;
+        oldestWriteTime = 0;
+      }
+      refreshTerminal();
+      // Staggered repaints: after monitor-off the GPU needs time to
+      // reinitialize, so a single rAF can fire before the display
+      // pipeline is ready.  Mirror the onContextLoss strategy.
+      for (const delay of [0, 100, 500, 1500]) {
+        setTimeout(() => {
+          if (term) term.refresh(0, term.rows - 1);
+        }, delay);
+      }
+    };
+    document.addEventListener('terminar:screen-unlocked', screenUnlockHandler);
+
     // Store initial dimensions
     lastCols = term.cols;
     lastRows = term.rows;
@@ -1431,6 +1453,7 @@
 
   let windowResizeHandler: (() => void) | null = null;
   let visibilityHandler: (() => void) | null = null;
+  let screenUnlockHandler: (() => void) | null = null;
   let scrollEndHandler: (() => void) | null = null;
   let hiddenSince: number | null = null;
 
@@ -1462,6 +1485,9 @@
     }
     if (visibilityHandler) {
       document.removeEventListener('visibilitychange', visibilityHandler);
+    }
+    if (screenUnlockHandler) {
+      document.removeEventListener('terminar:screen-unlocked', screenUnlockHandler);
     }
     // Debug: Check remaining listeners after cleanup
     if (manager) {

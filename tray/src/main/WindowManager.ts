@@ -36,6 +36,7 @@ function showDockWithIcon(): void {
 
 export class WindowManager {
   private windows: Map<string, BrowserWindow> = new Map();
+  onNewWindow: (() => void) | null = null;
 
   constructor() {
     this.setupContentSecurityPolicy();
@@ -342,6 +343,16 @@ export class WindowManager {
             },
           ]
         : []),
+      {
+        label: 'File',
+        submenu: [
+          {
+            label: 'New Window',
+            accelerator: 'CommandOrControl+N',
+            click: () => this.onNewWindow?.(),
+          },
+        ],
+      },
       {
         label: 'Edit',
         submenu: [
