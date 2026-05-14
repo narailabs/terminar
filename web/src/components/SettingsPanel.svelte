@@ -22,7 +22,8 @@
   } from '../lib/settingsStore.svelte';
   import {
     themeState,
-    setActiveTerminalTheme,
+    setLightTerminalTheme,
+    setDarkTerminalTheme,
     setUIMode,
     type UIMode,
   } from '../lib/themeStore.svelte';
@@ -163,9 +164,14 @@
     setUIMode(target.value as UIMode);
   }
 
-  function handleTerminalThemeChange(event: Event) {
+  function handleLightTerminalThemeChange(event: Event) {
     const target = event.target as HTMLSelectElement;
-    setActiveTerminalTheme(target.value);
+    setLightTerminalTheme(target.value);
+  }
+
+  function handleDarkTerminalThemeChange(event: Event) {
+    const target = event.target as HTMLSelectElement;
+    setDarkTerminalTheme(target.value);
   }
 
   let showThemeEditor = $state(false);
@@ -382,13 +388,27 @@
               </select>
             </div>
 
-            <!-- Terminal Theme -->
+            <!-- Terminal Theme: Light -->
             <div class="setting-group">
-              <label for="terminalTheme">Terminal Theme</label>
+              <label for="terminalThemeLight">Terminal Theme: Light</label>
               <select
-                id="terminalTheme"
-                value={themeState.value.activeTerminalThemeId}
-                onchange={handleTerminalThemeChange}
+                id="terminalThemeLight"
+                value={themeState.value.lightTerminalThemeId}
+                onchange={handleLightTerminalThemeChange}
+              >
+                {#each allTerminalThemes as theme}
+                  <option value={theme.id}>{theme.name}</option>
+                {/each}
+              </select>
+            </div>
+
+            <!-- Terminal Theme: Dark -->
+            <div class="setting-group">
+              <label for="terminalThemeDark">Terminal Theme: Dark</label>
+              <select
+                id="terminalThemeDark"
+                value={themeState.value.darkTerminalThemeId}
+                onchange={handleDarkTerminalThemeChange}
               >
                 {#each allTerminalThemes as theme}
                   <option value={theme.id}>{theme.name}</option>

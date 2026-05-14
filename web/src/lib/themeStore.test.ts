@@ -287,7 +287,8 @@ describe('themeStore', () => {
     const saved = {
       uiMode: 'light' as const,
       activeUIThemeId: 'light',
-      activeTerminalThemeId: 'dark-green',
+      lightTerminalThemeId: 'classic-blue',
+      darkTerminalThemeId: 'dark-green',
       terminalOverrides: { 'p1': 'dark' },
       customUIThemes: [],
       customTerminalThemes: [],
@@ -299,8 +300,51 @@ describe('themeStore', () => {
     const state = freshStore.themeState.value;
     expect(state.uiMode).toBe('light');
     expect(state.activeUIThemeId).toBe('light');
-    expect(state.activeTerminalThemeId).toBe('dark-green');
+    expect(state.lightTerminalThemeId).toBe('classic-blue');
+    expect(state.darkTerminalThemeId).toBe('dark-green');
+    // activeTerminalThemeId is derived from uiMode; mode is light → light preference
+    expect(state.activeTerminalThemeId).toBe('classic-blue');
     expect(state.terminalOverrides['p1']).toBe('dark');
+  });
+
+  it('should migrate legacy activeTerminalThemeId to per-mode preferences', async () => {
+    // Legacy payload: only activeTerminalThemeId, no light/dark fields
+    const legacy = {
+      uiMode: 'dark' as const,
+      activeUIThemeId: 'dark',
+      activeTerminalThemeId: 'classic-blue',
+      terminalOverrides: {},
+      customUIThemes: [],
+      customTerminalThemes: [],
+    };
+    localStorageMock.setItem('theme-state', JSON.stringify(legacy));
+
+    vi.resetModules();
+    const freshStore = await import('./themeStore.svelte');
+    const state = freshStore.themeState.value;
+    // Legacy non-light value goes to the dark slot; light slot seeded to 'light'
+    expect(state.darkTerminalThemeId).toBe('classic-blue');
+    expect(state.lightTerminalThemeId).toBe('light');
+    expect(state.activeTerminalThemeId).toBe('classic-blue');
+  });
+
+  it('should migrate legacy activeTerminalThemeId="light" to the light slot', async () => {
+    const legacy = {
+      uiMode: 'light' as const,
+      activeUIThemeId: 'light',
+      activeTerminalThemeId: 'light',
+      terminalOverrides: {},
+      customUIThemes: [],
+      customTerminalThemes: [],
+    };
+    localStorageMock.setItem('theme-state', JSON.stringify(legacy));
+
+    vi.resetModules();
+    const freshStore = await import('./themeStore.svelte');
+    const state = freshStore.themeState.value;
+    expect(state.lightTerminalThemeId).toBe('light');
+    expect(state.darkTerminalThemeId).toBe('dark-green');
+    expect(state.activeTerminalThemeId).toBe('light');
   });
 
   // ── UI Mode ─────────────────────────────────────────────────────────────

@@ -53,17 +53,19 @@ describe('SettingsPanel - Theme Selectors', () => {
     expect(options.some(o => o.textContent === 'Auto')).toBe(true);
   });
 
-  it('should show Terminal Theme dropdown with all built-in themes', () => {
+  it('should show per-mode Terminal Theme dropdowns with all built-in themes', () => {
     render(SettingsPanel, { props: { isOpen: true } });
 
-    const select = document.querySelector('#terminalTheme') as HTMLSelectElement;
-    expect(select).toBeTruthy();
+    for (const id of ['#terminalThemeLight', '#terminalThemeDark']) {
+      const select = document.querySelector(id) as HTMLSelectElement;
+      expect(select).toBeTruthy();
 
-    const options = Array.from(select.querySelectorAll('option'));
-    expect(options.length).toBeGreaterThanOrEqual(BUILT_IN_TERMINAL_THEMES.length);
-    expect(options.some(o => o.textContent === 'Dark')).toBe(true);
-    expect(options.some(o => o.textContent === 'Light')).toBe(true);
-    expect(options.some(o => o.textContent === 'Dark Green')).toBe(true);
+      const options = Array.from(select.querySelectorAll('option'));
+      expect(options.length).toBeGreaterThanOrEqual(BUILT_IN_TERMINAL_THEMES.length);
+      expect(options.some(o => o.textContent === 'Dark')).toBe(true);
+      expect(options.some(o => o.textContent === 'Light')).toBe(true);
+      expect(options.some(o => o.textContent === 'Dark Green')).toBe(true);
+    }
   });
 
   it('should update themeStore when mode is changed', async () => {
@@ -75,13 +77,45 @@ describe('SettingsPanel - Theme Selectors', () => {
     expect(themeState.value.uiMode).toBe('light');
   });
 
-  it('should update themeStore when terminal theme is changed', async () => {
+  it('should update dark terminal theme preference from the Dark dropdown', async () => {
+    setUIMode('dark');
     render(SettingsPanel, { props: { isOpen: true } });
 
-    const select = document.querySelector('#terminalTheme') as HTMLSelectElement;
+    const select = document.querySelector('#terminalThemeDark') as HTMLSelectElement;
     await fireEvent.change(select, { target: { value: 'dark-green' } });
 
+    expect(themeState.value.darkTerminalThemeId).toBe('dark-green');
+    // Mode is dark, so derived active should follow the dark preference
     expect(themeState.value.activeTerminalThemeId).toBe('dark-green');
+  });
+
+  it('should update light terminal theme preference from the Light dropdown', async () => {
+    setUIMode('dark');
+    render(SettingsPanel, { props: { isOpen: true } });
+
+    const select = document.querySelector('#terminalThemeLight') as HTMLSelectElement;
+    await fireEvent.change(select, { target: { value: 'classic-blue' } });
+
+    expect(themeState.value.lightTerminalThemeId).toBe('classic-blue');
+    // Mode is still dark, so changing light preference must not change the active theme
+    expect(themeState.value.activeTerminalThemeId).not.toBe('classic-blue');
+  });
+
+  it('should switch active terminal theme when mode flips', async () => {
+    setUIMode('dark');
+    render(SettingsPanel, { props: { isOpen: true } });
+
+    const darkSelect = document.querySelector('#terminalThemeDark') as HTMLSelectElement;
+    await fireEvent.change(darkSelect, { target: { value: 'dark-green' } });
+    const lightSelect = document.querySelector('#terminalThemeLight') as HTMLSelectElement;
+    await fireEvent.change(lightSelect, { target: { value: 'classic-blue' } });
+
+    expect(themeState.value.activeTerminalThemeId).toBe('dark-green');
+
+    const modeSelect = document.querySelector('#uiMode') as HTMLSelectElement;
+    await fireEvent.change(modeSelect, { target: { value: 'light' } });
+
+    expect(themeState.value.activeTerminalThemeId).toBe('classic-blue');
   });
 
   it('should reflect current mode in the dropdown', () => {
