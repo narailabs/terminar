@@ -579,11 +579,11 @@ pub(crate) async fn handle_create_session(
 /// Looks up each session's ssh_connection_id and populates ssh_host/ssh_user.
 fn enrich_session_list(mut list: Vec<SessionInfo>) -> Vec<SessionInfo> {
     for info in list.iter_mut() {
-        if let Some(ref sid) = info.ssh_connection_id {
-            if let Some(conn) = super::ssh::get_connection(sid) {
-                info.ssh_host = Some(conn.host);
-                info.ssh_user = Some(conn.user);
-            }
+        if let Some(ref sid) = info.ssh_connection_id
+            && let Some(conn) = super::ssh::get_connection(sid)
+        {
+            info.ssh_host = Some(conn.host);
+            info.ssh_user = Some(conn.user);
         }
     }
     list

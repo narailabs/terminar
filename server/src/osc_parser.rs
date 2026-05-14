@@ -20,6 +20,7 @@
 //!   - `open_url` — open a URL in the user's default local browser.
 //!   - `edit_request` — request that the user edit a file locally. Payload
 //!     after the subcommand is `<base64-id>;<base64-filename>;<base64-contents>`.
+//!
 //!   Unknown subcommands are silently ignored so this vocabulary can grow
 //!   without breaking older clients.
 //!

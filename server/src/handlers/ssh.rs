@@ -197,10 +197,11 @@ pub(crate) fn parse_ssh_config(path: &Path) -> Vec<SshConfigHost> {
 
         if key == "host" {
             // Save previous host if any (skip wildcards)
-            if let Some(h) = current.take() {
-                if !h.name.contains('*') && !h.name.contains('?') {
-                    hosts.push(h);
-                }
+            if let Some(h) = current.take()
+                && !h.name.contains('*')
+                && !h.name.contains('?')
+            {
+                hosts.push(h);
             }
             // Host line may have multiple names; take the first
             let first_name = value.split_whitespace().next().unwrap_or("").to_string();
@@ -216,10 +217,11 @@ pub(crate) fn parse_ssh_config(path: &Path) -> Vec<SshConfigHost> {
             // Match blocks end the current Host block. We don't parse directives
             // inside a Match (they'd require knowing the runtime target). Save the
             // previous host so its directives don't leak into the Match.
-            if let Some(h) = current.take() {
-                if !h.name.contains('*') && !h.name.contains('?') {
-                    hosts.push(h);
-                }
+            if let Some(h) = current.take()
+                && !h.name.contains('*')
+                && !h.name.contains('?')
+            {
+                hosts.push(h);
             }
             // current stays None until the next Host directive.
         } else if key == "include" {
@@ -239,10 +241,11 @@ pub(crate) fn parse_ssh_config(path: &Path) -> Vec<SshConfigHost> {
     }
 
     // Save last host
-    if let Some(h) = current {
-        if !h.name.contains('*') && !h.name.contains('?') {
-            hosts.push(h);
-        }
+    if let Some(h) = current
+        && !h.name.contains('*')
+        && !h.name.contains('?')
+    {
+        hosts.push(h);
     }
 
     hosts
