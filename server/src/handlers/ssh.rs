@@ -83,10 +83,12 @@ fn save_connections_file(conns: &[SshConnectionInfo]) -> Result<(), String> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        if let Err(e) =
-            std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o600))
+        if let Err(e) = std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o600))
         {
-            warn!("Failed to set permissions on ssh-connections tempfile: {}", e);
+            warn!(
+                "Failed to set permissions on ssh-connections tempfile: {}",
+                e
+            );
         }
     }
 

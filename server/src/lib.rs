@@ -1317,10 +1317,16 @@ async fn process_message_inner(
             ssh_connection_id,
         } => {
             handlers::session::handle_create_session(
-                cwd, shell, env, *cols, *rows,
+                cwd,
+                shell,
+                env,
+                *cols,
+                *rows,
                 container_id.as_deref(),
                 ssh_connection_id.as_deref(),
-                tx_out, sessions, state,
+                tx_out,
+                sessions,
+                state,
             )
             .await?;
         }
@@ -1363,10 +1369,8 @@ async fn process_message_inner(
             contents,
             cancelled,
         } => {
-            handlers::io::handle_edit_reply(
-                session_id, id, contents, *cancelled, tx_out, sessions,
-            )
-            .await?;
+            handlers::io::handle_edit_reply(session_id, id, contents, *cancelled, tx_out, sessions)
+                .await?;
         }
         ClientMessage::SaveWorkspace { workspace } => {
             handlers::workspace::handle_save_workspace(client_id, workspace, tx_out).await?;
@@ -1380,11 +1384,23 @@ async fn process_message_inner(
         ClientMessage::ListSshConnections => {
             handlers::ssh::handle_list_ssh_connections(tx_out).await?;
         }
-        ClientMessage::AddSshConnection { name, host, user, port } => {
+        ClientMessage::AddSshConnection {
+            name,
+            host,
+            user,
+            port,
+        } => {
             handlers::ssh::handle_add_ssh_connection(name, host, user, *port, tx_out).await?;
         }
-        ClientMessage::UpdateSshConnection { id, name, host, user, port } => {
-            handlers::ssh::handle_update_ssh_connection(id, name, host, user, *port, tx_out).await?;
+        ClientMessage::UpdateSshConnection {
+            id,
+            name,
+            host,
+            user,
+            port,
+        } => {
+            handlers::ssh::handle_update_ssh_connection(id, name, host, user, *port, tx_out)
+                .await?;
         }
         ClientMessage::RemoveSshConnection { id } => {
             handlers::ssh::handle_remove_ssh_connection(id, tx_out).await?;
@@ -1508,9 +1524,14 @@ mod tests {
 
         // Expect an Error response (not a SessionList)
         match rx.recv().await {
-            Some(ServerMessage::Error { message, error_code }) => {
+            Some(ServerMessage::Error {
+                message,
+                error_code,
+            }) => {
                 assert!(
-                    message.contains("not found") || message.contains("not running") || message.contains("Docker"),
+                    message.contains("not found")
+                        || message.contains("not running")
+                        || message.contains("Docker"),
                     "unexpected error message: {}",
                     message
                 );
@@ -1566,7 +1587,10 @@ mod tests {
 
         // Expect an Error response
         match rx.recv().await {
-            Some(ServerMessage::Error { message, error_code }) => {
+            Some(ServerMessage::Error {
+                message,
+                error_code,
+            }) => {
                 assert!(
                     message.contains("not found"),
                     "unexpected error message: {}",
