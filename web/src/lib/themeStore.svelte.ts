@@ -22,7 +22,9 @@ export type UIMode = 'light' | 'dark' | 'auto';
 export interface ThemeState {
   uiMode: UIMode;
   activeUIThemeId: string;
-  activeTerminalThemeId: string;
+  activeTerminalThemeId: string; // derived cache, synced by updateState()
+  lightTerminalThemeId: string;
+  darkTerminalThemeId: string;
   terminalOverrides: Record<string, string>; // paneId -> terminalThemeId
   customUIThemes: UITheme[];
   customTerminalThemes: TerminalTheme[];
@@ -34,6 +36,8 @@ const DEFAULT_STATE: ThemeState = {
   uiMode: 'dark',
   activeUIThemeId: 'dark',
   activeTerminalThemeId: 'dark-green',
+  lightTerminalThemeId: 'light',
+  darkTerminalThemeId: 'dark-green',
   terminalOverrides: {},
   customUIThemes: [],
   customTerminalThemes: [],
@@ -49,6 +53,20 @@ function loadState(): ThemeState {
       if (!parsed.uiMode) {
         state.uiMode = state.activeUIThemeId === 'light' ? 'light' : 'dark';
       }
+      // Migrate: split single activeTerminalThemeId into per-mode preferences.
+      // Legacy state had only activeTerminalThemeId; preserve it on the side it
+      // most likely came from and seed a sensible default for the other side.
+      if (parsed.lightTerminalThemeId === undefined || parsed.darkTerminalThemeId === undefined) {
+        const legacy = parsed.activeTerminalThemeId;
+        if (legacy === 'light') {
+          state.lightTerminalThemeId = 'light';
+          state.darkTerminalThemeId = parsed.darkTerminalThemeId ?? 'dark-green';
+        } else if (typeof legacy === 'string') {
+          state.darkTerminalThemeId = parsed.darkTerminalThemeId ?? legacy;
+          state.lightTerminalThemeId = parsed.lightTerminalThemeId ?? 'light';
+        }
+      }
+      state.activeTerminalThemeId = resolveActiveTerminalThemeId(state);
       return migrateCustomThemes(state);
     }
   } catch {
@@ -113,8 +131,14 @@ function scheduleSave(s: ThemeState): void {
 }
 
 function updateState(newState: ThemeState): void {
+  newState.activeTerminalThemeId = resolveActiveTerminalThemeId(newState);
   state = newState;
   scheduleSave(newState);
+}
+
+function resolveActiveTerminalThemeId(s: ThemeState): string {
+  const resolved = resolveMode(s.uiMode);
+  return resolved === 'light' ? s.lightTerminalThemeId : s.darkTerminalThemeId;
 }
 
 export const themeState = {
@@ -186,8 +210,26 @@ export function setActiveUITheme(id: string): void {
   updateState({ ...state, activeUIThemeId: id });
 }
 
+export function setLightTerminalTheme(id: string): void {
+  updateState({ ...state, lightTerminalThemeId: id });
+}
+
+export function setDarkTerminalTheme(id: string): void {
+  updateState({ ...state, darkTerminalThemeId: id });
+}
+
+/**
+ * Sets the terminal theme for whichever mode is currently resolved.
+ * Used by callers (e.g. ThemeEditor) that want to make a just-created theme
+ * active without needing to know about per-mode preferences.
+ */
 export function setActiveTerminalTheme(id: string): void {
-  updateState({ ...state, activeTerminalThemeId: id });
+  const resolved = resolveMode(state.uiMode);
+  if (resolved === 'light') {
+    setLightTerminalTheme(id);
+  } else {
+    setDarkTerminalTheme(id);
+  }
 }
 
 export function setTerminalOverride(paneId: string, themeId: string): void {
@@ -373,9 +415,12 @@ export function deleteCustomTerminalTheme(id: string): void {
     customTerminalThemes: state.customTerminalThemes.filter((t) => t.id !== id),
     terminalOverrides: newOverrides,
   };
-  // Fall back to dark if the deleted theme was active
-  if (state.activeTerminalThemeId === id) {
-    newState.activeTerminalThemeId = 'dark';
+  // Fall back to per-mode defaults if the deleted theme was a preference
+  if (state.lightTerminalThemeId === id) {
+    newState.lightTerminalThemeId = 'light';
+  }
+  if (state.darkTerminalThemeId === id) {
+    newState.darkTerminalThemeId = 'dark-green';
   }
   updateState(newState);
 }
