@@ -161,7 +161,8 @@ async fn list_containers(
         .map_err(|e| DockerError {
             code: "DOCKER_UNAVAILABLE",
             message: if e.kind() == std::io::ErrorKind::NotFound {
-                "Docker is not available. Install Docker Desktop or Colima to manage containers.".to_string()
+                "Docker is not available. Install Docker Desktop or Colima to manage containers."
+                    .to_string()
             } else {
                 format!("Failed to run docker: {}", e)
             },
@@ -203,7 +204,13 @@ pub(crate) async fn validate_container(
     // `--` terminates option parsing so a container_id starting with `-` is not
     // interpreted as a Docker flag.
     let output = docker_command(ssh)
-        .args(["inspect", "--format", "{{.State.Running}}", "--", container_id])
+        .args([
+            "inspect",
+            "--format",
+            "{{.State.Running}}",
+            "--",
+            container_id,
+        ])
         .output()
         .await
         .map_err(|e| format!("Docker not available: {}", e))?;
@@ -308,7 +315,9 @@ pub(crate) fn classify_docker_error(
     {
         return DockerError {
             code: "DOCKER_UNAVAILABLE",
-            message: "Docker is not available. Install Docker Desktop or Colima to manage containers.".to_string(),
+            message:
+                "Docker is not available. Install Docker Desktop or Colima to manage containers."
+                    .to_string(),
         };
     }
 
@@ -409,7 +418,9 @@ mod tests {
         let cmd = docker_command(None);
         let envs: Vec<_> = cmd.as_std().get_envs().collect();
         assert!(
-            !envs.iter().any(|(k, _)| k == &std::ffi::OsStr::new("DOCKER_HOST")),
+            !envs
+                .iter()
+                .any(|(k, _)| k == &std::ffi::OsStr::new("DOCKER_HOST")),
             "local docker_command should not set DOCKER_HOST"
         );
     }
@@ -488,11 +499,7 @@ mod tests {
 
     #[test]
     fn classify_container_not_found() {
-        let err = classify_docker_error(
-            "Error: No such container: deadbeef",
-            Some(1),
-            None,
-        );
+        let err = classify_docker_error("Error: No such container: deadbeef", Some(1), None);
         assert_eq!(err.code, "CONTAINER_NOT_FOUND");
     }
 
@@ -522,11 +529,7 @@ mod tests {
 
     #[test]
     fn classify_local_docker_not_installed() {
-        let err = classify_docker_error(
-            "docker: command not found",
-            Some(127),
-            None,
-        );
+        let err = classify_docker_error("docker: command not found", Some(127), None);
         assert_eq!(err.code, "DOCKER_UNAVAILABLE");
         assert!(err.message.contains("Install Docker Desktop or Colima"));
     }
@@ -536,11 +539,7 @@ mod tests {
         // Same string that would trigger SSH_CONNECTION_FAILED if remote must
         // NOT do so when ssh is None — the guard is defensive but let's
         // assert it.
-        let err = classify_docker_error(
-            "Connection refused",
-            Some(1),
-            None,
-        );
+        let err = classify_docker_error("Connection refused", Some(1), None);
         assert_eq!(err.code, "DOCKER_UNAVAILABLE");
     }
 }

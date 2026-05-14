@@ -452,7 +452,10 @@ pub fn validate_remote_shell(shell: &str) -> Result<(), String> {
         return Err("Remote shell path is empty".to_string());
     }
     if shell.len() > 256 {
-        return Err(format!("Remote shell path too long ({} chars, max 256)", shell.len()));
+        return Err(format!(
+            "Remote shell path too long ({} chars, max 256)",
+            shell.len()
+        ));
     }
     if !shell.starts_with('/') {
         return Err(format!("Remote shell '{}' must be an absolute path", shell));
@@ -460,8 +463,7 @@ pub fn validate_remote_shell(shell: &str) -> Result<(), String> {
     // Block shell metacharacters, whitespace, quotes, and backslashes.
     // Anything that could change how the shell parses the command.
     const FORBIDDEN: &[char] = &[
-        ';', '&', '|', '`', '$', '(', ')', '<', '>',
-        '\n', '\r', '\t', ' ', '\0', '\\', '"', '\'',
+        ';', '&', '|', '`', '$', '(', ')', '<', '>', '\n', '\r', '\t', ' ', '\0', '\\', '"', '\'',
     ];
     if let Some(bad) = shell.chars().find(|c| FORBIDDEN.contains(c)) {
         return Err(format!(
@@ -518,8 +520,10 @@ pub(crate) async fn handle_create_session(
     // alone → SSH shell session. Neither → local shell session.
     let result = match (container_id, ssh_connection_id) {
         (Some(cid), ssh) => {
-            create_docker_session(cid, ssh, cwd, shell, env, cols, rows, counter, sessions, state)
-                .await
+            create_docker_session(
+                cid, ssh, cwd, shell, env, cols, rows, counter, sessions, state,
+            )
+            .await
         }
         (None, Some(sid)) => {
             create_ssh_session(sid, cwd, shell, cols, rows, counter, sessions, state)
@@ -1080,7 +1084,7 @@ mod tests {
             "open()",
             "xdg-open()",
             "export BROWSER=_terminar_open_url",
-            r#"\033]52;c;%s\007"#,    // OSC 52 emit (clipboard)
+            r#"\033]52;c;%s\007"#,          // OSC 52 emit (clipboard)
             r#"\033]7777;open_url;%s\007"#, // OSC 7777 emit (URL open)
         ] {
             assert!(
@@ -1192,11 +1196,17 @@ mod tests {
         // the login shell treats it as a literal string (no expansion until
         // bash re-evaluates it at prompt time).
         let cmd = build_ssh_remote_command("", "/bin/bash");
-        let pc_start = cmd.find("PROMPT_COMMAND='").expect("PROMPT_COMMAND= not found");
+        let pc_start = cmd
+            .find("PROMPT_COMMAND='")
+            .expect("PROMPT_COMMAND= not found");
         let after_start = &cmd[pc_start + "PROMPT_COMMAND='".len()..];
         let exec_pos = after_start.find(" exec ").expect("exec not found");
         let pc_value = &after_start[..exec_pos];
-        assert!(pc_value.ends_with('\''), "PROMPT_COMMAND value not terminated by single quote: {}", pc_value);
+        assert!(
+            pc_value.ends_with('\''),
+            "PROMPT_COMMAND value not terminated by single quote: {}",
+            pc_value
+        );
     }
 
     // ---- expand_tilde ----
@@ -1651,8 +1661,7 @@ mod tests {
             .expect("stat script tempfile")
             .permissions();
         perms.set_mode(0o755);
-        std::fs::set_permissions(script_file.path(), perms)
-            .expect("chmod script tempfile");
+        std::fs::set_permissions(script_file.path(), perms).expect("chmod script tempfile");
 
         script_file
     }
@@ -1664,10 +1673,7 @@ mod tests {
     /// sequence we don't want to leak into cargo test output, and any
     /// real parse/decode errors surface through the exit code +
     /// observable file state which is what we assert on.
-    fn run_script_with_stdin(
-        initial_contents: &[u8],
-        stdin_bytes: &[u8],
-    ) -> (i32, Vec<u8>) {
+    fn run_script_with_stdin(initial_contents: &[u8], stdin_bytes: &[u8]) -> (i32, Vec<u8>) {
         use std::io::Write;
         use std::process::{Command, Stdio};
 
@@ -1678,8 +1684,7 @@ mod tests {
             .prefix("terminar-edit-target.")
             .tempfile()
             .expect("failed to create target tempfile");
-        std::fs::write(target.path(), initial_contents)
-            .expect("write initial contents");
+        std::fs::write(target.path(), initial_contents).expect("write initial contents");
         let target_path = target.path().to_owned();
 
         let mut child = Command::new("/bin/sh")
@@ -1716,13 +1721,8 @@ mod tests {
         // (some git hooks, crontab -e under certain wrappers, automation
         // pipelines). The script reads zero bytes, the loop never enters,
         // and the script must exit 1 with the file untouched.
-        let (code, content) =
-            run_script_with_stdin(b"important content\n", b"");
-        assert_eq!(
-            code, 1,
-            "EOF with empty stdin must exit 1, got {}",
-            code
-        );
+        let (code, content) = run_script_with_stdin(b"important content\n", b"");
+        assert_eq!(code, 1, "EOF with empty stdin must exit 1, got {}", code);
         assert_eq!(
             content, b"important content\n",
             "file must be untouched when stdin is empty"
@@ -1783,11 +1783,7 @@ mod tests {
             let _ = stdin.write_all(b"");
         }
         let status = child.wait().expect("wait for child");
-        assert_eq!(
-            status.code().unwrap_or(-1),
-            1,
-            "empty filename must exit 1"
-        );
+        assert_eq!(status.code().unwrap_or(-1), 1, "empty filename must exit 1");
     }
 
     /// Helper: spawn the script, capture its OSC emit on stdout,
@@ -1803,10 +1799,7 @@ mod tests {
     /// The OSC capture uses a background thread draining the child's
     /// stdout into an in-memory buffer until we see BEL (`\x07`), at
     /// which point the OSC payload is complete and we parse it.
-    fn run_script_with_osc_handshake<F>(
-        initial_contents: &[u8],
-        respond: F,
-    ) -> (i32, Vec<u8>)
+    fn run_script_with_osc_handshake<F>(initial_contents: &[u8], respond: F) -> (i32, Vec<u8>)
     where
         F: FnOnce(&str, &mut std::process::ChildStdin),
     {
@@ -1876,8 +1869,7 @@ mod tests {
             .iter()
             .position(|&b| b == 0x07)
             .expect("no BEL in OSC");
-        let osc_str = std::str::from_utf8(&osc_bytes[..bel_pos])
-            .expect("OSC was not UTF-8");
+        let osc_str = std::str::from_utf8(&osc_bytes[..bel_pos]).expect("OSC was not UTF-8");
         // osc_str looks like `\x1b]7777;edit_request;<id_b64>;<fn_b64>;<c_b64>`.
         // Locate `edit_request;` and split from there.
         let marker_idx = osc_str
@@ -1887,7 +1879,7 @@ mod tests {
         let mut parts = after.split(';');
         let id_b64 = parts.next().expect("id_b64 missing");
 
-        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
         let id_bytes = STANDARD
             .decode(id_b64.as_bytes())
             .expect("id base64 decode");
@@ -1924,24 +1916,23 @@ mod tests {
         // BEGIN marker (no content, no END) back into its stdin, then
         // close stdin. The script must exit 1 and leave the file
         // untouched — NOT truncate it.
-        let (code, content) = run_script_with_osc_handshake(
-            b"critical production config\n",
-            |id, stdin| {
+        let (code, content) =
+            run_script_with_osc_handshake(b"critical production config\n", |id, stdin| {
                 use std::io::Write;
                 let begin = format!("\n__TERMINAR_EDIT_{}_BEGIN__\n", id);
                 let _ = stdin.write_all(begin.as_bytes());
                 // Intentionally do NOT write END. The harness closes
                 // stdin after this closure returns, simulating a tray
                 // crash mid-stream.
-            },
-        );
+            });
         assert_eq!(
             code, 1,
             "BEGIN-then-EOF must exit 1, got {} (this is the C1 follow-up bug)",
             code
         );
         assert_eq!(
-            content, b"critical production config\n",
+            content,
+            b"critical production config\n",
             "BEGIN-then-EOF must leave the file untouched; instead got {:?}",
             std::str::from_utf8(&content).unwrap_or("<invalid utf8>")
         );
@@ -1952,20 +1943,17 @@ mod tests {
         // Complement to the BEGIN-then-EOF test: verify the happy
         // path still works after the guard changes. BEGIN + content +
         // END must produce an exit-0 write with the decoded contents.
-        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
         let payload = "hello from the tray\n";
-        let (code, content) = run_script_with_osc_handshake(
-            b"original content\n",
-            |id, stdin| {
-                use std::io::Write;
-                let b64 = STANDARD.encode(payload.as_bytes());
-                let frame = format!(
-                    "\n__TERMINAR_EDIT_{}_BEGIN__\n{}\n__TERMINAR_EDIT_{}_END__\n",
-                    id, b64, id
-                );
-                let _ = stdin.write_all(frame.as_bytes());
-            },
-        );
+        let (code, content) = run_script_with_osc_handshake(b"original content\n", |id, stdin| {
+            use std::io::Write;
+            let b64 = STANDARD.encode(payload.as_bytes());
+            let frame = format!(
+                "\n__TERMINAR_EDIT_{}_BEGIN__\n{}\n__TERMINAR_EDIT_{}_END__\n",
+                id, b64, id
+            );
+            let _ = stdin.write_all(frame.as_bytes());
+        });
         assert_eq!(code, 0, "happy path must exit 0, got {}", code);
         assert_eq!(
             content,
@@ -1991,25 +1979,18 @@ mod tests {
             },
         );
         assert_eq!(code, 0, "empty-save must exit 0, got {}", code);
-        assert_eq!(
-            content,
-            b"",
-            "empty-save must truncate the file to 0 bytes"
-        );
+        assert_eq!(content, b"", "empty-save must truncate the file to 0 bytes");
     }
 
     #[test]
     fn terminar_edit_script_cancel_leaves_file_alone() {
         // Cancel path: the tray sends CANCEL instead of BEGIN. Script
         // must exit 1 with the file untouched.
-        let (code, content) = run_script_with_osc_handshake(
-            b"important content\n",
-            |id, stdin| {
-                use std::io::Write;
-                let frame = format!("\n__TERMINAR_EDIT_{}_CANCEL__\n", id);
-                let _ = stdin.write_all(frame.as_bytes());
-            },
-        );
+        let (code, content) = run_script_with_osc_handshake(b"important content\n", |id, stdin| {
+            use std::io::Write;
+            let frame = format!("\n__TERMINAR_EDIT_{}_CANCEL__\n", id);
+            let _ = stdin.write_all(frame.as_bytes());
+        });
         assert_eq!(code, 1, "cancel must exit 1, got {}", code);
         assert_eq!(
             content, b"important content\n",

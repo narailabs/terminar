@@ -72,12 +72,7 @@ pub fn spawn_cwd_watcher(
             match rx.recv().await {
                 Ok(SessionEvent::Output(data)) => {
                     for event in parser.feed(data.as_bytes()) {
-                        handle_osc_event(
-                            event,
-                            &session_id,
-                            &sessions,
-                            &tool_action_tx,
-                        );
+                        handle_osc_event(event, &session_id, &sessions, &tool_action_tx);
                     }
                 }
                 Ok(SessionEvent::Closed) | Ok(SessionEvent::Exited(_)) => {
@@ -208,9 +203,7 @@ fn update_cwd(sessions: &SessionMap, session_id: &str, new_cwd: String) {
         new_cwd = %new_cwd,
         "osc watcher: cwd changed via OSC 7"
     );
-    let _ = session
-        .output_tx
-        .send(SessionEvent::CwdChanged(new_cwd));
+    let _ = session.output_tx.send(SessionEvent::CwdChanged(new_cwd));
 }
 
 #[cfg(test)]

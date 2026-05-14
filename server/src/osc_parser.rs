@@ -144,10 +144,7 @@ impl OscParser {
             }
             State::ReadingPs => {
                 if b.is_ascii_digit() {
-                    self.ps = self
-                        .ps
-                        .saturating_mul(10)
-                        .saturating_add((b - b'0') as u32);
+                    self.ps = self.ps.saturating_mul(10).saturating_add((b - b'0') as u32);
                     if self.ps > 10_000 {
                         // Absurdly large Ps — definitely garbage.
                         self.reset();
@@ -690,7 +687,11 @@ mod tests {
     #[test]
     fn parses_osc7777_edit_request() {
         let mut p = OscParser::new();
-        let events = p.feed(&osc7777_edit_request("req-1", "/tmp/foo.txt", b"hello world"));
+        let events = p.feed(&osc7777_edit_request(
+            "req-1",
+            "/tmp/foo.txt",
+            b"hello world",
+        ));
         assert_eq!(events.len(), 1);
         match &events[0] {
             OscEvent::EditRequest {
