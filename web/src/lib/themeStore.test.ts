@@ -510,6 +510,48 @@ describe('themeStore server sync', () => {
     expect(themeStore.themeState.value.activeTerminalThemeId).toBe('dark-green');
   });
 
+  it('initializeFromServer migrates legacy server payload (only activeTerminalThemeId)', () => {
+    // Server saved by a previous version: only the single activeTerminalThemeId,
+    // no per-mode preferences. The user's saved theme must survive.
+    const legacyServer = {
+      uiMode: 'dark' as const,
+      activeUIThemeId: 'dark',
+      activeTerminalThemeId: 'classic-blue',
+      terminalOverrides: {},
+      customUIThemes: [],
+      customTerminalThemes: [],
+    };
+    themeStore.initializeFromServer(legacyServer as any);
+    const s = themeStore.themeState.value;
+    // Non-light legacy value migrates to the dark slot
+    expect(s.darkTerminalThemeId).toBe('classic-blue');
+    expect(s.lightTerminalThemeId).toBe('light');
+    // active is re-derived from the resolved mode (dark) → dark slot
+    expect(s.activeTerminalThemeId).toBe('classic-blue');
+  });
+
+  it('initializeFromServer with new payload recomputes active from resolved mode', () => {
+    // Server has both per-mode preferences but a stale activeTerminalThemeId
+    // (e.g. saved on a machine where 'auto' resolved differently). We must
+    // re-derive activeTerminalThemeId from uiMode here, not trust the field.
+    const serverState = {
+      uiMode: 'light' as const,
+      activeUIThemeId: 'light',
+      activeTerminalThemeId: 'dark-green', // stale — saved when mode resolved to dark elsewhere
+      lightTerminalThemeId: 'classic-blue',
+      darkTerminalThemeId: 'dark-green',
+      terminalOverrides: {},
+      customUIThemes: [],
+      customTerminalThemes: [],
+    };
+    themeStore.initializeFromServer(serverState);
+    const s = themeStore.themeState.value;
+    expect(s.lightTerminalThemeId).toBe('classic-blue');
+    expect(s.darkTerminalThemeId).toBe('dark-green');
+    // active is recomputed from uiMode=light → light slot, not the stale 'dark-green'
+    expect(s.activeTerminalThemeId).toBe('classic-blue');
+  });
+
   it('setSaveCallback should register a server save function', async () => {
     const saveFn = vi.fn().mockResolvedValue(undefined);
     themeStore.setSaveCallback(saveFn);

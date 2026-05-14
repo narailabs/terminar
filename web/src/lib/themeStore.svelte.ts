@@ -43,29 +43,44 @@ const DEFAULT_STATE: ThemeState = {
   customTerminalThemes: [],
 };
 
+/**
+ * Split legacy single `activeTerminalThemeId` into per-mode preferences.
+ * Used by both `loadState` (localStorage) and `initializeFromServer` (server
+ * payload) so old payloads from either source survive an upgrade.
+ *
+ * Mutates and returns `target`. The user's previously chosen theme lands on
+ * the side it most likely came from; the other side seeds to a sensible
+ * default.
+ */
+function migrateLegacyTerminalThemeFields(
+  source: Partial<ThemeState>,
+  target: ThemeState,
+): ThemeState {
+  if (source.lightTerminalThemeId !== undefined && source.darkTerminalThemeId !== undefined) {
+    return target;
+  }
+  const legacy = source.activeTerminalThemeId;
+  if (legacy === 'light') {
+    target.lightTerminalThemeId = 'light';
+    target.darkTerminalThemeId = source.darkTerminalThemeId ?? 'dark-green';
+  } else if (typeof legacy === 'string') {
+    target.darkTerminalThemeId = source.darkTerminalThemeId ?? legacy;
+    target.lightTerminalThemeId = source.lightTerminalThemeId ?? 'light';
+  }
+  return target;
+}
+
 function loadState(): ThemeState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      const state = { ...DEFAULT_STATE, ...parsed };
+      let state = { ...DEFAULT_STATE, ...parsed };
       // Migrate: if no uiMode saved, derive from activeUIThemeId
       if (!parsed.uiMode) {
         state.uiMode = state.activeUIThemeId === 'light' ? 'light' : 'dark';
       }
-      // Migrate: split single activeTerminalThemeId into per-mode preferences.
-      // Legacy state had only activeTerminalThemeId; preserve it on the side it
-      // most likely came from and seed a sensible default for the other side.
-      if (parsed.lightTerminalThemeId === undefined || parsed.darkTerminalThemeId === undefined) {
-        const legacy = parsed.activeTerminalThemeId;
-        if (legacy === 'light') {
-          state.lightTerminalThemeId = 'light';
-          state.darkTerminalThemeId = parsed.darkTerminalThemeId ?? 'dark-green';
-        } else if (typeof legacy === 'string') {
-          state.darkTerminalThemeId = parsed.darkTerminalThemeId ?? legacy;
-          state.lightTerminalThemeId = parsed.lightTerminalThemeId ?? 'light';
-        }
-      }
+      state = migrateLegacyTerminalThemeFields(parsed, state);
       state.activeTerminalThemeId = resolveActiveTerminalThemeId(state);
       return migrateCustomThemes(state);
     }
@@ -433,7 +448,14 @@ export function setSaveCallback(callback: (themes: ThemeState) => Promise<void>)
 
 export function initializeFromServer(serverThemes: ThemeState | null): void {
   if (serverThemes) {
-    const merged = migrateCustomThemes({ ...DEFAULT_STATE, ...serverThemes });
+    // Apply the same legacy migration + active-id resolution as loadState so
+    // a server payload saved by an older version (only `activeTerminalThemeId`)
+    // or an `auto` payload whose resolved mode differs on this machine
+    // doesn't silently drop the user's saved terminal theme.
+    let merged: ThemeState = { ...DEFAULT_STATE, ...serverThemes };
+    merged = migrateLegacyTerminalThemeFields(serverThemes, merged);
+    merged.activeTerminalThemeId = resolveActiveTerminalThemeId(merged);
+    merged = migrateCustomThemes(merged);
     state = merged;
     saveState(merged);
   }
