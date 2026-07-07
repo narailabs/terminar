@@ -1,6 +1,7 @@
 // HealthPoller.ts — Port of tray/src-tauri/src/health.rs
 // Polls the server /health endpoint every 5 seconds and invokes a callback.
 
+import * as fs from 'fs';
 import { DEFAULT_HEALTH } from './types.js';
 import type { ServerHealth } from './types.js';
 
@@ -36,6 +37,31 @@ export class HealthPoller {
     this.interval = setInterval(() => {
       void this.pollOnce(port);
     }, 5000);
+  }
+
+  /**
+   * Start polling server liveness via the PID file instead of HTTP. The
+   * server is Unix-socket-only (no `/health` endpoint to ask), so we check
+   * the process is alive. Mirrors `isProcessAlive()`/`readPid()` in
+   * npm/terminar/lib/server-manager.js. `version` is always null in this
+   * mode since there is no HTTP endpoint to report it.
+   */
+  startPidLiveness(pidFilePath: string): void {
+    this.stop();
+    this.pollPidOnce(pidFilePath);
+    this.interval = setInterval(() => {
+      this.pollPidOnce(pidFilePath);
+    }, 5000);
+  }
+
+  private pollPidOnce(pidFilePath: string): ServerHealth {
+    const health = isPidFileAlive(pidFilePath)
+      ? { status: 'running' as const, version: null }
+      : { ...DEFAULT_HEALTH };
+
+    this._latestHealth = health;
+    this.onHealthUpdate?.(health);
+    return health;
   }
 
   /** Stop the polling interval. */
@@ -106,5 +132,25 @@ export class HealthPoller {
     this._latestHealth = health;
     this.onHealthUpdate?.(health);
     return health;
+  }
+}
+
+/** Read a PID from `pidFilePath` and check it's alive. Mirrors
+ *  readPid()/isProcessAlive() in npm/terminar/lib/server-manager.js. */
+function isPidFileAlive(pidFilePath: string): boolean {
+  let pid: number;
+  try {
+    const content = fs.readFileSync(pidFilePath, 'utf-8').trim();
+    pid = parseInt(content, 10);
+    if (isNaN(pid)) return false;
+  } catch {
+    return false;
+  }
+
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
   }
 }

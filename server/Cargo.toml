@@ -22,17 +22,9 @@ clap = { version = "4.0", features = ["derive"] }
 zstd = "0.13"
 base64 = "0.22"
 
-# Web Support
-axum = { version = "0.7", features = ["ws"] }
-tower = { version = "0.5", features = ["util"] }
-tower-http = { version = "0.6", features = ["cors", "fs"] }
-futures = "0.3"
-
 tempfile = "3.0"
 
 [dev-dependencies]
-tokio-tungstenite = "0.24"
-reqwest = { version = "0.12", features = ["json"] }
 serial_test = "3.0"
 criterion = { version = "0.5", features = ["html_reports"] }
 

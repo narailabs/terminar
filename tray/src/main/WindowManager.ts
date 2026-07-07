@@ -4,6 +4,7 @@
 import { BrowserWindow, Menu, app, nativeImage, session, shell } from 'electron';
 import path from 'path';
 import { getAppRoot } from './paths.js';
+import { socketBridgeManager } from './SocketBridge.js';
 
 const RETRYABLE_ERRORS = new Set([
   'ERR_CONNECTION_REFUSED',
@@ -12,6 +13,16 @@ const RETRYABLE_ERRORS = new Set([
   'ERR_CONNECTION_TIMED_OUT',
   'ERR_EMPTY_RESPONSE',
 ]);
+
+// Quit-state flag, shared with the SIGTERM/SIGINT/before-quit handlers
+// in index.ts so the render-process-gone handler can skip reload during
+// shutdown — reloading races Chromium teardown and triggers the cascading
+// observer_list / Mach-port errors.
+let _quitting = false;
+export const markQuitting = (): void => {
+  _quitting = true;
+};
+export const isQuitting = (): boolean => _quitting;
 
 /** Load the custom terminar dock icon. */
 function getDockIcon(): Electron.NativeImage {
@@ -144,6 +155,14 @@ export class WindowManager {
     this.loadTerminalUrl(win, tabId);
     this.setupTerminalMenu(win);
 
+    // Each terminal window gets its own Unix-socket bridge to the server
+    // (see SocketBridge.ts) — created lazily on the renderer's first
+    // `terminar:socket:connect` call, torn down here on window close.
+    const webContentsId = win.webContents.id;
+    win.on('closed', () => {
+      socketBridgeManager.destroy(webContentsId);
+    });
+
     return win;
   }
 
@@ -222,6 +241,15 @@ export class WindowManager {
 
     win.webContents.on('render-process-gone', (_event, details) => {
       if (details.reason === 'clean-exit') return;
+      // Skip reload during shutdown: reloading races Chromium's observer
+      // teardown and produces a cascading NOTREACHED / Mach-port crash.
+      // 'killed' means SIGKILL — usually we are the parent killing it.
+      if (_quitting || details.reason === 'killed') {
+        console.error(
+          `[window] Renderer ${details.reason} (${label}); shutdown — not reloading`,
+        );
+        return;
+      }
       console.error(`[window] Renderer crashed (${label}): ${details.reason}`);
       if (!win.isDestroyed()) {
         win.webContents.reload();

@@ -41,6 +41,25 @@ ipcRenderer.on('power:screen-unlocked', () => {
   document.dispatchEvent(new Event('terminar:screen-unlocked'));
 });
 
+// Bridges the renderer to the server's Unix domain socket via the main
+// process (see tray/src/main/SocketBridge.ts) — the renderer is sandboxed
+// and can't open the socket itself. `send`/`onMessage` are the streaming
+// hot path for terminal I/O; `request` is a correlated request/response
+// call used only for the settings/themes/tags/workspace-state RPCs.
+contextBridge.exposeInMainWorld('terminarSocket', {
+  connect: (): Promise<void> => ipcRenderer.invoke('terminar:socket:connect'),
+  send: (json: string): void => ipcRenderer.send('terminar:socket:send', json),
+  onMessage: (callback: (json: string) => void): void => {
+    ipcRenderer.on('terminar:socket:message', (_event, json) => callback(json));
+  },
+  onClose: (callback: () => void): void => {
+    ipcRenderer.on('terminar:socket:closed', () => callback());
+  },
+  disconnect: (): void => ipcRenderer.send('terminar:socket:disconnect'),
+  state: (): Promise<string> => ipcRenderer.invoke('terminar:socket:state'),
+  request: (json: string): Promise<string> => ipcRenderer.invoke('terminar:socket:request', json),
+});
+
 contextBridge.exposeInMainWorld('multiWindow', {
   /** Get the tab ID assigned to this window by the MultiWindowCoordinator. */
   getAssignedTab: (): Promise<string | null> => ipcRenderer.invoke('multi-window:get-tab'),

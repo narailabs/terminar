@@ -26,6 +26,17 @@ let _createCount = 0;
 
 console.log('[connectionSingleton] Module loaded — this should appear exactly ONCE');
 
+// Overrides how createManager() builds its SessionManager. Used by the tray
+// (tray/src/renderer/terminal.ts) to swap in an IpcSessionManager backed by
+// the Unix socket instead of a real WebSocket — the plain browser/dev-server
+// path (pnpm dev:web) never sets this and is unaffected.
+type ManagerFactory = (wsUrl: string, token?: string) => SessionManager;
+let _managerFactory: ManagerFactory | null = null;
+
+export function setManagerFactory(factory: ManagerFactory | null): void {
+  _managerFactory = factory;
+}
+
 /** Get the current active connection manager, or null if none exists. */
 export function getManager(): SessionManager | null {
   return _activeManager;
@@ -48,9 +59,11 @@ export function createManager(wsUrl: string, token?: string): SessionManager {
     _activeManager = null;
   }
 
-  _activeManager = token
-    ? new WebSocketSessionManager(wsUrl, token)
-    : new WebSocketSessionManager(wsUrl);
+  _activeManager = _managerFactory
+    ? _managerFactory(wsUrl, token)
+    : token
+      ? new WebSocketSessionManager(wsUrl, token)
+      : new WebSocketSessionManager(wsUrl);
   console.log(`[connectionSingleton] createManager #${callNum}: new manager created`);
   return _activeManager;
 }

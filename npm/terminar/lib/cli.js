@@ -32,16 +32,17 @@ async function startEverything() {
   if (!existingPid) {
     serverManager.start(serverBin, port);
 
-    // Wait for health check
+    // Wait for the server's Unix socket to appear (the server is
+    // Unix-socket-only — there is no HTTP /health endpoint to poll)
     try {
-      await serverManager.waitForHealth(port);
+      await serverManager.waitForSocketReady(serverManager.defaultSocketPath());
     } catch {
-      console.error('Warning: Server health check timed out, launching app anyway');
+      console.error('Warning: Server socket check timed out, launching app anyway');
     }
   }
 
   // Launch Electron tray/desktop app
-  appLauncher.launch(serverBin, port);
+  appLauncher.launch(serverBin, port, serverManager.defaultSocketPath());
 }
 
 async function handleServerCommand(subcommand) {
@@ -52,10 +53,10 @@ async function handleServerCommand(subcommand) {
     case 'start':
       serverManager.start(serverBin, port);
       try {
-        await serverManager.waitForHealth(port);
+        await serverManager.waitForSocketReady(serverManager.defaultSocketPath());
         console.log('Server is ready');
       } catch {
-        console.error('Warning: Server started but health check timed out');
+        console.error('Warning: Server started but socket check timed out');
       }
       break;
     case 'stop':
@@ -64,10 +65,10 @@ async function handleServerCommand(subcommand) {
     case 'restart':
       serverManager.restart(serverBin, port);
       try {
-        await serverManager.waitForHealth(port);
+        await serverManager.waitForSocketReady(serverManager.defaultSocketPath());
         console.log('Server is ready');
       } catch {
-        console.error('Warning: Server restarted but health check timed out');
+        console.error('Warning: Server restarted but socket check timed out');
       }
       break;
     case 'status':

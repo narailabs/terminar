@@ -6,11 +6,24 @@ export function setThemesApiBaseUrl(url: string) {
   baseUrl = url;
 }
 
+/** Overrides fetchThemes()/saveThemes() to go over a different transport
+ *  (e.g. the tray's Unix-socket RPC) instead of HTTP `fetch`. */
+export interface ThemesTransport {
+  get(): Promise<ThemeState | null>;
+  put(themes: ThemeState): Promise<void>;
+}
+let _transportOverride: ThemesTransport | null = null;
+
+export function setThemesTransport(transport: ThemesTransport | null): void {
+  _transportOverride = transport;
+}
+
 /**
  * Fetch themes from the server.
  * Returns null if server is unreachable or has no saved themes (204).
  */
 export async function fetchThemes(): Promise<ThemeState | null> {
+  if (_transportOverride) return _transportOverride.get();
   try {
     const response = await fetch(`${baseUrl}/themes`, {
       method: 'GET',
@@ -39,6 +52,7 @@ export async function fetchThemes(): Promise<ThemeState | null> {
  * Throws if save fails.
  */
 export async function saveThemes(themes: ThemeState): Promise<void> {
+  if (_transportOverride) return _transportOverride.put(themes);
   const response = await fetch(`${baseUrl}/themes`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },

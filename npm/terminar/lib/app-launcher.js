@@ -41,7 +41,7 @@ function ensurePatched() {
   }
 }
 
-function launch(serverBinaryPath, port) {
+function launch(serverBinaryPath, port, socketPath) {
   // Check for display on Linux
   if (process.platform === 'linux') {
     if (!process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
@@ -66,6 +66,7 @@ function launch(serverBinaryPath, port) {
       TERMINAR_LAUNCHED_BY_CLI: '1',
       TERMINAR_SERVER_BIN: serverBinaryPath,
       TERMINAR_SERVER_PORT: String(port),
+      ...(socketPath ? { TERMINAR_SOCKET_PATH: socketPath } : {}),
     },
   });
 

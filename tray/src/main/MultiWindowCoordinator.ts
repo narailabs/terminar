@@ -1,6 +1,8 @@
 // MultiWindowCoordinator.ts — Tracks which Electron BrowserWindow shows which workspace tab.
 // Each terminal window displays a single tab from the shared workspace.
-// All windows share the same WebSocket connection to the server via the main process.
+// Each window holds its own Unix-socket connection to the server, bridged through
+// the main process (see SocketBridge.ts) — this class only tracks tab assignment
+// and relays workspace-mutation broadcasts between windows, it is not a transport.
 
 import { BrowserWindow, ipcMain } from 'electron';
 
@@ -15,6 +17,7 @@ export class MultiWindowCoordinator {
 
   /** Register a window as showing a specific tab. Cleans up on window close. */
   register(win: BrowserWindow, tabId: string): void {
+    if (this.windows.has(win.id)) return;
     this.windows.set(win.id, win);
     this.mappings.push({ windowId: win.id, tabId });
     win.on('closed', () => {

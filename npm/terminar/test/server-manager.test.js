@@ -31,7 +31,7 @@ describe('server-manager', () => {
     assert.strictEqual(typeof sm.restart, 'function');
     assert.strictEqual(typeof sm.status, 'function');
     assert.strictEqual(typeof sm.logs, 'function');
-    assert.strictEqual(typeof sm.waitForHealth, 'function');
+    assert.strictEqual(typeof sm.waitForSocketReady, 'function');
     assert.strictEqual(typeof sm.getRunningPid, 'function');
   });
 
@@ -47,11 +47,23 @@ describe('server-manager', () => {
     assert.ok(pid === null || typeof pid === 'number');
   });
 
-  it('should reject waitForHealth when no server is running', async () => {
-    // Use a port that's definitely not listening
+
+  it('should export waitForSocketReady and defaultSocketPath', () => {
+    assert.strictEqual(typeof sm.waitForSocketReady, 'function');
+    assert.strictEqual(typeof sm.defaultSocketPath, 'function');
+  });
+
+  it('should reject waitForSocketReady when the socket file does not exist', async () => {
+    const missingSocket = path.join(tmpDir, 'does-not-exist.sock');
     await assert.rejects(
-      () => sm.waitForHealth(59999, 500),
-      /timed out/,
+      () => sm.waitForSocketReady(missingSocket, 500),
+      /did not appear/,
     );
+  });
+
+  it('should resolve waitForSocketReady once the socket file exists', async () => {
+    const socketPath = path.join(tmpDir, 'appears-later.sock');
+    setTimeout(() => fs.writeFileSync(socketPath, ''), 300);
+    await sm.waitForSocketReady(socketPath, 2000);
   });
 });

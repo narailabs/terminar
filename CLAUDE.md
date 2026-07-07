@@ -2,7 +2,7 @@
 
 ## No Mocking Policy (MANDATORY)
 
-**NEVER use mock PTY, mock data, or any mock/stub options unless the user explicitly asks for it.** Always use `pnpm dev` (real PTY). Always use `cargo run -- --no-auth`. If a real dependency is unavailable, fail explicitly rather than silently using fakes.
+**NEVER use mock PTY, mock data, or any mock/stub options unless the user explicitly asks for it.** Always use `pnpm dev` (real PTY). Always use `cargo run` (Unix socket only). If a real dependency is unavailable, fail explicitly rather than silently using fakes.
 
 ## Overview
 
@@ -28,7 +28,7 @@ terminar/
 │       ├── constants.rs     # Defaults (ports, timeouts, limits)
 │       ├── error.rs         # Error types
 │       └── logging.rs       # Tracing configuration
-├── web/                     # Web frontend (Svelte 5 + xterm.js + Vite) — dev-only, not shipped
+├── web/                     # Web frontend (Svelte 5 + xterm.js + Vite) — the tray's UI source (mounted into the tray build)
 │   └── src/
 │       ├── App.svelte       # Root component
 │       ├── components/      # ~20 components: Terminal, Pane, WorkspaceView, Sidebar, etc.
@@ -62,20 +62,20 @@ terminar/
 ### Local-Only Mode
 
 ```
-Electron Tray (tray/) ──WebSocket──► terminar-server ◄──Unix Socket──► VS Code Extension
-       │                                    │
-  Embedded terminal                    PTY Sessions (portable-pty)
+Electron Tray (tray/) ──IPC/Unix Socket──► terminar-server ◄──Unix Socket──► VS Code Extension
+       │                                          │
+  Embedded terminal                          PTY Sessions (portable-pty)
   Settings window
-  Health polling
+  Health polling (PID)
 ```
 
-The server listens on a Unix socket and localhost HTTP. The Electron tray app is the shipped desktop frontend. The web frontend (`web/`) is used only during development.
+The server listens on a **Unix domain socket only** — this build has no network (no TCP/HTTP/WebSocket, no auth token). The tray's sandboxed renderer reaches the socket through the Electron main process (`tray/src/main/SocketBridge.ts`) over IPC. The Electron tray app is the shipped desktop frontend. The web frontend (`web/`) is the tray's UI source (mounted via Vite); there is no standalone browser dev server (a browser can't reach a Unix socket).
 
 ### Components
 
-- **terminar-server** (`server/`): Local PTY server. Unix socket + localhost HTTP/WebSocket. Token auth via `~/.terminar/token`.
+- **terminar-server** (`server/`): Local PTY server. Unix domain socket only — no network, no auth.
 - **Electron Tray** (`tray/`): Shipped desktop app. System tray icon, embedded terminal, settings, health polling. Bundles the server binary.
-- **Web Frontend** (`web/`): Svelte 5 + xterm.js. Dev-only — not shipped in the distributed app.
+- **Web Frontend** (`web/`): Svelte 5 + xterm.js. The tray's UI source — mounted into the tray, not shipped as a standalone browser app.
 - **VS Code Extension** (`extension/`): Connects via Unix socket with length-prefixed framing.
 - **Protocol Package** (`packages/shell-protocol/`): Zod schemas, ShellClient, BaseWebSocketManager. Shared by web + extension.
 
@@ -85,8 +85,6 @@ The server listens on a Unix socket and localhost HTTP. The Electron tray app is
 
 ```bash
 pnpm dev                     # Start server (detached) + tray (USE THIS BY DEFAULT)
-pnpm dev:web                 # Start server (detached) + web (for web frontend development)
-pnpm dev:all                 # Start server (detached) + web + tray (everything)
 pnpm server:status           # Check if the detached dev server is running
 pnpm server:stop             # Stop the detached dev server
 pnpm server:restart          # Rebuild and restart the detached dev server
@@ -116,15 +114,17 @@ cargo build                  # Debug build
 cargo build --release        # Release build (outputs terminar-server)
 cargo test                   # Run tests
 cargo clippy                 # Lint
-cargo run -- --no-auth       # Dev mode (USE THIS BY DEFAULT)
+cargo run                    # Dev mode — Unix socket only (USE THIS BY DEFAULT)
 ```
 
-### Web Frontend (dev-only)
+### Web Frontend (tray UI source)
+
+The `web/` Svelte app is the tray's UI, mounted by the tray build — it is not
+run as a standalone browser app (the server is Unix-socket-only, and a browser
+can't reach a Unix socket). Iterate on it via `pnpm dev` (the tray, with HMR).
 
 ```bash
 cd web
-pnpm dev                     # Vite dev server (localhost:3001)
-pnpm build                   # Production build
 pnpm test -- --run           # Vitest (single run)
 pnpm test:watch              # Vitest (watch mode)
 ```

@@ -6,11 +6,24 @@ export function setTagsApiBaseUrl(url: string) {
   baseUrl = url;
 }
 
+/** Overrides fetchTags()/saveTags() to go over a different transport (e.g.
+ *  the tray's Unix-socket RPC) instead of HTTP `fetch`. */
+export interface TagsTransport {
+  get(): Promise<TagState | null>;
+  put(tags: TagState): Promise<void>;
+}
+let _transportOverride: TagsTransport | null = null;
+
+export function setTagsTransport(transport: TagsTransport | null): void {
+  _transportOverride = transport;
+}
+
 /**
  * Fetch tags from the server.
  * Returns null if server is unreachable or has no saved tags (204).
  */
 export async function fetchTags(): Promise<TagState | null> {
+  if (_transportOverride) return _transportOverride.get();
   try {
     const response = await fetch(`${baseUrl}/tags`, {
       method: 'GET',
@@ -39,6 +52,7 @@ export async function fetchTags(): Promise<TagState | null> {
  * Throws if save fails.
  */
 export async function saveTags(tags: TagState): Promise<void> {
+  if (_transportOverride) return _transportOverride.put(tags);
   const response = await fetch(`${baseUrl}/tags`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },

@@ -19,16 +19,11 @@ ok()   { echo -e "${GREEN}✓ $*${NC}"; }
 warn() { echo -e "${YELLOW}⚠ $*${NC}"; }
 
 # ── Cleanup on exit ───────────────────────────────────────────────────────────
-# We only clean up the web dev server here (it's a child of this shell). The
-# Rust PTY server is detached and intentionally stays alive.
-WEB_PID=""
+# The Rust PTY server is detached and intentionally stays alive; the tray runs
+# in the foreground and exits on its own.
 cleanup() {
   local exit_code=$?
   set +e
-  if [[ -n "$WEB_PID" ]]; then
-    kill "$WEB_PID" 2>/dev/null
-    pkill -P "$WEB_PID" 2>/dev/null
-  fi
   # If the server was started in this run, tell the user where to go next.
   if [[ -f "$HOME/.terminar/server.pid" ]]; then
     local server_pid
@@ -125,14 +120,8 @@ cd "$REPO/server"
 PATH="$HOME/.cargo/bin:$PATH" cargo build --release
 ok "Server built"
 
-# ── 5. Build: web frontend ────────────────────────────────────────────────────
-step "Building web frontend..."
-cd "$REPO/web"
-pnpm build
-ok "Web frontend built"
-
-# ── 6. Start server (DETACHED — survives Ctrl+C and UI close) ─────────────────
-step "Starting server on :6750 (detached)..."
+# ── 5. Start server (DETACHED — survives Ctrl+C and UI close) ─────────────────
+step "Starting server (detached, Unix socket only)..."
 cd "$REPO"
 SERVER_BIN="$REPO/server/target/release/terminar-server"
 # server-manager.js handles: detached:true + unref() + PID file + macOS codesign
@@ -146,19 +135,16 @@ node -e '
       return;
     }
     sm.start(bin, 6750);
-    await sm.waitForHealth(6750, 10000);
+    // The server is Unix-socket-only (no HTTP /health endpoint) — wait for the
+    // socket file to appear instead of polling health.
+    await sm.waitForSocketReady(sm.defaultSocketPath(), 10000);
   })().catch(e => { console.error(e.message || e); process.exit(1); });
 ' "$SERVER_BIN"
 ok "Server ready (logs: ~/.terminar/logs/server.log)"
 
-# ── 7. Start web dev server ───────────────────────────────────────────────────
-step "Starting web dev server on :3001..."
-cd "$REPO/web"
-pnpm dev &
-WEB_PID=$!
-ok "Web dev server started (pid $WEB_PID) → http://localhost:3001"
-
-# ── 8. Start tray (foreground — this waits until the tray exits) ──────────────
+# ── 6. Start tray (foreground — this waits until the tray exits) ──────────────
+# The tray mounts web/App.svelte with Vite HMR; there is no separate browser
+# dev server (a browser can't reach the Unix socket).
 step "Starting tray..."
 cd "$REPO/tray"
 pnpm dev

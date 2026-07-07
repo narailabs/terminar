@@ -26,6 +26,57 @@ export type SessionInfo = z.infer<typeof SessionInfoSchema>;
 // Base schema for messages that include a session_id
 const WithSessionId = z.object({ session_id: z.string() });
 
+// Mirrors server/src/settings.rs's `TerminalSettings` (serialized camelCase).
+// This is the wire shape sent/received over GetSettings/PutSettings/SettingsData
+// — distinct from web/src/lib/settingsStore.svelte.ts's client-local
+// `TerminalSettings` type, which already covers a different (UI-only) set of
+// fields; reconciling the two is a pre-existing drift issue, out of scope here.
+const TerminalSettingsSchema = z.object({
+  fontSize: z.number(),
+  fontFamily: z.string(),
+  fontColor: z.string(),
+  backgroundColor: z.string(),
+  cursorStyle: z.string(),
+  cursorBlink: z.boolean(),
+  lineHeight: z.number(),
+  defaultCwd: z.string(),
+});
+
+// Mirrors server/src/workspace.rs's `SplitNode`/`Tab`/`Workspace`/
+// `LayoutTemplate`/`WorkspaceState` (serialized camelCase; SplitNode is a
+// `type`-tagged union, "pane" | "split"). Used by GetWorkspaceState/
+// PutWorkspaceState/WorkspaceStateData — distinct from the existing
+// LoadWorkspace/SaveWorkspace/WorkspaceData messages, which persist opaque
+// per-client JSON to a different file and are unrelated to this shape.
+const SplitNodeSchema: z.ZodType<unknown> = z.lazy(() =>
+  z.union([
+    z.object({ type: z.literal('pane'), id: z.string(), sessionId: z.string().nullable() }),
+    z.object({
+      type: z.literal('split'),
+      id: z.string(),
+      direction: z.enum(['horizontal', 'vertical']),
+      children: z.array(SplitNodeSchema),
+      ratios: z.array(z.number()),
+    }),
+  ])
+);
+
+const TabSchema = z.object({ id: z.string(), name: z.string(), root: SplitNodeSchema });
+
+const WorkspaceSchema = z.object({ tabs: z.array(TabSchema), activeTabId: z.string() });
+
+const LayoutTemplateSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  root: SplitNodeSchema,
+  createdAt: z.string(),
+});
+
+const WorkspaceStateSchema = z.object({
+  workspace: WorkspaceSchema,
+  templates: z.array(LayoutTemplateSchema),
+});
+
 export const ClientMessageSchema = z.union([
   z.object({ type: z.literal('auth'), token: z.string(), protocol_version: z.string().optional() }),
   z.object({ type: z.literal('list_sessions') }),
@@ -80,6 +131,14 @@ export const ClientMessageSchema = z.union([
   z.object({ type: z.literal('import_ssh_config') }),
   z.object({ type: z.literal('save_workspace'), workspace: z.record(z.string(), z.unknown()) }),
   z.object({ type: z.literal('load_workspace') }),
+  z.object({ type: z.literal('get_workspace_state') }),
+  z.object({ type: z.literal('put_workspace_state'), state: WorkspaceStateSchema }),
+  z.object({ type: z.literal('get_settings') }),
+  z.object({ type: z.literal('put_settings'), settings: TerminalSettingsSchema }),
+  z.object({ type: z.literal('get_themes') }),
+  z.object({ type: z.literal('put_themes'), value: z.unknown() }),
+  z.object({ type: z.literal('get_tags') }),
+  z.object({ type: z.literal('put_tags'), value: z.unknown() }),
 ]);
 
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
@@ -117,6 +176,10 @@ export const ServerMessageSchema = z.union([
     contents: z.string(),
   }),
   z.object({ type: z.literal('WorkspaceData'), workspace: z.record(z.string(), z.unknown()).nullable() }),
+  z.object({ type: z.literal('SettingsData'), settings: TerminalSettingsSchema }),
+  z.object({ type: z.literal('ThemesData'), value: z.unknown().nullable() }),
+  z.object({ type: z.literal('TagsData'), value: z.unknown().nullable() }),
+  z.object({ type: z.literal('WorkspaceStateData'), state: WorkspaceStateSchema }),
   z.object({
     type: z.literal('ContainerList'),
     containers: z.array(z.object({

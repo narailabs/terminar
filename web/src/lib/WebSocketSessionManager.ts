@@ -1,5 +1,4 @@
 import { BaseWebSocketManager, type IWebSocket, type ReconnectConfig } from './shared-protocol';
-import type { ClientMessage } from './protocol-types';
 
 // Re-export ConnectionState for backwards compatibility
 export type { ConnectionState } from './shared-protocol';
@@ -55,7 +54,7 @@ export class WebSocketSessionManager extends BaseWebSocketManager {
                         algorithm: this.pubkeyAlgorithm || 'ssh-ed25519',
                     });
                 })
-                .catch((err) => {
+                .catch(() => {
                     this.emit('error', new Error('Failed to sign authentication challenge'));
                 });
             // Still let base class handle the message for event emission

@@ -11,7 +11,7 @@
   import type { SessionManager } from '../lib/SessionManager';
   import EditorModal from './EditorModal.svelte';
   import { xtermOptions, settingsStore } from '../lib/settingsStore.svelte';
-  import { themeState, getTerminalTheme } from '../lib/themeStore.svelte';
+  import { themeState, getTerminalTheme, getResolvedUIMode, onResolvedModeChange } from '../lib/themeStore.svelte';
   import { resizeState } from '../lib/resizeStore.svelte';
   import { TerminalResizeDebouncer } from '../lib/TerminalResizeDebouncer';
   import { getManagerContext, getSessionsContext } from '../lib/sessionContext.svelte';
@@ -62,6 +62,9 @@
   let resizeDebouncer: TerminalResizeDebouncer | null = null;
   let previousSessionId: string | null = null;
   let lastCols: number = 0;
+  // Unsubscribe handle for color-scheme (DECSET 2031) notifications; set while a
+  // program in this pane's session has subscribed, cleared on unsubscribe/destroy.
+  let colorSchemeUnsub: (() => void) | null = null;
 
   export function getSelection(): string {
     return term?.getSelection() ?? '';
@@ -1110,6 +1113,42 @@
       });
     }
 
+    // ── Color-scheme reporting (DECSET 2031 / DSR 996 → CSI 997) ─────────────
+    // TUI apps (e.g. Claude Code) subscribe with CSI ?2031h and expect the
+    // terminal to report the OS light/dark appearance via CSI ?997;1n (dark) /
+    // ?997;2n (light) — both as an answer to a query and unsolicited when the
+    // appearance changes. We push that on resolved-mode flips (incl. OS changes
+    // while terminar is in auto), so those apps re-theme live without a restart.
+    // The report is delivered to the subscribing session via sendInput (the same
+    // channel as input — that's where a terminal's replies go). We bind to the
+    // session that subscribed, not the live active pane, so split panes each stay
+    // in sync; a repeated report is idempotent (the app re-reads the value).
+    const csReport = (mode: 'light' | 'dark') =>
+      mode === 'dark' ? '\x1b[?997;1n' : '\x1b[?997;2n';
+    const csSend = (sessionId: string | null, mode: 'light' | 'dark') => {
+      if (manager && sessionId) manager.sendInput(sessionId, csReport(mode));
+    };
+    term.parser.registerCsiHandler({ prefix: '?', final: 'h' }, (params) => {
+      if (params[0] !== 2031) return false; // pass every other DECSET to xterm
+      if (!colorSchemeUnsub) {
+        const subId = activeSessionId; // the session whose program subscribed
+        colorSchemeUnsub = onResolvedModeChange((mode) => csSend(subId, mode));
+      }
+      return true;
+    });
+    term.parser.registerCsiHandler({ prefix: '?', final: 'l' }, (params) => {
+      if (params[0] !== 2031) return false; // pass every other DECRST to xterm
+      colorSchemeUnsub?.();
+      colorSchemeUnsub = null;
+      return true;
+    });
+    term.parser.registerCsiHandler({ prefix: '?', final: 'n' }, (params) => {
+      if (params[0] !== 996) return false; // pass every other private DSR to xterm
+      csSend(activeSessionId, getResolvedUIMode());
+      return true;
+    });
+    // ── end color-scheme reporting ──────────────────────────────────────────
+
     // Setup auto-scroll tracking (needs viewport DOM element from term.open)
     initAutoScroll();
 
@@ -1459,6 +1498,8 @@
 
   onDestroy(() => {
     console.log(`[Terminal:${terminalInstanceId}] Destroying terminal component. Session: ${currentAttachedSessionId?.slice(0, 8)}`);
+    colorSchemeUnsub?.();
+    colorSchemeUnsub = null;
     if (writeRafId !== null) cancelAnimationFrame(writeRafId);
     if (refreshIntervalId) clearInterval(refreshIntervalId);
     writeBuffer = '';

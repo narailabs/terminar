@@ -24,6 +24,15 @@ export default defineConfig({
         vite: {
           build: {
             outDir: 'dist-electron',
+            // vite-plugin-electron builds every entry in Vite library mode;
+            // in library mode, `build.lib.formats` (not
+            // rollupOptions.output.format) decides the emitted module
+            // format. Since tray/package.json has "type": "module", the
+            // plugin's default `formats` is ['es'] — Electron's preload
+            // loader rejects `import` in a plain .js file, so without this
+            // override the preload silently fails to load (no error surfaced
+            // to the renderer; window.electronAPI/etc. are just undefined).
+            lib: { formats: ['cjs'] },
             rollupOptions: {
               output: { entryFileNames: 'preload.js', format: 'cjs' },
             },
@@ -36,6 +45,7 @@ export default defineConfig({
         vite: {
           build: {
             outDir: 'dist-electron',
+            lib: { formats: ['cjs'] },
             rollupOptions: {
               output: { entryFileNames: '[name].js', format: 'cjs' },
             },

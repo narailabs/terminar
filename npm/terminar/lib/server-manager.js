@@ -3,7 +3,6 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn, execFileSync } = require('child_process');
-const http = require('http');
 const os = require('os');
 
 const TERMINAR_DIR = path.join(os.homedir(), '.terminar');
@@ -11,6 +10,10 @@ const LOGS_DIR = path.join(TERMINAR_DIR, 'logs');
 const PID_FILE = path.join(TERMINAR_DIR, 'server.pid');
 const LOG_FILE = path.join(LOGS_DIR, 'server.log');
 const DEFAULT_PORT = 6750;
+
+function defaultSocketPath() {
+  return `/tmp/vscode-terminar-${os.userInfo().uid}.sock`;
+}
 
 function ensureDirs() {
   fs.mkdirSync(LOGS_DIR, { recursive: true });
@@ -67,7 +70,8 @@ function start(serverBinaryPath, port) {
 
   const logFd = fs.openSync(LOG_FILE, 'a');
 
-  const child = spawn(serverBinaryPath, ['--no-auth', '--port', String(port)], {
+  // The server is Unix-socket-only (no network); pass just the socket path.
+  const child = spawn(serverBinaryPath, ['--socket', defaultSocketPath()], {
     detached: true,
     stdio: ['ignore', logFd, logFd],
   });
@@ -150,33 +154,21 @@ function logs() {
   }
 }
 
-function waitForHealth(port, timeoutMs) {
-  port = port || DEFAULT_PORT;
+// The server is Unix-socket-only (no HTTP /health endpoint) — readiness is
+// detected by the socket file appearing.
+function waitForSocketReady(socketPath, timeoutMs) {
   timeoutMs = timeoutMs || 5000;
 
   return new Promise((resolve, reject) => {
     const startTime = Date.now();
 
     function check() {
-      const req = http.get(`http://127.0.0.1:${port}/health`, (res) => {
-        res.resume();
-        if (res.statusCode === 200) {
-          resolve(true);
-        } else {
-          retry();
-        }
-      });
-
-      req.on('error', retry);
-      req.setTimeout(1000, () => {
-        req.destroy();
-        retry();
-      });
-    }
-
-    function retry() {
+      if (fs.existsSync(socketPath)) {
+        resolve(true);
+        return;
+      }
       if (Date.now() - startTime > timeoutMs) {
-        reject(new Error('Server health check timed out'));
+        reject(new Error('Server socket did not appear in time'));
         return;
       }
       setTimeout(check, 250);
@@ -192,8 +184,9 @@ module.exports = {
   restart,
   status,
   logs,
-  waitForHealth,
+  waitForSocketReady,
   getRunningPid,
+  defaultSocketPath,
   DEFAULT_PORT,
   PID_FILE,
   LOG_FILE,
