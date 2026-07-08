@@ -194,13 +194,23 @@ export class SocketBridge {
 
   private handleMessage(json: string): void {
     if (this.pendingRequest) {
-      let type: string | undefined;
+      let parsed: { type?: string; message?: string } | undefined;
       try {
-        type = JSON.parse(json).type;
+        parsed = JSON.parse(json);
       } catch {
         // fall through to broadcast below
       }
-      if (type === this.pendingRequest.expectedType || type === 'Error') {
+      const type = parsed?.type;
+      if (type === 'Error') {
+        // The server reports save/load failures (permission, disk, not-found)
+        // as ServerMessage::Error. Reject so callers (e.g. a settings/theme
+        // save) see the failure instead of treating it as success.
+        const pending = this.pendingRequest;
+        this.pendingRequest = null;
+        pending.reject(new Error(parsed?.message ?? 'Server returned an error'));
+        return;
+      }
+      if (type === this.pendingRequest.expectedType) {
         this.pendingRequest.resolve(json);
         this.pendingRequest = null;
         return;

@@ -31,7 +31,14 @@ export function setSettingsTransport(transport: SettingsTransport | null): void 
  * Falls back to null if server is unreachable (caller should use cache/defaults)
  */
 export async function fetchSettings(): Promise<TerminalSettings | null> {
-  if (_transportOverride) return _transportOverride.get();
+  if (_transportOverride) {
+    try {
+      return await _transportOverride.get();
+    } catch (error) {
+      console.warn('[SettingsAPI] Transport failed to fetch settings:', error);
+      return null;
+    }
+  }
   try {
     const response = await fetch(`${baseUrl}/settings`, {
       method: 'GET',

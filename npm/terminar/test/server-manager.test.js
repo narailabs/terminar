@@ -3,6 +3,7 @@
 const { describe, it, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
+const net = require('net');
 const path = require('path');
 const os = require('os');
 
@@ -53,17 +54,33 @@ describe('server-manager', () => {
     assert.strictEqual(typeof sm.defaultSocketPath, 'function');
   });
 
-  it('should reject waitForSocketReady when the socket file does not exist', async () => {
+  it('should reject waitForSocketReady when nothing is listening', async () => {
     const missingSocket = path.join(tmpDir, 'does-not-exist.sock');
     await assert.rejects(
       () => sm.waitForSocketReady(missingSocket, 500),
-      /did not appear/,
+      /did not become ready/,
     );
   });
 
-  it('should resolve waitForSocketReady once the socket file exists', async () => {
-    const socketPath = path.join(tmpDir, 'appears-later.sock');
-    setTimeout(() => fs.writeFileSync(socketPath, ''), 300);
-    await sm.waitForSocketReady(socketPath, 2000);
+  it('should reject waitForSocketReady for a stale socket file with no listener', async () => {
+    // A plain file at the socket path must NOT count as ready — only an
+    // actual listener does.
+    const stale = path.join(tmpDir, 'stale.sock');
+    fs.writeFileSync(stale, '');
+    await assert.rejects(
+      () => sm.waitForSocketReady(stale, 500),
+      /did not become ready/,
+    );
+  });
+
+  it('should resolve waitForSocketReady once the socket accepts connections', async () => {
+    const socketPath = path.join(tmpDir, 'listening.sock');
+    const server = net.createServer();
+    try {
+      setTimeout(() => server.listen(socketPath), 300);
+      await sm.waitForSocketReady(socketPath, 2000);
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
   });
 });

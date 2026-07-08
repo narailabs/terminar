@@ -23,7 +23,14 @@ export function setThemesTransport(transport: ThemesTransport | null): void {
  * Returns null if server is unreachable or has no saved themes (204).
  */
 export async function fetchThemes(): Promise<ThemeState | null> {
-  if (_transportOverride) return _transportOverride.get();
+  if (_transportOverride) {
+    try {
+      return await _transportOverride.get();
+    } catch (error) {
+      console.warn('[ThemesAPI] Transport failed to fetch themes:', error);
+      return null;
+    }
+  }
   try {
     const response = await fetch(`${baseUrl}/themes`, {
       method: 'GET',

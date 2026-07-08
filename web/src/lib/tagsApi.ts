@@ -23,7 +23,14 @@ export function setTagsTransport(transport: TagsTransport | null): void {
  * Returns null if server is unreachable or has no saved tags (204).
  */
 export async function fetchTags(): Promise<TagState | null> {
-  if (_transportOverride) return _transportOverride.get();
+  if (_transportOverride) {
+    try {
+      return await _transportOverride.get();
+    } catch (error) {
+      console.warn('[TagsAPI] Transport failed to fetch tags:', error);
+      return null;
+    }
+  }
   try {
     const response = await fetch(`${baseUrl}/tags`, {
       method: 'GET',

@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('fs');
+const net = require('net');
 const path = require('path');
 const { spawn, execFileSync } = require('child_process');
 const os = require('os');
@@ -154,8 +155,11 @@ function logs() {
   }
 }
 
-// The server is Unix-socket-only (no HTTP /health endpoint) — readiness is
-// detected by the socket file appearing.
+// The server is Unix-socket-only (no HTTP /health endpoint). Readiness means
+// something is actually accepting on the socket — not merely that the path
+// exists. A crashed server can leave a stale socket file behind, and a fresh
+// server unlinks+rebinds on startup, so `fs.existsSync` can return a false
+// positive for a dead socket. Probe with an actual connection instead.
 function waitForSocketReady(socketPath, timeoutMs) {
   timeoutMs = timeoutMs || 5000;
 
@@ -163,15 +167,19 @@ function waitForSocketReady(socketPath, timeoutMs) {
     const startTime = Date.now();
 
     function check() {
-      if (fs.existsSync(socketPath)) {
+      const probe = net.createConnection(socketPath);
+      probe.once('connect', () => {
+        probe.destroy();
         resolve(true);
-        return;
-      }
-      if (Date.now() - startTime > timeoutMs) {
-        reject(new Error('Server socket did not appear in time'));
-        return;
-      }
-      setTimeout(check, 250);
+      });
+      probe.once('error', () => {
+        probe.destroy();
+        if (Date.now() - startTime > timeoutMs) {
+          reject(new Error('Server socket did not become ready in time'));
+          return;
+        }
+        setTimeout(check, 250);
+      });
     }
 
     check();

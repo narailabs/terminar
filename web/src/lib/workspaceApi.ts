@@ -20,7 +20,14 @@ export function setWorkspaceTransport(transport: WorkspaceTransport | null): voi
 
 /** Load the saved workspace layout from the server, if any. */
 export async function loadWorkspace(): Promise<Workspace | null> {
-  if (_transportOverride) return _transportOverride.get();
+  if (_transportOverride) {
+    try {
+      return await _transportOverride.get();
+    } catch (e) {
+      console.warn('[WorkspaceAPI] Transport failed to load workspace:', e);
+      return null;
+    }
+  }
   try {
     const response = await fetch(`${baseUrl}/workspace`);
     if (response.ok) {
