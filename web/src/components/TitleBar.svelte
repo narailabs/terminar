@@ -6,6 +6,7 @@
   import type { TabId, SplitNode } from '../lib/workspaceTypes';
   import { exitedSessions } from '../lib/exitedSessionsStore.svelte';
   import { isElectronMac } from '../lib/platformDetect';
+  import { windowFocus } from '../lib/windowFocusStore.svelte';
 
   let {
     connectionState,
@@ -206,7 +207,7 @@
 
 </script>
 
-<div class="title-bar" class:electron-mac={electronMac}>
+<div class="title-bar" class:electron-mac={electronMac} class:unfocused={!windowFocus.focused}>
   <!-- Connection status (compact) -->
   {#if isLocalEchoMode}
     <div class="local-echo-dot" title="LOCAL PTY MODE - Main Server Bypassed"></div>
@@ -341,6 +342,12 @@
     user-select: none;
     flex-shrink: 0;
     -webkit-app-region: drag;
+    transition: opacity 0.18s ease;
+  }
+
+  /* Dim the chrome when the app/window loses focus (Chrome-like inactive look). */
+  .title-bar.unfocused {
+    opacity: 0.6;
   }
 
   .title-bar.electron-mac {

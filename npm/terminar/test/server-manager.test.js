@@ -3,6 +3,7 @@
 const { describe, it, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
+const net = require('net');
 const path = require('path');
 const os = require('os');
 
@@ -31,7 +32,7 @@ describe('server-manager', () => {
     assert.strictEqual(typeof sm.restart, 'function');
     assert.strictEqual(typeof sm.status, 'function');
     assert.strictEqual(typeof sm.logs, 'function');
-    assert.strictEqual(typeof sm.waitForHealth, 'function');
+    assert.strictEqual(typeof sm.waitForSocketReady, 'function');
     assert.strictEqual(typeof sm.getRunningPid, 'function');
   });
 
@@ -47,11 +48,39 @@ describe('server-manager', () => {
     assert.ok(pid === null || typeof pid === 'number');
   });
 
-  it('should reject waitForHealth when no server is running', async () => {
-    // Use a port that's definitely not listening
+
+  it('should export waitForSocketReady and defaultSocketPath', () => {
+    assert.strictEqual(typeof sm.waitForSocketReady, 'function');
+    assert.strictEqual(typeof sm.defaultSocketPath, 'function');
+  });
+
+  it('should reject waitForSocketReady when nothing is listening', async () => {
+    const missingSocket = path.join(tmpDir, 'does-not-exist.sock');
     await assert.rejects(
-      () => sm.waitForHealth(59999, 500),
-      /timed out/,
+      () => sm.waitForSocketReady(missingSocket, 500),
+      /did not become ready/,
     );
+  });
+
+  it('should reject waitForSocketReady for a stale socket file with no listener', async () => {
+    // A plain file at the socket path must NOT count as ready — only an
+    // actual listener does.
+    const stale = path.join(tmpDir, 'stale.sock');
+    fs.writeFileSync(stale, '');
+    await assert.rejects(
+      () => sm.waitForSocketReady(stale, 500),
+      /did not become ready/,
+    );
+  });
+
+  it('should resolve waitForSocketReady once the socket accepts connections', async () => {
+    const socketPath = path.join(tmpDir, 'listening.sock');
+    const server = net.createServer();
+    try {
+      setTimeout(() => server.listen(socketPath), 300);
+      await sm.waitForSocketReady(socketPath, 2000);
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
   });
 });

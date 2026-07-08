@@ -17,10 +17,11 @@
   import { initializeSettings } from './lib/settingsApi';
   import { workspaceStore } from './lib/workspaceStore';
   import { applyUIThemeCSS, themeState, initAutoMode, themeStoreApi } from './lib/themeStore.svelte';
+  import { initWindowFocus } from './lib/windowFocusStore.svelte';
   import { initializeThemes } from './lib/themesApi';
   import { initializeTags } from './lib/tagsApi';
   import { tagStoreApi } from './lib/tagStore.svelte';
-  import type { Workspace } from './lib/workspaceTypes';
+  import { loadWorkspace, saveWorkspace, setWorkspaceApiBaseUrl } from './lib/workspaceApi';
 
   import TitleBar from './components/TitleBar.svelte';
   import BroadcastBar from './components/BroadcastBar.svelte';
@@ -135,6 +136,9 @@
   // Listen for OS color scheme changes when mode is 'auto'
   initAutoMode();
 
+  // Track window focus so the chrome can dim when the app is in the background
+  initWindowFocus();
+
   // Global keyboard shortcuts -- delegates to the centralized KeyBindingRegistry
   function handleGlobalKeydown(event: KeyboardEvent) {
     // Skip if already handled by the terminal's custom key event handler
@@ -155,32 +159,6 @@
     }
   }
 
-  // Load workspace from server
-  async function loadWorkspace(): Promise<Workspace | null> {
-    try {
-      const response = await fetch(`${serverHttpUrl}/workspace`);
-      if (response.ok) {
-        const data = await response.json();
-        return data.workspace || null;
-      }
-    } catch (e) {
-      console.warn('[App] Failed to load workspace from server:', e);
-    }
-    return null;
-  }
-
-  // Save workspace to server
-  async function saveWorkspace(workspace: Workspace): Promise<void> {
-    try {
-      await fetch(`${serverHttpUrl}/workspace`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace, templates: [] }),
-      });
-    } catch (e) {
-      console.error('[App] Failed to save workspace:', e);
-    }
-  }
 
   // Expose tab operations for Electron multi-window coordination.
   // The main process queries these via executeJavaScript('window.__terminar.getTabIds()').
@@ -198,6 +176,7 @@
     await initializeSettings(settingsStore, serverHttpUrl);
     await initializeThemes(themeStoreApi, serverHttpUrl);
     await initializeTags(tagStoreApi, serverHttpUrl);
+    setWorkspaceApiBaseUrl(serverHttpUrl);
 
     connectLocal();
     window.addEventListener('keydown', handleGlobalKeydown);

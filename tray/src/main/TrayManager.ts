@@ -24,7 +24,6 @@ type MenuAction =
 
 export class TrayManager {
   private tray: Tray | null = null;
-  private configStore: ConfigStore;
   private healthPoller: HealthPoller;
   private windowManager: WindowManager;
   private serverPort: number;
@@ -40,7 +39,6 @@ export class TrayManager {
     windowManager: WindowManager,
     options?: { serverPort?: number },
   ) {
-    this.configStore = configStore;
     this.healthPoller = healthPoller;
     this.windowManager = windowManager;
     this.serverPort = options?.serverPort ?? configStore.load().server_port;

@@ -14,11 +14,31 @@ export function setSettingsApiBaseUrl(url: string) {
   baseUrl = url;
 }
 
+/** Overrides fetchSettings()/saveSettings() to go over a different transport
+ *  (e.g. the tray's Unix-socket RPC) instead of HTTP `fetch`. */
+export interface SettingsTransport {
+  get(): Promise<TerminalSettings | null>;
+  put(settings: TerminalSettings): Promise<void>;
+}
+let _transportOverride: SettingsTransport | null = null;
+
+export function setSettingsTransport(transport: SettingsTransport | null): void {
+  _transportOverride = transport;
+}
+
 /**
  * Fetch settings from the server
  * Falls back to null if server is unreachable (caller should use cache/defaults)
  */
 export async function fetchSettings(): Promise<TerminalSettings | null> {
+  if (_transportOverride) {
+    try {
+      return await _transportOverride.get();
+    } catch (error) {
+      console.warn('[SettingsAPI] Transport failed to fetch settings:', error);
+      return null;
+    }
+  }
   try {
     const response = await fetch(`${baseUrl}/settings`, {
       method: 'GET',
@@ -45,6 +65,7 @@ export async function fetchSettings(): Promise<TerminalSettings | null> {
  * Throws if save fails (caller should handle error)
  */
 export async function saveSettings(settings: TerminalSettings): Promise<void> {
+  if (_transportOverride) return _transportOverride.put(settings);
   const response = await fetch(`${baseUrl}/settings`, {
     method: 'PUT',
     headers: {

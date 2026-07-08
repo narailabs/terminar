@@ -1,81 +1,40 @@
 //! Failure scenario tests for the terminar server
 //!
 //! These tests verify the server's behavior under failure conditions,
-//! including invalid inputs, authentication bypass attempts, and error recovery.
+//! including invalid inputs and error recovery.
 
-use futures::{SinkExt, StreamExt};
 use std::collections::HashMap;
 use std::time::Duration;
-use terminar_server::config::Cli;
 use terminar_server::messages::{ClientMessage, ServerMessage};
-use terminar_server::run_server;
-use tokio::net::TcpListener;
-use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 
-async fn spawn_server_with_auth(
-    name: &str,
-    no_auth: bool,
-) -> (String, tokio::task::JoinHandle<()>) {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let port = listener.local_addr().unwrap().port();
-    drop(listener);
-
-    let cli = Cli {
-        port,
-        socket: Some(format!("/tmp/test-failure-{}-{}.sock", name, port)),
-        log_level: "error".to_string(),
-        no_auth,
-        mock_pty: true,
-        log_json: false,
-        log_file: None,
-        audit_level: "off".to_string(),
-    };
-
-    let socket_path = cli.socket.clone().unwrap();
-    let handle = tokio::spawn(async move {
-        let _ = run_server(cli, &socket_path).await;
-    });
-
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    (format!("ws://127.0.0.1:{}/ws", port), handle)
-}
-
-async fn spawn_test_server(name: &str) -> (String, tokio::task::JoinHandle<()>) {
-    spawn_server_with_auth(name, true).await
-}
+mod common;
+use common::{connect, recv_message, send_message, send_raw_frame, spawn_server};
 
 /// Test that malformed JSON messages are rejected gracefully
 #[tokio::test]
 #[ignore = "Requires server changes to send explicit error responses for edge cases"]
 async fn test_malformed_json_rejection() {
-    let (ws_url, _server) = spawn_test_server("malformed").await;
+    let (socket_path, _server) = spawn_server("fail-malformed").await;
 
-    let (mut socket, _) = connect_async(&ws_url).await.expect("Failed to connect");
+    let mut stream = connect(&socket_path).await;
 
     // Send malformed JSON
-    socket
-        .send(Message::Text("{ invalid json }".to_string()))
-        .await
-        .unwrap();
+    send_raw_frame(&mut stream, b"{ invalid json }").await;
 
     // Server should send an error
     let mut got_error = false;
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(2) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::Error { message, .. }) =
-                serde_json::from_str::<ServerMessage>(&text)
-            {
-                assert!(
-                    message.contains("parse")
-                        || message.contains("JSON")
-                        || message.contains("invalid"),
-                    "Error message should mention parsing: {}",
-                    message
-                );
-                got_error = true;
-                break;
-            }
+        if let Some(ServerMessage::Error { message, .. }) = recv_message(&mut stream).await {
+            assert!(
+                message.contains("parse")
+                    || message.contains("JSON")
+                    || message.contains("invalid"),
+                "Error message should mention parsing: {}",
+                message
+            );
+            got_error = true;
+            break;
         }
     }
     assert!(got_error, "Server should send error for malformed JSON");
@@ -85,25 +44,21 @@ async fn test_malformed_json_rejection() {
 #[tokio::test]
 #[ignore = "Requires server changes to send explicit error responses for edge cases"]
 async fn test_empty_message_handling() {
-    let (ws_url, _server) = spawn_test_server("empty").await;
+    let (socket_path, _server) = spawn_server("fail-empty").await;
 
-    let (mut socket, _) = connect_async(&ws_url).await.expect("Failed to connect");
+    let mut stream = connect(&socket_path).await;
 
-    // Send empty string
-    socket.send(Message::Text("".to_string())).await.unwrap();
+    // Send empty frame
+    send_raw_frame(&mut stream, b"").await;
 
     // Should receive an error or be gracefully ignored
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(1) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            // Either error or session list is acceptable
-            if let Ok(msg) = serde_json::from_str::<ServerMessage>(&text) {
-                match msg {
-                    ServerMessage::Error { .. } => break,       // Expected
-                    ServerMessage::SessionList { .. } => break, // Also acceptable
-                    _ => {}
-                }
-            }
+        match recv_message(&mut stream).await {
+            Some(ServerMessage::Error { .. }) => break, // Expected
+            Some(ServerMessage::SessionList { .. }) => break, // Also acceptable
+            Some(_) => continue,
+            None => break,
         }
     }
     // Test passes if no crash occurred
@@ -113,26 +68,20 @@ async fn test_empty_message_handling() {
 #[tokio::test]
 #[ignore = "Requires server changes to send explicit error responses for edge cases"]
 async fn test_unknown_message_type() {
-    let (ws_url, _server) = spawn_test_server("unknown").await;
+    let (socket_path, _server) = spawn_server("fail-unknown").await;
 
-    let (mut socket, _) = connect_async(&ws_url).await.expect("Failed to connect");
+    let mut stream = connect(&socket_path).await;
 
     // Send message with unknown type
-    let unknown_msg = r#"{"type": "unknown_type", "data": "test"}"#;
-    socket
-        .send(Message::Text(unknown_msg.to_string()))
-        .await
-        .unwrap();
+    send_raw_frame(&mut stream, br#"{"type": "unknown_type", "data": "test"}"#).await;
 
     // Server should send an error
     let mut got_error = false;
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(2) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::Error { .. }) = serde_json::from_str::<ServerMessage>(&text) {
-                got_error = true;
-                break;
-            }
+        if let Some(ServerMessage::Error { .. }) = recv_message(&mut stream).await {
+            got_error = true;
+            break;
         }
     }
     assert!(
@@ -145,38 +94,31 @@ async fn test_unknown_message_type() {
 #[tokio::test]
 #[ignore = "Requires server changes to send explicit error responses for edge cases"]
 async fn test_nonexistent_session_operations() {
-    let (ws_url, _server) = spawn_test_server("nonexistent").await;
+    let (socket_path, _server) = spawn_server("fail-nonexistent").await;
 
-    let (mut socket, _) = connect_async(&ws_url).await.expect("Failed to connect");
+    let mut stream = connect(&socket_path).await;
 
     // Try to attach to non-existent session
     let attach_msg = ClientMessage::Attach {
         session_id: "nonexistent-session-id".to_string(),
         mode: "mirror".to_string(),
     };
-    socket
-        .send(Message::Text(serde_json::to_string(&attach_msg).unwrap()))
-        .await
-        .unwrap();
+    send_message(&mut stream, &attach_msg).await;
 
     // Should receive an error
     let mut got_error = false;
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(2) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::Error { message, .. }) =
-                serde_json::from_str::<ServerMessage>(&text)
-            {
-                assert!(
-                    message.contains("not found")
-                        || message.contains("unknown")
-                        || message.contains("exist"),
-                    "Error should mention session not found: {}",
-                    message
-                );
-                got_error = true;
-                break;
-            }
+        if let Some(ServerMessage::Error { message, .. }) = recv_message(&mut stream).await {
+            assert!(
+                message.contains("not found")
+                    || message.contains("unknown")
+                    || message.contains("exist"),
+                "Error should mention session not found: {}",
+                message
+            );
+            got_error = true;
+            break;
         }
     }
     assert!(got_error, "Server should error on non-existent session");
@@ -186,29 +128,22 @@ async fn test_nonexistent_session_operations() {
 #[tokio::test]
 #[ignore = "Requires server changes to send explicit error responses for edge cases"]
 async fn test_input_to_nonexistent_session() {
-    let (ws_url, _server) = spawn_test_server("input-nonexist").await;
+    let (socket_path, _server) = spawn_server("fail-input-nonexist").await;
 
-    let (mut socket, _) = connect_async(&ws_url).await.expect("Failed to connect");
+    let mut stream = connect(&socket_path).await;
 
-    // Try to send input to non-existent session
     let input_msg = ClientMessage::Input {
         session_id: "fake-session-12345".to_string(),
         data: "some input".to_string(),
     };
-    socket
-        .send(Message::Text(serde_json::to_string(&input_msg).unwrap()))
-        .await
-        .unwrap();
+    send_message(&mut stream, &input_msg).await;
 
-    // Should receive an error
     let mut got_error = false;
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(2) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::Error { .. }) = serde_json::from_str::<ServerMessage>(&text) {
-                got_error = true;
-                break;
-            }
+        if let Some(ServerMessage::Error { .. }) = recv_message(&mut stream).await {
+            got_error = true;
+            break;
         }
     }
     assert!(
@@ -221,28 +156,21 @@ async fn test_input_to_nonexistent_session() {
 #[tokio::test]
 #[ignore = "Requires server changes to send explicit error responses for edge cases"]
 async fn test_kill_nonexistent_session() {
-    let (ws_url, _server) = spawn_test_server("kill-nonexist").await;
+    let (socket_path, _server) = spawn_server("fail-kill-nonexist").await;
 
-    let (mut socket, _) = connect_async(&ws_url).await.expect("Failed to connect");
+    let mut stream = connect(&socket_path).await;
 
-    // Try to kill non-existent session
     let kill_msg = ClientMessage::KillSession {
         session_id: "fake-session-xyz".to_string(),
     };
-    socket
-        .send(Message::Text(serde_json::to_string(&kill_msg).unwrap()))
-        .await
-        .unwrap();
+    send_message(&mut stream, &kill_msg).await;
 
-    // Should receive an error
     let mut got_error = false;
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(2) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::Error { .. }) = serde_json::from_str::<ServerMessage>(&text) {
-                got_error = true;
-                break;
-            }
+        if let Some(ServerMessage::Error { .. }) = recv_message(&mut stream).await {
+            got_error = true;
+            break;
         }
     }
     assert!(
@@ -255,30 +183,23 @@ async fn test_kill_nonexistent_session() {
 #[tokio::test]
 #[ignore = "Requires server changes to send explicit error responses for edge cases"]
 async fn test_resize_nonexistent_session() {
-    let (ws_url, _server) = spawn_test_server("resize-nonexist").await;
+    let (socket_path, _server) = spawn_server("fail-resize-nonexist").await;
 
-    let (mut socket, _) = connect_async(&ws_url).await.expect("Failed to connect");
+    let mut stream = connect(&socket_path).await;
 
-    // Try to resize non-existent session
     let resize_msg = ClientMessage::Resize {
         session_id: "fake-session-abc".to_string(),
         cols: 120,
         rows: 40,
     };
-    socket
-        .send(Message::Text(serde_json::to_string(&resize_msg).unwrap()))
-        .await
-        .unwrap();
+    send_message(&mut stream, &resize_msg).await;
 
-    // Should receive an error
     let mut got_error = false;
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(2) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::Error { .. }) = serde_json::from_str::<ServerMessage>(&text) {
-                got_error = true;
-                break;
-            }
+        if let Some(ServerMessage::Error { .. }) = recv_message(&mut stream).await {
+            got_error = true;
+            break;
         }
     }
     assert!(
@@ -291,38 +212,22 @@ async fn test_resize_nonexistent_session() {
 #[tokio::test]
 #[ignore = "Requires server changes to send explicit error responses for edge cases"]
 async fn test_double_kill_session() {
-    let (ws_url, _server) = spawn_test_server("double-kill").await;
+    let (socket_path, _server) = spawn_server("fail-double-kill").await;
 
-    let (mut socket, _) = connect_async(&ws_url).await.expect("Failed to connect");
+    let mut stream = connect(&socket_path).await;
 
     // Create a session first
-    let create_msg = ClientMessage::CreateSession {
-        cwd: "/".to_string(),
-        shell: "bash".to_string(),
-        env: HashMap::new(),
-        cols: 80,
-        rows: 24,
-        container_id: None,
-        ssh_connection_id: None,
-    };
-    socket
-        .send(Message::Text(serde_json::to_string(&create_msg).unwrap()))
-        .await
-        .unwrap();
+    send_message(&mut stream, &common::create_session_msg()).await;
 
     // Get session ID
     let mut session_id = String::new();
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(2) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::SessionList { sessions }) =
-                serde_json::from_str::<ServerMessage>(&text)
-            {
-                if !sessions.is_empty() {
-                    session_id = sessions[0].id.clone();
-                    break;
-                }
-            }
+        if let Some(ServerMessage::SessionList { sessions }) = recv_message(&mut stream).await
+            && !sessions.is_empty()
+        {
+            session_id = sessions[0].id.clone();
+            break;
         }
     }
     assert!(!session_id.is_empty(), "Failed to create session");
@@ -331,38 +236,26 @@ async fn test_double_kill_session() {
     let kill_msg = ClientMessage::KillSession {
         session_id: session_id.clone(),
     };
-    socket
-        .send(Message::Text(serde_json::to_string(&kill_msg).unwrap()))
-        .await
-        .unwrap();
+    send_message(&mut stream, &kill_msg).await;
 
     // Wait for close confirmation
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(2) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::SessionClosed { .. }) =
-                serde_json::from_str::<ServerMessage>(&text)
-            {
-                break;
-            }
+        if let Some(ServerMessage::SessionClosed { .. }) = recv_message(&mut stream).await {
+            break;
         }
     }
 
     // Kill session second time
-    socket
-        .send(Message::Text(serde_json::to_string(&kill_msg).unwrap()))
-        .await
-        .unwrap();
+    send_message(&mut stream, &kill_msg).await;
 
     // Should receive an error (session no longer exists)
     let mut got_error = false;
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(2) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::Error { .. }) = serde_json::from_str::<ServerMessage>(&text) {
-                got_error = true;
-                break;
-            }
+        if let Some(ServerMessage::Error { .. }) = recv_message(&mut stream).await {
+            got_error = true;
+            break;
         }
     }
     assert!(
@@ -375,38 +268,22 @@ async fn test_double_kill_session() {
 #[tokio::test]
 #[ignore = "Requires server changes to send explicit error responses for edge cases"]
 async fn test_invalid_resize_dimensions() {
-    let (ws_url, _server) = spawn_test_server("invalid-resize").await;
+    let (socket_path, _server) = spawn_server("fail-invalid-resize").await;
 
-    let (mut socket, _) = connect_async(&ws_url).await.expect("Failed to connect");
+    let mut stream = connect(&socket_path).await;
 
     // Create a session first
-    let create_msg = ClientMessage::CreateSession {
-        cwd: "/".to_string(),
-        shell: "bash".to_string(),
-        env: HashMap::new(),
-        cols: 80,
-        rows: 24,
-        container_id: None,
-        ssh_connection_id: None,
-    };
-    socket
-        .send(Message::Text(serde_json::to_string(&create_msg).unwrap()))
-        .await
-        .unwrap();
+    send_message(&mut stream, &common::create_session_msg()).await;
 
     // Get session ID
     let mut session_id = String::new();
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(2) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::SessionList { sessions }) =
-                serde_json::from_str::<ServerMessage>(&text)
-            {
-                if !sessions.is_empty() {
-                    session_id = sessions[0].id.clone();
-                    break;
-                }
-            }
+        if let Some(ServerMessage::SessionList { sessions }) = recv_message(&mut stream).await
+            && !sessions.is_empty()
+        {
+            session_id = sessions[0].id.clone();
+            break;
         }
     }
     assert!(!session_id.is_empty(), "Failed to create session");
@@ -417,30 +294,20 @@ async fn test_invalid_resize_dimensions() {
         cols: 0,
         rows: 0,
     };
-    socket
-        .send(Message::Text(serde_json::to_string(&resize_msg).unwrap()))
-        .await
-        .unwrap();
+    send_message(&mut stream, &resize_msg).await;
 
-    // Server should either error or clamp to minimum
-    // We just verify no crash happens
+    // Server should either error or clamp to minimum; we just verify no crash
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Connection should still be open - verify by sending list_sessions
-    let list_msg = ClientMessage::ListSessions;
-    socket
-        .send(Message::Text(serde_json::to_string(&list_msg).unwrap()))
-        .await
-        .unwrap();
+    send_message(&mut stream, &ClientMessage::ListSessions).await;
 
     let mut got_response = false;
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(2) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if serde_json::from_str::<ServerMessage>(&text).is_ok() {
-                got_response = true;
-                break;
-            }
+        if recv_message(&mut stream).await.is_some() {
+            got_response = true;
+            break;
         }
     }
     assert!(
@@ -453,9 +320,9 @@ async fn test_invalid_resize_dimensions() {
 #[tokio::test]
 #[ignore = "Requires server changes to send explicit error responses for edge cases"]
 async fn test_long_shell_name() {
-    let (ws_url, _server) = spawn_test_server("long-shell").await;
+    let (socket_path, _server) = spawn_server("fail-long-shell").await;
 
-    let (mut socket, _) = connect_async(&ws_url).await.expect("Failed to connect");
+    let mut stream = connect(&socket_path).await;
 
     // Create session with very long shell name
     let long_shell = "x".repeat(10000);
@@ -468,64 +335,48 @@ async fn test_long_shell_name() {
         container_id: None,
         ssh_connection_id: None,
     };
-    socket
-        .send(Message::Text(serde_json::to_string(&create_msg).unwrap()))
-        .await
-        .unwrap();
+    send_message(&mut stream, &create_msg).await;
 
     // Server should handle gracefully (either create or error)
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(2) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::SessionList { .. } | ServerMessage::Error { .. }) =
-                serde_json::from_str::<ServerMessage>(&text)
-            {
-                break;
-            }
+        match recv_message(&mut stream).await {
+            Some(ServerMessage::SessionList { .. }) | Some(ServerMessage::Error { .. }) => break,
+            Some(_) => continue,
+            None => break,
         }
     }
     // Test passes if no crash
 }
 
-/// Test binary message handling (should be rejected)
+/// Test non-UTF8 payload handling (should be ignored, not crash)
 #[tokio::test]
 #[ignore = "Requires server changes to send explicit error responses for edge cases"]
-async fn test_binary_message_rejection() {
-    let (ws_url, _server) = spawn_test_server("binary").await;
+async fn test_non_utf8_payload_rejection() {
+    let (socket_path, _server) = spawn_server("fail-binary").await;
 
-    let (mut socket, _) = connect_async(&ws_url).await.expect("Failed to connect");
+    let mut stream = connect(&socket_path).await;
 
-    // Send binary message
-    socket
-        .send(Message::Binary(vec![0x00, 0x01, 0x02, 0xFF]))
-        .await
-        .unwrap();
+    // Send a frame with invalid UTF-8 bytes
+    send_raw_frame(&mut stream, &[0x00, 0x01, 0x02, 0xFF]).await;
 
-    // Should be ignored or error (not crash)
+    // Should be ignored (not crash)
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Verify server still responds to valid messages
-    let list_msg = ClientMessage::ListSessions;
-    socket
-        .send(Message::Text(serde_json::to_string(&list_msg).unwrap()))
-        .await
-        .unwrap();
+    send_message(&mut stream, &ClientMessage::ListSessions).await;
 
     let mut got_response = false;
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(2) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::SessionList { .. }) =
-                serde_json::from_str::<ServerMessage>(&text)
-            {
-                got_response = true;
-                break;
-            }
+        if let Some(ServerMessage::SessionList { .. }) = recv_message(&mut stream).await {
+            got_response = true;
+            break;
         }
     }
     assert!(
         got_response,
-        "Server should still respond after binary message"
+        "Server should still respond after non-UTF8 payload"
     );
 }
 
@@ -533,36 +384,25 @@ async fn test_binary_message_rejection() {
 #[tokio::test]
 #[ignore = "Requires server changes to send explicit error responses for edge cases"]
 async fn test_rapid_connect_disconnect() {
-    let (ws_url, _server) = spawn_test_server("rapid-conn").await;
+    let (socket_path, _server) = spawn_server("fail-rapid-conn").await;
 
     for _ in 0..10 {
-        if let Ok((socket, _)) = connect_async(&ws_url).await {
-            drop(socket); // Immediately disconnect
-        }
+        let stream = connect(&socket_path).await;
+        drop(stream); // Immediately disconnect
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 
     // Verify server still accepts new connections after rapid connect/disconnect
-    let (mut socket, _) = connect_async(&ws_url)
-        .await
-        .expect("Server should still accept connections");
+    let mut stream = connect(&socket_path).await;
 
-    let list_msg = ClientMessage::ListSessions;
-    socket
-        .send(Message::Text(serde_json::to_string(&list_msg).unwrap()))
-        .await
-        .unwrap();
+    send_message(&mut stream, &ClientMessage::ListSessions).await;
 
     let mut got_response = false;
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(2) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::SessionList { .. }) =
-                serde_json::from_str::<ServerMessage>(&text)
-            {
-                got_response = true;
-                break;
-            }
+        if let Some(ServerMessage::SessionList { .. }) = recv_message(&mut stream).await {
+            got_response = true;
+            break;
         }
     }
     assert!(
@@ -575,26 +415,24 @@ async fn test_rapid_connect_disconnect() {
 #[tokio::test]
 #[ignore = "Requires server changes to send explicit error responses for edge cases"]
 async fn test_missing_required_fields() {
-    let (ws_url, _server) = spawn_test_server("missing-fields").await;
+    let (socket_path, _server) = spawn_server("fail-missing-fields").await;
 
-    let (mut socket, _) = connect_async(&ws_url).await.expect("Failed to connect");
+    let mut stream = connect(&socket_path).await;
 
     // Send create_session without required cwd field
-    let incomplete_msg = r#"{"type": "create_session", "shell": "bash"}"#;
-    socket
-        .send(Message::Text(incomplete_msg.to_string()))
-        .await
-        .unwrap();
+    send_raw_frame(
+        &mut stream,
+        br#"{"type": "create_session", "shell": "bash"}"#,
+    )
+    .await;
 
     // Should receive an error
     let mut got_error = false;
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(2) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::Error { .. }) = serde_json::from_str::<ServerMessage>(&text) {
-                got_error = true;
-                break;
-            }
+        if let Some(ServerMessage::Error { .. }) = recv_message(&mut stream).await {
+            got_error = true;
+            break;
         }
     }
     assert!(got_error, "Server should error on missing required fields");

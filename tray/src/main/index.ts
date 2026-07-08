@@ -1,22 +1,54 @@
 // index.ts — App entry point, lifecycle, and orchestration.
 
 import { app, BrowserWindow, ipcMain, nativeImage, powerMonitor } from 'electron';
+import os from 'os';
 import path from 'path';
 import { ConfigStore } from './ConfigStore.js';
 import { HealthPoller } from './HealthPoller.js';
 import { MultiWindowCoordinator } from './MultiWindowCoordinator.js';
-import { WindowManager } from './WindowManager.js';
+import { WindowManager, markQuitting } from './WindowManager.js';
 import { TrayManager } from './TrayManager.js';
 import { registerIpcHandlers } from './ipc.js';
 import { getAppRoot } from './paths.js';
+import { registerSocketBridgeIpc, socketBridgeManager } from './SocketBridge.js';
 
 // Set app name early — controls Dock tooltip, menu labels, and About panel
 app.name = 'terminar';
 
-// Graceful shutdown on SIGTERM (sent by vite-plugin-electron during HMR).
-// Without this, the process dies immediately and orphans Chromium child
-// processes (GPU, network service), which produce cascading crash errors.
-process.on('SIGTERM', () => app.quit());
+// Graceful shutdown on SIGTERM/SIGINT. SIGTERM is sent by vite-plugin-electron
+// during HMR; SIGINT by Ctrl+C. The log line captures who/when/where so we
+// can diagnose unexpected SIGTERMs (e.g. spontaneous teardown while idle).
+const handleSignal = (sig: 'SIGTERM' | 'SIGINT'): void => {
+  const mu = process.memoryUsage();
+  const fmt = (n: number) => Math.round(n / (1024 * 1024));
+  const stack = (new Error().stack ?? '')
+    .split('\n')
+    .slice(1, 6)
+    .map((s) => s.trim())
+    .join(' | ');
+  console.error('[signal]', {
+    sig,
+    ts: new Date().toISOString(),
+    pid: process.pid,
+    ppid: process.ppid,
+    uptime_s: Math.round(process.uptime()),
+    rss_mb: fmt(mu.rss),
+    heapUsed_mb: fmt(mu.heapUsed),
+    ready: app.isReady(),
+    stack,
+  });
+  markQuitting();
+  app.quit();
+};
+process.on('SIGTERM', () => handleSignal('SIGTERM'));
+process.on('SIGINT', () => handleSignal('SIGINT'));
+// Also flip the quit flag on the canonical Electron quit path (tray menu
+// Quit, app.quit() from anywhere else) so the renderer-crash handler
+// suppresses recovery during normal shutdown too.
+app.on('before-quit', () => markQuitting());
+// Electron doesn't close `net.Socket`s automatically on quit — disconnect
+// every per-window Unix-socket bridge so fds don't leak past process exit.
+app.on('before-quit', () => socketBridgeManager.destroyAll());
 
 // ------------------------------------------------------------------
 // Single instance lock
@@ -53,7 +85,6 @@ void app.whenReady().then(() => {
 
   // Create core instances
   const configStore = new ConfigStore();
-  const config = configStore.load();
   const healthPoller = new HealthPoller();
   windowManager = new WindowManager();
   // Local non-null handle so TypeScript + closures below can use `wm` safely.
@@ -73,14 +104,17 @@ void app.whenReady().then(() => {
     healthPoller,
     wm,
   );
+  registerSocketBridgeIpc();
 
   // Wire health updates to menu rebuild
   healthPoller.setCallback(() => {
     trayManager.updateMenu();
   });
 
-  // Start health polling
-  healthPoller.start(serverPort ?? config.server_port);
+  // Start health polling. The server is Unix-socket-only (no HTTP /health
+  // endpoint to poll) — check PID liveness instead, reading the same PID
+  // file server-manager.js writes.
+  healthPoller.startPidLiveness(path.join(os.homedir(), '.terminar', 'server.pid'));
 
   // Main-process memory + state telemetry.
   // Logs one [mem] line every 60s so multi-day leaks are visible from stdout.

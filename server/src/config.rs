@@ -11,10 +11,6 @@ use clap::Parser;
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
 pub struct Cli {
-    /// Port to listen on for WebSocket connections
-    #[arg(short, long, default_value_t = 6749)]
-    pub port: u16,
-
     /// Path to the Unix Domain Socket
     #[arg(short, long)]
     pub socket: Option<String>,
@@ -22,10 +18,6 @@ pub struct Cli {
     /// Log level (trace, debug, info, warn, error)
     #[arg(short, long, default_value = "info")]
     pub log_level: String,
-
-    /// Disable authentication (DANGEROUS: Development only)
-    #[arg(long, default_value_t = false)]
-    pub no_auth: bool,
 
     /// Use a mock PTY backend for testing
     #[arg(long, default_value_t = false)]
@@ -58,17 +50,8 @@ mod tests {
     fn test_default_config() {
         let args = vec!["server"];
         let cli = Cli::try_parse_from(args).unwrap();
-        assert_eq!(cli.port, 6749);
         assert_eq!(cli.log_level, "info");
-        assert!(!cli.no_auth);
-    }
-
-    #[test]
-    fn test_custom_port_and_auth() {
-        let args = vec!["server", "--port", "8080", "--no-auth"];
-        let cli = Cli::try_parse_from(args).unwrap();
-        assert_eq!(cli.port, 8080);
-        assert!(cli.no_auth);
+        assert!(!cli.mock_pty);
     }
 
     #[test]

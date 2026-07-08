@@ -201,6 +201,53 @@ pub(crate) async fn handle_load_workspace(
     Ok(())
 }
 
+/// Handle GetWorkspaceState message.
+///
+/// Reads the workspace layout (tabs/splits/templates) from the same
+/// `~/.terminar/workspace.json` file the HTTP `GET /workspace` endpoint
+/// reads, so a client can switch from HTTP to this message without losing
+/// a previously saved layout.
+#[instrument(skip(tx_out))]
+pub(crate) async fn handle_get_workspace_state(
+    tx_out: &mpsc::Sender<ServerMessage>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let state = crate::workspace::load_workspace();
+    tx_out
+        .send(ServerMessage::WorkspaceStateData { state })
+        .await?;
+
+    Ok(())
+}
+
+/// Handle PutWorkspaceState message. See `handle_get_workspace_state`.
+#[instrument(skip(state, tx_out))]
+pub(crate) async fn handle_put_workspace_state(
+    state: &crate::workspace::WorkspaceState,
+    tx_out: &mpsc::Sender<ServerMessage>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match crate::workspace::save_workspace(state) {
+        Ok(()) => {
+            tx_out
+                .send(ServerMessage::WorkspaceStateData {
+                    state: state.clone(),
+                })
+                .await?;
+        }
+        Err(e) => {
+            let msg = format!("Failed to save workspace state: {}", e);
+            error!("{}", msg);
+            tx_out
+                .send(ServerMessage::Error {
+                    message: msg,
+                    error_code: Some("INTERNAL_ERROR".to_string()),
+                })
+                .await?;
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

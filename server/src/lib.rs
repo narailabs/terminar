@@ -1,13 +1,12 @@
 //! terminar Server library.
 //!
 //! This crate implements the backend for the terminar terminal application.
-//! It manages terminal sessions via PTY processes, exposes them over Unix sockets
-//! (for local VS Code communication) and HTTP/WebSocket (for web frontends),
+//! It manages terminal sessions via PTY processes, exposes them over a Unix
+//! domain socket (the only transport — this build has no network support),
 //! and supports session persistence, history compression, and graceful shutdown.
 
 pub mod audit;
 pub mod config;
-pub mod connection;
 pub mod constants;
 pub mod cwd_watcher;
 pub mod error;
@@ -35,39 +34,21 @@ use pty::MockPtyProvider;
 use session::SessionMap;
 
 use parking_lot::Mutex; // Non-poisoning mutex - doesn't require unwrap()
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::UnixListener;
 use tokio::sync::{broadcast, mpsc};
-use tracing::{Instrument, error, info, info_span, trace, warn};
-use uuid::Uuid;
+use tracing::{error, info, trace, warn};
 
-use constants::{DEFAULT_CORS_ORIGINS, SHUTDOWN_TIMEOUT_SECS};
+use constants::SHUTDOWN_TIMEOUT_SECS;
 
 // Re-export handler functions used by tests in this module
 #[cfg(test)]
 use handlers::session::{clamp_dimension, filter_env};
 #[cfg(test)]
 use session::SessionState;
-
-use axum::http::{Method, header};
-use axum::{
-    Router,
-    extract::{
-        ConnectInfo, Json, Request, State,
-        ws::{Message, WebSocket, WebSocketUpgrade},
-    },
-    http::StatusCode,
-    middleware::{self, Next},
-    response::IntoResponse,
-    routing::{get, put},
-};
-use futures::{sink::SinkExt, stream::StreamExt};
-use serde::Serialize;
-use std::net::SocketAddr;
-use tower_http::cors::CorsLayer;
 
 // Re-export PTY_READ_BUFFER_SIZE for backward compatibility
 pub use constants::PTY_READ_BUFFER_SIZE;
@@ -186,43 +167,18 @@ fn check_silence(sessions: &SessionMap) {
     }
 }
 
-/// Creates a CORS layer with hardcoded localhost origins for local development
-fn create_cors_layer() -> CorsLayer {
-    info!("Using default CORS origins for localhost");
-    CorsLayer::new()
-        .allow_origin(
-            DEFAULT_CORS_ORIGINS
-                .iter()
-                .map(|s| s.parse().unwrap())
-                .collect::<Vec<_>>(),
-        )
-        .allow_methods([
-            Method::GET,
-            Method::POST,
-            Method::PUT,
-            Method::DELETE,
-            Method::OPTIONS,
-        ])
-        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
-}
-
-/// Shared application state passed to all HTTP/WebSocket handlers.
+/// Shared application state passed to the Unix-socket connection handlers.
 ///
-/// This struct is cloned into each request handler via Axum's `State` extractor.
 /// All mutable fields use `Arc` wrappers for safe concurrent access.
 #[derive(Clone)]
 pub struct AppState {
     /// Map of session ID to active `Session` objects.
     pub sessions: SessionMap,
-    /// API key (UUID) generated on server startup for authenticating clients.
-    pub api_key: String,
-    /// When true, all authentication checks are bypassed. Set via --no-auth.
-    pub no_auth: bool,
     /// Optional mock PTY provider for testing without real terminal processes.
     pub mock_provider: Option<Arc<MockPtyProvider>>,
     /// Broadcast channel for signaling graceful shutdown to all server tasks.
     pub shutdown_tx: broadcast::Sender<()>,
-    /// Server start time, used for uptime calculation in metrics.
+    /// Server start time, used for uptime calculation.
     pub start_time: Instant,
     /// Monotonically increasing counter of total sessions created since server start.
     pub sessions_total: Arc<std::sync::atomic::AtomicU64>,
@@ -230,8 +186,6 @@ pub struct AppState {
     pub messages_processed_total: Arc<std::sync::atomic::AtomicU64>,
     /// Monotonically increasing counter for auto-naming sessions ("Terminal 1", "Terminal 2", etc.).
     pub session_name_counter: Arc<std::sync::atomic::AtomicU64>,
-    /// Set of revoked API key tokens that should be rejected on authentication.
-    pub revoked_tokens: Arc<Mutex<HashSet<String>>>,
     /// Optional audit logger for security event tracking.
     pub audit_logger: Option<Arc<audit::AuditLogger>>,
     /// Broadcast channel for server-originated tool-action events that are
@@ -249,98 +203,11 @@ pub struct AppState {
     pub tool_action_tx: broadcast::Sender<(String, messages::ServerMessage)>,
 }
 
-/// Response body for the `GET /health` endpoint.
-#[derive(Serialize)]
-pub struct HealthResponse {
-    /// Always `"ok"` when the server is running.
-    pub status: String,
-    /// Number of currently active terminal sessions.
-    pub sessions: usize,
-    /// Server version from `Cargo.toml`.
-    pub version: String,
-}
-
-/// Response body for the `GET /metrics` endpoint in Prometheus exposition format.
-#[derive(Serialize)]
-pub struct MetricsResponse {
-    /// Number of currently active terminal sessions.
-    pub sessions_active: usize,
-    /// Total sessions created since server start (monotonically increasing).
-    pub sessions_total_created: u64,
-    /// Total protocol messages processed since server start.
-    pub messages_processed_total: u64,
-    /// Server uptime in seconds.
-    pub uptime_seconds: u64,
-}
-
-/// Validates a WebSocket origin header against the whitelist.
-/// Returns true if the origin is allowed, false otherwise.
-pub fn validate_websocket_origin(origin: Option<&str>, custom_origins: &[String]) -> bool {
-    match origin {
-        None => true,      // No origin header = likely not a browser request, allow
-        Some("") => false, // Empty origin is suspicious, reject
-        Some(origin) => {
-            // Check default origins
-            if DEFAULT_CORS_ORIGINS.contains(&origin) {
-                return true;
-            }
-            // Check custom origins
-            if custom_origins.iter().any(|o| o == origin) {
-                return true;
-            }
-            warn!(
-                "Rejected WebSocket connection from unknown origin: {}",
-                origin
-            );
-            false
-        }
-    }
-}
-
-/// Returns the path to the token file (~/.terminar/token)
-pub fn get_token_file_path() -> std::path::PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    std::path::PathBuf::from(home)
-        .join(".terminar")
-        .join("token")
-}
-
-/// Writes the API token to ~/.terminar/token with secure permissions (0600)
-fn write_token_file(token: &str) -> std::io::Result<()> {
-    use std::io::Write;
-
-    let token_path = get_token_file_path();
-
-    // Create directory if it doesn't exist
-    if let Some(parent) = token_path.parent() {
-        std::fs::create_dir_all(parent)?;
-        // Set directory permissions to 0700 (owner only)
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
-        }
-    }
-
-    // Write token to file
-    let mut file = std::fs::File::create(&token_path)?;
-    file.write_all(token.as_bytes())?;
-
-    // Set file permissions to 0600 (owner read/write only)
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&token_path, std::fs::Permissions::from_mode(0o600))?;
-    }
-
-    Ok(())
-}
-
-/// Starts the terminar server with both HTTP/WebSocket and Unix socket listeners.
+/// Starts the terminar server, listening on a Unix domain socket only.
 ///
 /// This is the main entry point for the server. It initializes logging, loads
-/// persisted sessions, writes the API token file, starts both HTTP and Unix socket
-/// listeners, and waits for SIGTERM/SIGINT for graceful shutdown.
+/// persisted sessions, binds the Unix socket listener, and waits for
+/// SIGTERM/SIGINT for graceful shutdown.
 pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging with CLI-configured options (JSON, file, level)
     // The guard must be held for the lifetime of the server to flush file logs
@@ -350,7 +217,6 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
     info!("Starting terminar Server...");
 
     let sessions: SessionMap = Arc::new(Mutex::new(HashMap::new()));
-    let api_key = Uuid::new_v4().to_string();
 
     // Restore persisted sessions on startup.
     // Create new PTY sessions with the original IDs, names, and cwd
@@ -439,15 +305,6 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
         }
     }
 
-    // Write token to file for automatic client authentication
-    match write_token_file(&api_key) {
-        Ok(()) => info!("Token written to {:?}", get_token_file_path()),
-        Err(e) => warn!(
-            "Failed to write token file: {} (clients will need manual auth)",
-            e
-        ),
-    }
-
     let mock_provider = if cli.mock_pty {
         info!("Using MOCK PTY Provider (Echo Mode)");
         Some(Arc::new(MockPtyProvider))
@@ -465,15 +322,12 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
 
     let mut state = AppState {
         sessions: sessions.clone(),
-        api_key,
-        no_auth: cli.no_auth,
         mock_provider,
         shutdown_tx: shutdown_tx.clone(),
         start_time: Instant::now(),
         sessions_total: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         messages_processed_total: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         session_name_counter: Arc::new(std::sync::atomic::AtomicU64::new(initial_name_counter)),
-        revoked_tokens: Arc::new(Mutex::new(HashSet::new())),
         audit_logger: None, // Will be replaced after async init
         tool_action_tx,
     };
@@ -501,54 +355,8 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
         info!("Audit logging disabled");
     }
 
-    // 1. Start HTTP/WebSocket Server
-    let cors_layer = create_cors_layer();
-
-    let app = Router::new()
-        .route("/ws", get(ws_handler))
-        .route("/health", get(health_handler))
-        .route("/metrics", get(metrics_handler))
-        .route("/settings", get(get_settings_handler))
-        .route("/settings", put(put_settings_handler))
-        .route("/workspace", get(get_workspace_handler))
-        .route("/workspace", put(put_workspace_handler))
-        .route("/themes", get(get_themes_handler))
-        .route("/themes", put(put_themes_handler))
-        .route("/tags", get(get_tags_handler))
-        .route("/tags", put(put_tags_handler))
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            auth_middleware,
-        ))
-        .layer(cors_layer)
-        .with_state(state.clone());
-
-    let addr = format!("0.0.0.0:{}", cli.port);
-    let listener_http = tokio::net::TcpListener::bind(&addr).await?;
-
-    // Create a cancellation token for graceful shutdown
-    let mut server_shutdown_rx = shutdown_tx.subscribe();
-
-    info!("Web Interface listening on http://{}", addr);
-
-    let server_task = tokio::spawn(async move {
-        let server = axum::serve(
-            listener_http,
-            app.into_make_service_with_connect_info::<SocketAddr>(),
-        );
-        tokio::select! {
-            result = server => {
-                if let Err(e) = result {
-                    error!("HTTP server error: {}", e);
-                }
-            }
-            _ = server_shutdown_rx.recv() => {
-                info!("HTTP server received shutdown signal");
-            }
-        }
-    });
-
-    // 2. Start Unix Socket Server
+    // Start the Unix Socket Server (the only listener — this build has no
+    // network/HTTP/WebSocket support).
     let socket_path_owned = socket_path.to_string();
     if std::path::Path::new(socket_path).exists() {
         std::fs::remove_file(socket_path)?;
@@ -687,7 +495,6 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
     let shutdown_timeout = Duration::from_secs(SHUTDOWN_TIMEOUT_SECS);
     let shutdown_result = tokio::time::timeout(shutdown_timeout, async {
         // Abort tasks (they should have received shutdown signal)
-        server_task.abort();
         unix_task.abort();
 
         // Wait a moment for in-flight messages
@@ -740,439 +547,6 @@ pub async fn run_server(cli: Cli, socket_path: &str) -> Result<(), Box<dyn std::
     );
 
     Ok(())
-}
-
-async fn auth_middleware(
-    State(state): State<AppState>,
-    req: Request,
-    next: Next,
-) -> impl IntoResponse {
-    if state.no_auth {
-        return next.run(req).await;
-    }
-
-    // WebSocket path uses message-based auth (first message must be Auth)
-    // Health endpoint is unauthenticated for monitoring/load balancer use
-    // Settings and workspace endpoints are also unauthenticated for local connections (managed by CORS)
-    if req.uri().path() == "/ws"
-        || req.uri().path() == "/health"
-        || req.uri().path() == "/settings"
-        || req.uri().path() == "/workspace"
-    {
-        return next.run(req).await;
-    }
-
-    let auth_header = req
-        .headers()
-        .get("Authorization")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|val| val.strip_prefix("Bearer "));
-
-    let query_token = req.uri().query().and_then(|q| {
-        q.split('&')
-            .filter_map(|pair| {
-                let (key, val) = pair.split_once('=')?;
-                if key == "token" {
-                    Some(val.to_string())
-                } else {
-                    None
-                }
-            })
-            .next()
-    });
-
-    let token = auth_header.map(|s| s.to_string()).or(query_token);
-
-    // Try API key auth (Bearer token or query param)
-    match token {
-        Some(val) if val == state.api_key => {
-            // Check if token has been revoked
-            if state.revoked_tokens.lock().contains(&val) {
-                return (StatusCode::UNAUTHORIZED, "Token has been revoked").into_response();
-            }
-            return next.run(req).await;
-        }
-        _ => {}
-    }
-
-    (StatusCode::UNAUTHORIZED, "Unauthorized").into_response()
-}
-
-async fn health_handler(State(state): State<AppState>) -> impl IntoResponse {
-    let session_count = state.sessions.lock().len();
-    Json(HealthResponse {
-        status: "ok".to_string(),
-        sessions: session_count,
-        version: env!("CARGO_PKG_VERSION").to_string(),
-    })
-}
-
-/// Prometheus-style metrics endpoint
-async fn metrics_handler(State(state): State<AppState>) -> impl IntoResponse {
-    let (sessions_active, broadcast_subscribers, history_bytes_per_session) = {
-        let guard = state.sessions.lock();
-        let active = guard.len();
-        let subscribers: usize = guard.values().map(|s| s.subscriber_count()).sum();
-        let history_bytes: Vec<(String, usize)> = guard
-            .values()
-            .map(|s| {
-                let h = s.history.lock();
-                (s.id.clone(), h.len())
-            })
-            .collect();
-        (active, subscribers, history_bytes)
-    };
-    let sessions_total = state
-        .sessions_total
-        .load(std::sync::atomic::Ordering::Relaxed);
-    let messages_processed = state
-        .messages_processed_total
-        .load(std::sync::atomic::Ordering::Relaxed);
-    let uptime_seconds = state.start_time.elapsed().as_secs();
-
-    // Return in Prometheus exposition format
-    let mut metrics = format!(
-        "# HELP sessions_active Number of currently active terminal sessions\n\
-         # TYPE sessions_active gauge\n\
-         sessions_active {}\n\
-         # HELP sessions_total_created Total number of sessions created since server start\n\
-         # TYPE sessions_total_created counter\n\
-         sessions_total_created {}\n\
-         # HELP messages_processed_total Total number of messages processed since server start\n\
-         # TYPE messages_processed_total counter\n\
-         messages_processed_total {}\n\
-         # HELP uptime_seconds Server uptime in seconds\n\
-         # TYPE uptime_seconds counter\n\
-         uptime_seconds {}\n\
-         # HELP session_broadcast_subscribers Total active broadcast subscribers across all sessions\n\
-         # TYPE session_broadcast_subscribers gauge\n\
-         session_broadcast_subscribers {}\n",
-        sessions_active, sessions_total, messages_processed, uptime_seconds, broadcast_subscribers
-    );
-
-    // Per-session history bytes
-    if !history_bytes_per_session.is_empty() {
-        metrics
-            .push_str("# HELP history_bytes Current history buffer usage in bytes per session\n");
-        metrics.push_str("# TYPE history_bytes gauge\n");
-        for (session_id, bytes) in &history_bytes_per_session {
-            metrics.push_str(&format!(
-                "history_bytes{{session_id=\"{}\"}} {}\n",
-                session_id, bytes
-            ));
-        }
-    }
-
-    (
-        StatusCode::OK,
-        [("content-type", "text/plain; version=0.0.4")],
-        metrics,
-    )
-}
-
-/// GET /settings - Retrieve terminal settings
-async fn get_settings_handler() -> impl IntoResponse {
-    let settings = settings::load_settings();
-    Json(settings)
-}
-
-/// PUT /settings - Update terminal settings
-async fn put_settings_handler(
-    Json(mut settings): Json<settings::TerminalSettings>,
-) -> impl IntoResponse {
-    // Validate and clamp settings
-    settings.validate();
-
-    // Save to disk
-    match settings::save_settings(&settings) {
-        Ok(()) => (StatusCode::OK, Json(settings)).into_response(),
-        Err(e) => {
-            error!("Failed to save settings: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to save settings: {}", e),
-            )
-                .into_response()
-        }
-    }
-}
-
-/// GET /workspace - Retrieve workspace state
-async fn get_workspace_handler() -> impl IntoResponse {
-    let state = workspace::load_workspace();
-    Json(state)
-}
-
-/// PUT /workspace - Update workspace state
-async fn put_workspace_handler(Json(state): Json<workspace::WorkspaceState>) -> impl IntoResponse {
-    // Save to disk
-    match workspace::save_workspace(&state) {
-        Ok(()) => (StatusCode::OK, Json(state)).into_response(),
-        Err(e) => {
-            error!("Failed to save workspace: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to save workspace: {}", e),
-            )
-                .into_response()
-        }
-    }
-}
-
-/// GET /themes - Retrieve theme state (opaque JSON)
-async fn get_themes_handler() -> impl IntoResponse {
-    match themes::load_themes() {
-        Some(value) => Json(value).into_response(),
-        None => StatusCode::NO_CONTENT.into_response(),
-    }
-}
-
-/// PUT /themes - Save theme state (opaque JSON)
-async fn put_themes_handler(Json(value): Json<serde_json::Value>) -> impl IntoResponse {
-    match themes::save_themes(&value) {
-        Ok(()) => StatusCode::OK.into_response(),
-        Err(e) => {
-            error!("Failed to save themes: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to save themes: {}", e),
-            )
-                .into_response()
-        }
-    }
-}
-
-/// GET /tags - Retrieve tag state (opaque JSON)
-async fn get_tags_handler() -> impl IntoResponse {
-    match tags::load_tags() {
-        Some(value) => Json(value).into_response(),
-        None => StatusCode::NO_CONTENT.into_response(),
-    }
-}
-
-/// PUT /tags - Save tag state (opaque JSON)
-async fn put_tags_handler(Json(value): Json<serde_json::Value>) -> impl IntoResponse {
-    match tags::save_tags(&value) {
-        Ok(()) => StatusCode::OK.into_response(),
-        Err(e) => {
-            error!("Failed to save tags: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to save tags: {}", e),
-            )
-                .into_response()
-        }
-    }
-}
-
-async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<AppState>,
-    _headers: axum::http::HeaderMap,
-    connect_info: Option<ConnectInfo<SocketAddr>>,
-) -> impl IntoResponse {
-    // Determine if this is a local connection
-    let is_local = connect_info
-        .map(|ConnectInfo(addr)| addr.ip().is_loopback())
-        .unwrap_or(false);
-
-    if let Some(ConnectInfo(addr)) = connect_info {
-        info!("WebSocket connection from {} (local: {})", addr, is_local);
-    } else {
-        info!("WebSocket connection (no address info)");
-    }
-
-    let connection_id = Uuid::new_v4().to_string();
-    let span = info_span!("websocket", connection_id = %connection_id, is_local = is_local);
-    ws.on_upgrade(move |socket| handle_websocket(socket, state, is_local).instrument(span))
-}
-
-async fn handle_websocket(socket: WebSocket, state: AppState, is_local: bool) {
-    let (mut sender, mut receiver) = socket.split();
-
-    // Phase 1: Authentication
-    // For local-only mode: skip auth for local connections or when --no-auth is set
-    let skip_auth = state.no_auth || is_local;
-    if skip_auth {
-        if is_local {
-            info!("Local connection - skipping authentication");
-        }
-        // Send AuthOk so clients know they're authenticated
-        let ok_msg = ServerMessage::AuthOk {
-            token: state.api_key.clone(),
-            expires: "never".to_string(),
-            protocol_version: Some(constants::PROTOCOL_VERSION.to_string()),
-        };
-        let _ = sender
-            .send(Message::Text(serde_json::to_string(&ok_msg).unwrap()))
-            .await;
-    } else {
-        // Non-local connection with auth enabled: require token auth
-        let auth_timeout = tokio::time::timeout(Duration::from_secs(30), async {
-            while let Some(Ok(msg)) = receiver.next().await {
-                if let Message::Text(text) = msg {
-                    match serde_json::from_str::<ClientMessage>(&text) {
-                        Ok(ClientMessage::Auth { token, .. }) => {
-                            if token == state.api_key {
-                                let ok_msg = ServerMessage::AuthOk {
-                                    token: state.api_key.clone(),
-                                    expires: "never".to_string(),
-                                    protocol_version: Some(constants::PROTOCOL_VERSION.to_string()),
-                                };
-                                let _ = sender
-                                    .send(Message::Text(serde_json::to_string(&ok_msg).unwrap()))
-                                    .await;
-                                return Some(true);
-                            }
-                            let err_msg = ServerMessage::Error {
-                                message: "Authentication failed".to_string(),
-                                error_code: Some("AUTH_FAILED".to_string()),
-                            };
-                            let _ = sender
-                                .send(Message::Text(serde_json::to_string(&err_msg).unwrap()))
-                                .await;
-                            continue;
-                        }
-                        _ => {
-                            let err_msg = ServerMessage::Error {
-                                message: "Authentication required".to_string(),
-                                error_code: Some("AUTH_FAILED".to_string()),
-                            };
-                            let _ = sender
-                                .send(Message::Text(serde_json::to_string(&err_msg).unwrap()))
-                                .await;
-                            continue;
-                        }
-                    }
-                }
-            }
-            None // Connection closed before auth
-        })
-        .await;
-
-        let authenticated = match auth_timeout {
-            Ok(Some(true)) => true,
-            Ok(Some(false)) => {
-                warn!("WebSocket authentication failed");
-                let _ = sender.close().await;
-                return;
-            }
-            Ok(None) | Err(_) => {
-                warn!("WebSocket authentication timeout or connection closed");
-                return;
-            }
-        };
-
-        if !authenticated {
-            return;
-        }
-        info!("WebSocket client authenticated successfully");
-    }
-
-    // Use "local" as client_id for workspace persistence
-    let client_id = "local".to_string();
-
-    // Phase 2: Normal message processing with ping/pong health monitoring
-    let (tx_out, mut rx_out) = mpsc::channel::<ServerMessage>(32);
-    let sessions = state.sessions.clone();
-
-    // Channel for pong notifications from read_task to write_task
-    let (pong_tx, mut pong_rx) = mpsc::channel::<()>(4);
-
-    let mut write_task = tokio::spawn(async move {
-        use crate::connection::{ConnectionHealth, PING_INTERVAL};
-
-        let mut health = ConnectionHealth::new();
-        let mut ping_interval = tokio::time::interval(PING_INTERVAL);
-        // Skip the first tick (don't ping immediately)
-        ping_interval.tick().await;
-
-        loop {
-            tokio::select! {
-                // Send queued messages
-                msg = rx_out.recv() => {
-                    match msg {
-                        Some(msg) => {
-                            if let Ok(json) = serde_json::to_string(&msg)
-                                && sender.send(Message::Text(json)).await.is_err() {
-                                    break;
-                                }
-                        }
-                        None => break, // Channel closed
-                    }
-                }
-                // Send periodic pings
-                _ = ping_interval.tick() => {
-                    let now = Instant::now();
-                    if health.is_stale(now) {
-                        warn!("WebSocket connection stale (no pong received), closing");
-                        let _ = sender.close().await;
-                        break;
-                    }
-                    if health.should_send_ping(now) {
-                        health.record_ping_sent(now);
-                        if sender.send(Message::Ping(vec![])).await.is_err() {
-                            break;
-                        }
-                    }
-                }
-                // Process pong notifications
-                _ = pong_rx.recv() => {
-                    let now = Instant::now();
-                    health.record_pong_received(now);
-                    if let Some(latency) = health.latency() {
-                        tracing::trace!("WebSocket latency: {:?}", latency);
-                    }
-                }
-            }
-        }
-    });
-
-    let mut read_task = tokio::spawn(async move {
-        let mut attach_tasks = handlers::io::AttachTasks::new();
-        while let Some(Ok(msg)) = receiver.next().await {
-            match msg {
-                Message::Text(text) => {
-                    match serde_json::from_str::<ClientMessage>(&text) {
-                        Ok(client_msg) => {
-                            // Skip auth messages after initial auth (already authenticated)
-                            if matches!(client_msg, ClientMessage::Auth { .. }) {
-                                continue;
-                            }
-                            if let Err(e) = process_message(
-                                &client_msg,
-                                &tx_out,
-                                &sessions,
-                                &state,
-                                &mut attach_tasks,
-                                &client_id,
-                            )
-                            .await
-                            {
-                                error!("Process error: {}", e);
-                            }
-                        }
-                        Err(e) => error!("JSON Error: {}", e),
-                    }
-                }
-                Message::Pong(_) => {
-                    // Notify the write task that a pong was received
-                    let _ = pong_tx.send(()).await;
-                }
-                Message::Close(_) => break,
-                _ => {}
-            }
-        }
-        // Abort all attach forwarder tasks when the connection closes
-        for (_, task) in attach_tasks {
-            task.abort();
-        }
-    });
-
-    tokio::select! {
-        _ = (&mut write_task) => read_task.abort(),
-        _ = (&mut read_task) => write_task.abort(),
-    };
 }
 
 /// Handle Unix socket connection using length-prefixed framing.
@@ -1378,6 +752,30 @@ async fn process_message_inner(
         ClientMessage::LoadWorkspace => {
             handlers::workspace::handle_load_workspace(client_id, tx_out).await?;
         }
+        ClientMessage::GetWorkspaceState => {
+            handlers::workspace::handle_get_workspace_state(tx_out).await?;
+        }
+        ClientMessage::PutWorkspaceState { state } => {
+            handlers::workspace::handle_put_workspace_state(state, tx_out).await?;
+        }
+        ClientMessage::GetSettings => {
+            handlers::config::handle_get_settings(tx_out).await?;
+        }
+        ClientMessage::PutSettings { settings } => {
+            handlers::config::handle_put_settings(settings, tx_out).await?;
+        }
+        ClientMessage::GetThemes => {
+            handlers::config::handle_get_themes(tx_out).await?;
+        }
+        ClientMessage::PutThemes { value } => {
+            handlers::config::handle_put_themes(value, tx_out).await?;
+        }
+        ClientMessage::GetTags => {
+            handlers::config::handle_get_tags(tx_out).await?;
+        }
+        ClientMessage::PutTags { value } => {
+            handlers::config::handle_put_tags(value, tx_out).await?;
+        }
         ClientMessage::ListContainers { ssh_connection_id } => {
             handlers::docker::handle_list_containers(ssh_connection_id.as_deref(), tx_out).await?;
         }
@@ -1408,7 +806,6 @@ async fn process_message_inner(
         ClientMessage::ImportSshConfig => {
             handlers::ssh::handle_import_ssh_config(tx_out).await?;
         }
-        _ => {}
     }
     Ok(())
 }
@@ -1423,7 +820,6 @@ mod tests {
 
     fn create_test_state() -> (AppState, mpsc::Receiver<ServerMessage>) {
         let sessions = Arc::new(Mutex::new(HashMap::new()));
-        let api_key = "test-key".to_string();
 
         // Use Mock Pty
         let mock_provider = Some(Arc::new(MockPtyProvider));
@@ -1434,15 +830,12 @@ mod tests {
 
         let state = AppState {
             sessions,
-            api_key,
-            no_auth: true,
             mock_provider,
             shutdown_tx,
             start_time: Instant::now(),
             sessions_total: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             messages_processed_total: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             session_name_counter: Arc::new(std::sync::atomic::AtomicU64::new(1)),
-            revoked_tokens: Arc::new(Mutex::new(HashSet::new())),
             audit_logger: None,
             tool_action_tx,
         };
@@ -2008,94 +1401,6 @@ mod tests {
             rx.try_recv().is_err(),
             "Received duplicate output - old forwarder was not cancelled"
         );
-    }
-
-    use axum::{
-        Router,
-        body::Body,
-        http::{Request, StatusCode},
-        routing::get,
-    };
-    use tower::ServiceExt; // for oneshot/ready
-
-    #[tokio::test]
-    async fn test_auth_middleware_no_auth() {
-        // State with no_auth = true
-        let (state, _) = create_test_state();
-        // create_test_state sets no_auth = true by default.
-
-        let app = Router::new()
-            .route("/", get(|| async { "OK" }))
-            .layer(middleware::from_fn_with_state(
-                state.clone(),
-                auth_middleware,
-            ))
-            .with_state(state);
-
-        let req = Request::builder().uri("/").body(Body::empty()).unwrap();
-        let response = app.oneshot(req).await.unwrap();
-
-        assert_eq!(response.status(), StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn test_auth_middleware_with_auth_success() {
-        let (mut state, _) = create_test_state();
-        state.no_auth = false; // Enable auth
-        state.api_key = "secret".to_string();
-
-        let app = Router::new()
-            .route("/", get(|| async { "OK" }))
-            .layer(middleware::from_fn_with_state(
-                state.clone(),
-                auth_middleware,
-            ))
-            .with_state(state);
-
-        // 1. Query Param
-        let req = Request::builder()
-            .uri("/?token=secret")
-            .body(Body::empty())
-            .unwrap();
-        let response = app.clone().oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-
-        // 2. Header
-        let req = Request::builder()
-            .uri("/")
-            .header("Authorization", "Bearer secret")
-            .body(Body::empty())
-            .unwrap();
-        let response = app.clone().oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn test_auth_middleware_failure() {
-        let (mut state, _) = create_test_state();
-        state.no_auth = false;
-        state.api_key = "secret".to_string();
-
-        let app = Router::new()
-            .route("/", get(|| async { "OK" }))
-            .layer(middleware::from_fn_with_state(
-                state.clone(),
-                auth_middleware,
-            ))
-            .with_state(state);
-
-        // Wrong token
-        let req = Request::builder()
-            .uri("/?token=wrong")
-            .body(Body::empty())
-            .unwrap();
-        let response = app.clone().oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-
-        // No token
-        let req = Request::builder().uri("/").body(Body::empty()).unwrap();
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
@@ -2834,72 +2139,6 @@ mod tests {
         );
     }
 
-    // === Token Revocation (simplified) ===
-
-    #[tokio::test]
-    async fn test_revoked_token_is_rejected() {
-        let (mut state, _) = create_test_state();
-        state.no_auth = false;
-        state.api_key = "valid-token".to_string();
-
-        state
-            .revoked_tokens
-            .lock()
-            .insert("valid-token".to_string());
-
-        let app = Router::new()
-            .route("/", get(|| async { "OK" }))
-            .layer(middleware::from_fn_with_state(
-                state.clone(),
-                auth_middleware,
-            ))
-            .with_state(state);
-
-        let req = Request::builder()
-            .uri("/")
-            .header("Authorization", "Bearer valid-token")
-            .body(Body::empty())
-            .unwrap();
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(
-            response.status(),
-            StatusCode::UNAUTHORIZED,
-            "Revoked token should be rejected"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_non_revoked_token_still_works() {
-        let (mut state, _) = create_test_state();
-        state.no_auth = false;
-        state.api_key = "good-token".to_string();
-
-        state
-            .revoked_tokens
-            .lock()
-            .insert("other-token".to_string());
-
-        let app = Router::new()
-            .route("/", get(|| async { "OK" }))
-            .layer(middleware::from_fn_with_state(
-                state.clone(),
-                auth_middleware,
-            ))
-            .with_state(state);
-
-        let req = Request::builder()
-            .uri("/")
-            .header("Authorization", "Bearer good-token")
-            .body(Body::empty())
-            .unwrap();
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(
-            response.status(),
-            StatusCode::OK,
-            "Non-revoked token should still work"
-        );
-    }
-
     // === Working Directory Validation ===
 
     #[tokio::test]
@@ -3024,43 +2263,6 @@ mod tests {
         }
     }
 
-    // === WebSocket Origin Validation ===
-
-    #[test]
-    fn test_validate_origin_accepts_whitelisted() {
-        assert!(validate_websocket_origin(
-            Some("http://localhost:6749"),
-            &[]
-        ));
-    }
-
-    #[test]
-    fn test_validate_origin_rejects_unknown() {
-        assert!(!validate_websocket_origin(
-            Some("http://evil.example.com"),
-            &[]
-        ));
-    }
-
-    #[test]
-    fn test_validate_origin_accepts_custom_whitelist() {
-        let custom = vec!["http://myapp.example.com".to_string()];
-        assert!(validate_websocket_origin(
-            Some("http://myapp.example.com"),
-            &custom
-        ));
-    }
-
-    #[test]
-    fn test_validate_origin_allows_no_origin_header() {
-        assert!(validate_websocket_origin(None, &[]));
-    }
-
-    #[test]
-    fn test_validate_origin_rejects_empty_origin() {
-        assert!(!validate_websocket_origin(Some(""), &[]));
-    }
-
     // === Enhanced Metrics ===
 
     #[tokio::test]
@@ -3156,51 +2358,6 @@ mod tests {
                 .sessions_total
                 .load(std::sync::atomic::Ordering::Relaxed),
             1,
-        );
-    }
-
-    #[tokio::test]
-    async fn test_metrics_handler_includes_messages_processed() {
-        let (state, _) = create_test_state();
-
-        let (tx, mut rx) = mpsc::channel(32);
-        let mut attach_tasks = handlers::io::AttachTasks::new();
-        process_message(
-            &ClientMessage::ListSessions,
-            &tx,
-            &state.sessions,
-            &state,
-            &mut attach_tasks,
-            "test",
-        )
-        .await
-        .unwrap();
-        let _ = rx.recv().await;
-
-        let app = Router::new()
-            .route("/metrics", get(metrics_handler))
-            .with_state(state);
-
-        let req = Request::builder()
-            .uri("/metrics")
-            .body(Body::empty())
-            .unwrap();
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-
-        let body = axum::body::to_bytes(response.into_body(), 10_000)
-            .await
-            .unwrap();
-        let body_str = String::from_utf8_lossy(&body);
-
-        assert!(
-            body_str.contains("messages_processed_total 1"),
-            "Metrics should include messages_processed_total, got: {}",
-            body_str
-        );
-        assert!(
-            body_str.contains("sessions_active"),
-            "Metrics should include sessions_active"
         );
     }
 

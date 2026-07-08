@@ -149,6 +149,28 @@ function updateState(newState: ThemeState): void {
   newState.activeTerminalThemeId = resolveActiveTerminalThemeId(newState);
   state = newState;
   scheduleSave(newState);
+  notifyResolvedModeIfChanged();
+}
+
+// ── Resolved light/dark change notifications ───────────────────────────────
+// Lets consumers (e.g. terminal panes that emit OSC color-scheme reports) react
+// when the *resolved* appearance flips — including OS changes while in auto mode.
+type ResolvedMode = 'light' | 'dark';
+const resolvedModeListeners = new Set<(mode: ResolvedMode) => void>();
+let lastResolvedMode: ResolvedMode = resolveMode(state.uiMode);
+
+export function onResolvedModeChange(cb: (mode: ResolvedMode) => void): () => void {
+  resolvedModeListeners.add(cb);
+  return () => {
+    resolvedModeListeners.delete(cb);
+  };
+}
+
+function notifyResolvedModeIfChanged(): void {
+  const r = resolveMode(state.uiMode);
+  if (r === lastResolvedMode) return;
+  lastResolvedMode = r;
+  for (const cb of resolvedModeListeners) cb(r);
 }
 
 function resolveActiveTerminalThemeId(s: ThemeState): string {

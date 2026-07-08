@@ -1,7 +1,8 @@
 // types.ts — TypeScript types for the Electron tray app main process.
 
 // TrayConfig is shared between main and renderer — import from shared location
-export type { TrayConfig } from '../shared/types.js';
+import type { TrayConfig } from '../shared/types.js';
+export type { TrayConfig };
 
 export const DEFAULT_CONFIG: TrayConfig = {
   server_port: 6750,

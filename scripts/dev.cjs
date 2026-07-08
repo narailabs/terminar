@@ -48,14 +48,10 @@ const cyan = (s) => `\x1b[36m${s}\x1b[0m`;
 // ------------------------------------------------------------------
 // Parse args
 // ------------------------------------------------------------------
-const rawArgs = process.argv.slice(2).filter((a) => a && !a.startsWith('-'));
-const runTray = rawArgs.includes('tray') || rawArgs.length === 0;
-const runWeb = rawArgs.includes('web');
-
-if (!runTray && !runWeb) {
-  console.error('Usage: node scripts/dev.cjs [tray] [web]');
-  process.exit(1);
-}
+// The server is Unix-socket-only (no network), so the browser-tab web dev
+// server can't reach it — the only UI is the tray app, which mounts the same
+// web/App.svelte with Vite HMR. The `tray` arg is accepted for compatibility.
+const runTray = true;
 
 // ------------------------------------------------------------------
 // cargo build
@@ -120,15 +116,17 @@ async function ensureServer(binaryRebuilt) {
     );
   }
 
-  console.log(cyan('▶ Starting terminar-server (detached, port ' + PORT + ')…'));
+  console.log(cyan('▶ Starting terminar-server (detached, Unix socket only)…'));
   // sm.start() spawns with detached:true + unref() and writes the PID file.
-  // It also ad-hoc codesigns the binary on macOS (required for Sequoia network access).
+  // It also ad-hoc codesigns the binary on macOS.
   const pid = sm.start(DEBUG_BIN, PORT);
 
+  // The server is Unix-socket-only (no HTTP /health endpoint) — wait for the
+  // socket file to appear instead.
   try {
-    await sm.waitForHealth(PORT, 10000);
+    await sm.waitForSocketReady(sm.defaultSocketPath(), 10000);
   } catch (err) {
-    console.error(`\n✗ Server health check failed: ${err.message}`);
+    console.error(`\n✗ Server socket check failed: ${err.message}`);
     console.error(`  Check logs at ~/.terminar/logs/server.log\n`);
     throw err;
   }
@@ -141,9 +139,8 @@ async function ensureServer(binaryRebuilt) {
 // Spawn UI child
 // ------------------------------------------------------------------
 function spawnUi(name) {
-  const script = name === 'tray' ? 'tray:dev' : 'web:dev';
-  console.log(cyan(`▶ Starting ${name} (pnpm ${script})…`));
-  const child = spawn('pnpm', [script], {
+  console.log(cyan(`▶ Starting ${name} (pnpm tray:dev)…`));
+  const child = spawn('pnpm', ['tray:dev'], {
     cwd: REPO_ROOT,
     stdio: 'inherit',
   });
@@ -162,7 +159,6 @@ async function main() {
   const serverPid = await ensureServer(binaryRebuilt);
 
   const children = [];
-  if (runWeb) children.push({ name: 'web', child: spawnUi('web') });
   if (runTray) children.push({ name: 'tray', child: spawnUi('tray') });
 
   let shuttingDown = false;

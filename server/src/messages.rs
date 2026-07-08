@@ -20,14 +20,6 @@ pub use terminar_core::messages::SessionInfo;
 #[serde(rename_all = "snake_case")]
 pub enum ClientMessage {
     // === Core session messages (mirrored from terminar_core) ===
-    /// Authenticate a WebSocket connection. Must be the first message on remote connections.
-    Auth {
-        /// The API token (UUID).
-        token: String,
-        /// Protocol version the client supports (e.g., "0.2.0").
-        #[serde(skip_serializing_if = "Option::is_none")]
-        protocol_version: Option<String>,
-    },
     /// Request the list of all active sessions.
     ListSessions,
     /// Create a new terminal session with a PTY process.
@@ -136,6 +128,35 @@ pub enum ClientMessage {
     SaveWorkspace { workspace: serde_json::Value },
     /// Load previously saved workspace data.
     LoadWorkspace,
+
+    // === Server-specific messages (settings/themes/tags) ===
+    /// Request the current terminal settings.
+    GetSettings,
+    /// Update terminal settings. Values are validated/clamped server-side.
+    PutSettings {
+        settings: crate::settings::TerminalSettings,
+    },
+    /// Request the saved theme state (opaque JSON).
+    GetThemes,
+    /// Save theme state (opaque JSON).
+    PutThemes { value: serde_json::Value },
+    /// Request the saved tag state (opaque JSON).
+    GetTags,
+    /// Save tag state (opaque JSON).
+    PutTags { value: serde_json::Value },
+
+    /// Request the current workspace layout (tabs/splits/templates).
+    ///
+    /// Distinct from `LoadWorkspace`: that message persists opaque, per-client
+    /// JSON to `~/.terminar/workspaces/<client-id>.json` and has no current
+    /// callers. This one reads/writes the same `~/.terminar/workspace.json`
+    /// used by the HTTP `/workspace` endpoint, so switching a client from HTTP
+    /// to this message preserves its previously saved layout.
+    GetWorkspaceState,
+    /// Save the current workspace layout. See `GetWorkspaceState`.
+    PutWorkspaceState {
+        state: crate::workspace::WorkspaceState,
+    },
 }
 
 /// Messages sent from the server to connected clients.
@@ -202,20 +223,24 @@ pub enum ServerMessage {
     /// Result of parsing ~/.ssh/config.
     SshConfigImportResult { hosts: Vec<SshConfigHost> },
 
-    // === Server-specific messages (auth/workspace) ===
-    /// Authentication succeeded. Contains the token and protocol version.
-    AuthOk {
-        token: String,
-        expires: String,
-        /// Protocol version the server supports (e.g., "0.2.0").
-        #[serde(skip_serializing_if = "Option::is_none")]
-        protocol_version: Option<String>,
-    },
+    // === Server-specific messages (workspace) ===
     /// Server is shutting down gracefully. Clients should reconnect later.
     Shutdown { reason: String },
     /// Response to LoadWorkspace with saved workspace data.
     WorkspaceData {
         workspace: Option<serde_json::Value>,
+    },
+    /// Response to GetSettings/PutSettings with the current settings.
+    SettingsData {
+        settings: crate::settings::TerminalSettings,
+    },
+    /// Response to GetThemes/PutThemes with the saved theme state.
+    ThemesData { value: Option<serde_json::Value> },
+    /// Response to GetTags/PutTags with the saved tag state.
+    TagsData { value: Option<serde_json::Value> },
+    /// Response to GetWorkspaceState/PutWorkspaceState with the workspace layout.
+    WorkspaceStateData {
+        state: crate::workspace::WorkspaceState,
     },
 }
 
@@ -260,22 +285,6 @@ pub struct SshConfigHost {
 mod tests {
 
     use super::*;
-
-    #[test]
-    fn test_client_message_auth() {
-        let msg = ClientMessage::Auth {
-            token: "abc".into(),
-            protocol_version: None,
-        };
-        let json = serde_json::to_string(&msg).unwrap();
-        assert_eq!(json, r#"{"type":"auth","token":"abc"}"#);
-
-        let deserialized: ClientMessage = serde_json::from_str(&json).unwrap();
-        match deserialized {
-            ClientMessage::Auth { token, .. } => assert_eq!(token, "abc"),
-            _ => panic!("Wrong type"),
-        }
-    }
 
     #[test]
     fn test_client_message_list_sessions() {
@@ -356,17 +365,6 @@ mod tests {
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert_eq!(json, r#"{"type":"Error","message":"err"}"#);
-    }
-
-    #[test]
-    fn test_server_message_auth_ok() {
-        let msg = ServerMessage::AuthOk {
-            token: "tok".into(),
-            expires: "900s".into(),
-            protocol_version: None,
-        };
-        let json = serde_json::to_string(&msg).unwrap();
-        assert!(json.contains(r#""type":"AuthOk""#));
     }
 
     #[test]

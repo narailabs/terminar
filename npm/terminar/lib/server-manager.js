@@ -1,9 +1,9 @@
 'use strict';
 
 const fs = require('fs');
+const net = require('net');
 const path = require('path');
 const { spawn, execFileSync } = require('child_process');
-const http = require('http');
 const os = require('os');
 
 const TERMINAR_DIR = path.join(os.homedir(), '.terminar');
@@ -11,6 +11,10 @@ const LOGS_DIR = path.join(TERMINAR_DIR, 'logs');
 const PID_FILE = path.join(TERMINAR_DIR, 'server.pid');
 const LOG_FILE = path.join(LOGS_DIR, 'server.log');
 const DEFAULT_PORT = 6750;
+
+function defaultSocketPath() {
+  return `/tmp/vscode-terminar-${os.userInfo().uid}.sock`;
+}
 
 function ensureDirs() {
   fs.mkdirSync(LOGS_DIR, { recursive: true });
@@ -67,7 +71,8 @@ function start(serverBinaryPath, port) {
 
   const logFd = fs.openSync(LOG_FILE, 'a');
 
-  const child = spawn(serverBinaryPath, ['--no-auth', '--port', String(port)], {
+  // The server is Unix-socket-only (no network); pass just the socket path.
+  const child = spawn(serverBinaryPath, ['--socket', defaultSocketPath()], {
     detached: true,
     stdio: ['ignore', logFd, logFd],
   });
@@ -150,36 +155,31 @@ function logs() {
   }
 }
 
-function waitForHealth(port, timeoutMs) {
-  port = port || DEFAULT_PORT;
+// The server is Unix-socket-only (no HTTP /health endpoint). Readiness means
+// something is actually accepting on the socket — not merely that the path
+// exists. A crashed server can leave a stale socket file behind, and a fresh
+// server unlinks+rebinds on startup, so `fs.existsSync` can return a false
+// positive for a dead socket. Probe with an actual connection instead.
+function waitForSocketReady(socketPath, timeoutMs) {
   timeoutMs = timeoutMs || 5000;
 
   return new Promise((resolve, reject) => {
     const startTime = Date.now();
 
     function check() {
-      const req = http.get(`http://127.0.0.1:${port}/health`, (res) => {
-        res.resume();
-        if (res.statusCode === 200) {
-          resolve(true);
-        } else {
-          retry();
+      const probe = net.createConnection(socketPath);
+      probe.once('connect', () => {
+        probe.destroy();
+        resolve(true);
+      });
+      probe.once('error', () => {
+        probe.destroy();
+        if (Date.now() - startTime > timeoutMs) {
+          reject(new Error('Server socket did not become ready in time'));
+          return;
         }
+        setTimeout(check, 250);
       });
-
-      req.on('error', retry);
-      req.setTimeout(1000, () => {
-        req.destroy();
-        retry();
-      });
-    }
-
-    function retry() {
-      if (Date.now() - startTime > timeoutMs) {
-        reject(new Error('Server health check timed out'));
-        return;
-      }
-      setTimeout(check, 250);
     }
 
     check();
@@ -192,8 +192,9 @@ module.exports = {
   restart,
   status,
   logs,
-  waitForHealth,
+  waitForSocketReady,
   getRunningPid,
+  defaultSocketPath,
   DEFAULT_PORT,
   PID_FILE,
   LOG_FILE,

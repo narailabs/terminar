@@ -5,49 +5,16 @@
 //!
 //! Run with: cargo test --test test_pty_failures -- --ignored
 
-use futures::{SinkExt, StreamExt};
 use std::collections::HashMap;
 use std::time::Duration;
-use terminar_server::config::Cli;
 use terminar_server::messages::{ClientMessage, ServerMessage};
-use terminar_server::run_server;
-use tokio::net::TcpListener;
-use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
+use tokio::net::UnixStream;
 
-async fn spawn_pty_test_server(name: &str) -> (String, tokio::task::JoinHandle<()>) {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let port = listener.local_addr().unwrap().port();
-    drop(listener);
+mod common;
+use common::{connect, recv_message, send_message, spawn_server};
 
-    let cli = Cli {
-        port,
-        socket: Some(format!("/tmp/test-pty-{}-{}.sock", name, port)),
-        log_level: "error".to_string(),
-        no_auth: true,
-        mock_pty: true,
-        log_json: false,
-        log_file: None,
-        audit_level: "off".to_string(),
-    };
-
-    let socket_path = cli.socket.clone().unwrap();
-    let handle = tokio::spawn(async move {
-        let _ = run_server(cli, &socket_path).await;
-    });
-
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    (format!("ws://127.0.0.1:{}/ws", port), handle)
-}
-
-/// Helper: create a session and return its ID
-async fn create_session_and_get_id(
-    socket: &mut (
-             impl SinkExt<Message, Error = tokio_tungstenite::tungstenite::Error>
-             + StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>>
-             + Unpin
-         ),
-    shell: &str,
-) -> String {
+/// Helper: create a session and return its ID (empty string if creation was rejected)
+async fn create_session_and_get_id(stream: &mut UnixStream, shell: &str) -> String {
     let create_msg = ClientMessage::CreateSession {
         cwd: "/".to_string(),
         shell: shell.to_string(),
@@ -57,30 +24,21 @@ async fn create_session_and_get_id(
         container_id: None,
         ssh_connection_id: None,
     };
-    socket
-        .send(Message::Text(serde_json::to_string(&create_msg).unwrap()))
-        .await
-        .unwrap();
+    send_message(stream, &create_msg).await;
 
-    let mut session_id = String::new();
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(3) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::SessionList { sessions }) =
-                serde_json::from_str::<ServerMessage>(&text)
-            {
-                if !sessions.is_empty() {
-                    session_id = sessions[0].id.clone();
-                    break;
-                }
+        match recv_message(stream).await {
+            Some(ServerMessage::SessionList { sessions }) if !sessions.is_empty() => {
+                return sessions[0].id.clone();
             }
             // If we get an Error about shell whitelist, that's also valid
-            if let Ok(ServerMessage::Error { .. }) = serde_json::from_str::<ServerMessage>(&text) {
-                return String::new(); // Signal that creation was rejected
-            }
+            Some(ServerMessage::Error { .. }) => return String::new(),
+            Some(_) => continue,
+            None => break,
         }
     }
-    session_id
+    String::new()
 }
 
 /// Test that attempting to create a session with a non-existent shell
@@ -88,9 +46,9 @@ async fn create_session_and_get_id(
 #[tokio::test]
 #[ignore = "Integration test - requires server startup"]
 async fn test_invalid_shell_path_returns_error() {
-    let (ws_url, _server) = spawn_pty_test_server("bad-shell").await;
+    let (socket_path, _server) = spawn_server("pty-bad-shell").await;
 
-    let (mut socket, _) = connect_async(&ws_url).await.expect("Failed to connect");
+    let mut stream = connect(&socket_path).await;
 
     // Try to create a session with a non-whitelisted shell
     let create_msg = ClientMessage::CreateSession {
@@ -102,27 +60,20 @@ async fn test_invalid_shell_path_returns_error() {
         container_id: None,
         ssh_connection_id: None,
     };
-    socket
-        .send(Message::Text(serde_json::to_string(&create_msg).unwrap()))
-        .await
-        .unwrap();
+    send_message(&mut stream, &create_msg).await;
 
     // Should receive an error about shell whitelist
     let mut got_error = false;
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(3) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::Error { message, .. }) =
-                serde_json::from_str::<ServerMessage>(&text)
-            {
-                assert!(
-                    message.contains("whitelist") || message.contains("not allowed"),
-                    "Error should mention whitelist: {}",
-                    message
-                );
-                got_error = true;
-                break;
-            }
+        if let Some(ServerMessage::Error { message, .. }) = recv_message(&mut stream).await {
+            assert!(
+                message.contains("whitelist") || message.contains("not allowed"),
+                "Error should mention whitelist: {}",
+                message
+            );
+            got_error = true;
+            break;
         }
     }
     assert!(
@@ -131,22 +82,13 @@ async fn test_invalid_shell_path_returns_error() {
     );
 
     // Verify server is still functional
-    socket
-        .send(Message::Text(
-            serde_json::to_string(&ClientMessage::ListSessions).unwrap(),
-        ))
-        .await
-        .unwrap();
+    send_message(&mut stream, &ClientMessage::ListSessions).await;
     let mut got_list = false;
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(2) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::SessionList { .. }) =
-                serde_json::from_str::<ServerMessage>(&text)
-            {
-                got_list = true;
-                break;
-            }
+        if let Some(ServerMessage::SessionList { .. }) = recv_message(&mut stream).await {
+            got_list = true;
+            break;
         }
     }
     assert!(
@@ -159,9 +101,9 @@ async fn test_invalid_shell_path_returns_error() {
 #[tokio::test]
 #[ignore = "Integration test - requires server startup"]
 async fn test_shell_path_traversal_rejected() {
-    let (ws_url, _server) = spawn_pty_test_server("shell-traversal").await;
+    let (socket_path, _server) = spawn_server("pty-shell-traversal").await;
 
-    let (mut socket, _) = connect_async(&ws_url).await.expect("Failed to connect");
+    let mut stream = connect(&socket_path).await;
 
     let create_msg = ClientMessage::CreateSession {
         cwd: "/".to_string(),
@@ -172,26 +114,19 @@ async fn test_shell_path_traversal_rejected() {
         container_id: None,
         ssh_connection_id: None,
     };
-    socket
-        .send(Message::Text(serde_json::to_string(&create_msg).unwrap()))
-        .await
-        .unwrap();
+    send_message(&mut stream, &create_msg).await;
 
     let mut got_error = false;
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(3) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::Error { message, .. }) =
-                serde_json::from_str::<ServerMessage>(&text)
-            {
-                assert!(
-                    message.contains("path traversal") || message.contains("not allowed"),
-                    "Error should mention path traversal: {}",
-                    message
-                );
-                got_error = true;
-                break;
-            }
+        if let Some(ServerMessage::Error { message, .. }) = recv_message(&mut stream).await {
+            assert!(
+                message.contains("path traversal") || message.contains("not allowed"),
+                "Error should mention path traversal: {}",
+                message
+            );
+            got_error = true;
+            break;
         }
     }
     assert!(
@@ -204,9 +139,9 @@ async fn test_shell_path_traversal_rejected() {
 #[tokio::test]
 #[ignore = "Integration test - requires server startup"]
 async fn test_relative_shell_path_rejected() {
-    let (ws_url, _server) = spawn_pty_test_server("relative-shell").await;
+    let (socket_path, _server) = spawn_server("pty-relative-shell").await;
 
-    let (mut socket, _) = connect_async(&ws_url).await.expect("Failed to connect");
+    let mut stream = connect(&socket_path).await;
 
     let create_msg = ClientMessage::CreateSession {
         cwd: "/".to_string(),
@@ -217,28 +152,21 @@ async fn test_relative_shell_path_rejected() {
         container_id: None,
         ssh_connection_id: None,
     };
-    socket
-        .send(Message::Text(serde_json::to_string(&create_msg).unwrap()))
-        .await
-        .unwrap();
+    send_message(&mut stream, &create_msg).await;
 
     let mut got_error = false;
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(3) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::Error { message, .. }) =
-                serde_json::from_str::<ServerMessage>(&text)
-            {
-                assert!(
-                    message.contains("absolute path")
-                        || message.contains("not allowed")
-                        || message.contains("whitelist"),
-                    "Error should mention absolute path requirement: {}",
-                    message
-                );
-                got_error = true;
-                break;
-            }
+        if let Some(ServerMessage::Error { message, .. }) = recv_message(&mut stream).await {
+            assert!(
+                message.contains("absolute path")
+                    || message.contains("not allowed")
+                    || message.contains("whitelist"),
+                "Error should mention absolute path requirement: {}",
+                message
+            );
+            got_error = true;
+            break;
         }
     }
     assert!(got_error, "Server should reject relative shell paths");
@@ -248,9 +176,9 @@ async fn test_relative_shell_path_rejected() {
 #[tokio::test]
 #[ignore = "Integration test - requires server startup"]
 async fn test_invalid_cwd_returns_error() {
-    let (ws_url, _server) = spawn_pty_test_server("bad-cwd").await;
+    let (socket_path, _server) = spawn_server("pty-bad-cwd").await;
 
-    let (mut socket, _) = connect_async(&ws_url).await.expect("Failed to connect");
+    let mut stream = connect(&socket_path).await;
 
     let create_msg = ClientMessage::CreateSession {
         cwd: "/nonexistent/path/that/does/not/exist".to_string(),
@@ -261,26 +189,19 @@ async fn test_invalid_cwd_returns_error() {
         container_id: None,
         ssh_connection_id: None,
     };
-    socket
-        .send(Message::Text(serde_json::to_string(&create_msg).unwrap()))
-        .await
-        .unwrap();
+    send_message(&mut stream, &create_msg).await;
 
     let mut got_error = false;
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(3) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::Error { message, .. }) =
-                serde_json::from_str::<ServerMessage>(&text)
-            {
-                assert!(
-                    message.contains("does not exist") || message.contains("not found"),
-                    "Error should mention non-existent path: {}",
-                    message
-                );
-                got_error = true;
-                break;
-            }
+        if let Some(ServerMessage::Error { message, .. }) = recv_message(&mut stream).await {
+            assert!(
+                message.contains("does not exist") || message.contains("not found"),
+                "Error should mention non-existent path: {}",
+                message
+            );
+            got_error = true;
+            break;
         }
     }
     assert!(got_error, "Server should return error for non-existent cwd");
@@ -291,58 +212,44 @@ async fn test_invalid_cwd_returns_error() {
 #[tokio::test]
 #[ignore = "Integration test - requires server startup"]
 async fn test_session_state_transitions_on_kill() {
-    let (ws_url, _server) = spawn_pty_test_server("state-kill").await;
+    let (socket_path, _server) = spawn_server("pty-state-kill").await;
 
-    let (mut socket, _) = connect_async(&ws_url).await.expect("Failed to connect");
+    let mut stream = connect(&socket_path).await;
 
     // Create session
-    let session_id = create_session_and_get_id(&mut socket, "/bin/bash").await;
+    let session_id = create_session_and_get_id(&mut stream, "/bin/bash").await;
     assert!(!session_id.is_empty(), "Should create session successfully");
 
     // Kill session
     let kill_msg = ClientMessage::KillSession {
         session_id: session_id.clone(),
     };
-    socket
-        .send(Message::Text(serde_json::to_string(&kill_msg).unwrap()))
-        .await
-        .unwrap();
+    send_message(&mut stream, &kill_msg).await;
 
     // Wait for SessionClosed
     let mut got_closed = false;
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(3) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::SessionClosed {
-                session_id: closed_id,
-            }) = serde_json::from_str::<ServerMessage>(&text)
-            {
-                assert_eq!(closed_id, session_id);
-                got_closed = true;
-                break;
-            }
+        if let Some(ServerMessage::SessionClosed {
+            session_id: closed_id,
+        }) = recv_message(&mut stream).await
+        {
+            assert_eq!(closed_id, session_id);
+            got_closed = true;
+            break;
         }
     }
     assert!(got_closed, "Should receive SessionClosed");
 
     // Verify session no longer in list
-    socket
-        .send(Message::Text(
-            serde_json::to_string(&ClientMessage::ListSessions).unwrap(),
-        ))
-        .await
-        .unwrap();
+    send_message(&mut stream, &ClientMessage::ListSessions).await;
 
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(2) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::SessionList { sessions }) =
-                serde_json::from_str::<ServerMessage>(&text)
-            {
-                let found = sessions.iter().any(|s| s.id == session_id);
-                assert!(!found, "Killed session should not appear in session list");
-                break;
-            }
+        if let Some(ServerMessage::SessionList { sessions }) = recv_message(&mut stream).await {
+            let found = sessions.iter().any(|s| s.id == session_id);
+            assert!(!found, "Killed session should not appear in session list");
+            break;
         }
     }
 }
@@ -351,31 +258,24 @@ async fn test_session_state_transitions_on_kill() {
 #[tokio::test]
 #[ignore = "Integration test - requires server startup"]
 async fn test_input_to_killed_session_errors() {
-    let (ws_url, _server) = spawn_pty_test_server("input-killed").await;
+    let (socket_path, _server) = spawn_server("pty-input-killed").await;
 
-    let (mut socket, _) = connect_async(&ws_url).await.expect("Failed to connect");
+    let mut stream = connect(&socket_path).await;
 
     // Create and kill session
-    let session_id = create_session_and_get_id(&mut socket, "/bin/bash").await;
+    let session_id = create_session_and_get_id(&mut stream, "/bin/bash").await;
     assert!(!session_id.is_empty());
 
     let kill_msg = ClientMessage::KillSession {
         session_id: session_id.clone(),
     };
-    socket
-        .send(Message::Text(serde_json::to_string(&kill_msg).unwrap()))
-        .await
-        .unwrap();
+    send_message(&mut stream, &kill_msg).await;
 
     // Wait for close confirmation
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(2) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::SessionClosed { .. }) =
-                serde_json::from_str::<ServerMessage>(&text)
-            {
-                break;
-            }
+        if let Some(ServerMessage::SessionClosed { .. }) = recv_message(&mut stream).await {
+            break;
         }
     }
 
@@ -384,42 +284,28 @@ async fn test_input_to_killed_session_errors() {
         session_id: session_id.clone(),
         data: "should fail".to_string(),
     };
-    socket
-        .send(Message::Text(serde_json::to_string(&input_msg).unwrap()))
-        .await
-        .unwrap();
+    send_message(&mut stream, &input_msg).await;
 
     // Should receive an error
     let mut got_error = false;
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(2) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(ServerMessage::Error { .. }) = serde_json::from_str::<ServerMessage>(&text) {
-                got_error = true;
-                break;
-            }
+        if let Some(ServerMessage::Error { .. }) = recv_message(&mut stream).await {
+            got_error = true;
+            break;
         }
     }
     // Note: The server may silently ignore or error, both are acceptable
     // The key requirement is that it does not crash
     if !got_error {
         // Verify server is still responsive
-        socket
-            .send(Message::Text(
-                serde_json::to_string(&ClientMessage::ListSessions).unwrap(),
-            ))
-            .await
-            .unwrap();
+        send_message(&mut stream, &ClientMessage::ListSessions).await;
         let mut got_list = false;
         let start = std::time::Instant::now();
         while start.elapsed() < Duration::from_secs(2) {
-            if let Some(Ok(Message::Text(text))) = socket.next().await {
-                if let Ok(ServerMessage::SessionList { .. }) =
-                    serde_json::from_str::<ServerMessage>(&text)
-                {
-                    got_list = true;
-                    break;
-                }
+            if let Some(ServerMessage::SessionList { .. }) = recv_message(&mut stream).await {
+                got_list = true;
+                break;
             }
         }
         assert!(
@@ -433,9 +319,9 @@ async fn test_input_to_killed_session_errors() {
 #[tokio::test]
 #[ignore = "Integration test - requires server startup"]
 async fn test_dangerous_env_vars_filtered() {
-    let (ws_url, _server) = spawn_pty_test_server("env-filter").await;
+    let (socket_path, _server) = spawn_server("pty-env-filter").await;
 
-    let (mut socket, _) = connect_async(&ws_url).await.expect("Failed to connect");
+    let mut stream = connect(&socket_path).await;
 
     let mut env = HashMap::new();
     env.insert("LD_PRELOAD".to_string(), "/tmp/malicious.so".to_string());
@@ -454,29 +340,20 @@ async fn test_dangerous_env_vars_filtered() {
         container_id: None,
         ssh_connection_id: None,
     };
-    socket
-        .send(Message::Text(serde_json::to_string(&create_msg).unwrap()))
-        .await
-        .unwrap();
+    send_message(&mut stream, &create_msg).await;
 
     // Server should create session (filtering env silently) or reject
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(3) {
-        if let Some(Ok(Message::Text(text))) = socket.next().await {
-            if let Ok(msg) = serde_json::from_str::<ServerMessage>(&text) {
-                match msg {
-                    ServerMessage::SessionList { sessions } => {
-                        // Session created successfully with dangerous vars filtered
-                        assert!(!sessions.is_empty());
-                        break;
-                    }
-                    ServerMessage::Error { .. } => {
-                        // Error is also acceptable
-                        break;
-                    }
-                    _ => {}
-                }
+        match recv_message(&mut stream).await {
+            Some(ServerMessage::SessionList { sessions }) => {
+                // Session created successfully with dangerous vars filtered
+                assert!(!sessions.is_empty());
+                break;
             }
+            Some(ServerMessage::Error { .. }) => break, // Error is also acceptable
+            Some(_) => continue,
+            None => break,
         }
     }
     // Test passes if no crash
